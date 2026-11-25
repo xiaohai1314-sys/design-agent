@@ -94,7 +94,11 @@ const api: ZmoBridgeApi = {
   },
   files: {
     listWorkspace: (dirPath) => ipcRenderer.invoke(IPC_CHANNELS.FilesListWorkspace, dirPath),
+    listLibrary: () => ipcRenderer.invoke(IPC_CHANNELS.FilesListLibrary),
+    addLibraryFolder: (folderPath) => ipcRenderer.invoke(IPC_CHANNELS.FilesAddLibraryFolder, folderPath),
+    removeLibraryFolder: (folderPath) => ipcRenderer.invoke(IPC_CHANNELS.FilesRemoveLibraryFolder, folderPath),
     readPreview: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FilesReadPreview, filePath),
+    readThumb: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FilesReadThumb, filePath),
     readBytes: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FilesReadBytes, filePath),
     saveText: (filePath, content, rootDir) =>
       ipcRenderer.invoke(IPC_CHANNELS.FilesSaveText, { filePath, content, rootDir }),

@@ -363,6 +363,54 @@ function registerIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle(IPC_CHANNELS.FilesListLibrary, () => store.scanLocalLibrary())
+
+  ipcMain.handle(IPC_CHANNELS.FilesAddLibraryFolder, (_e, folderPath: string) =>
+    store.addLibraryFolder(folderPath)
+  )
+
+  ipcMain.handle(IPC_CHANNELS.FilesRemoveLibraryFolder, (_e, folderPath: string) =>
+    store.removeLibraryFolder(folderPath)
+  )
+
+  ipcMain.handle(IPC_CHANNELS.FilesReadThumb, (_e, filePath: string) => {
+    try {
+      if (!filePath || !existsSync(filePath)) return { ok: false, error: '文件不存在' }
+      const st = statSync(filePath)
+      const ext = extname(filePath).toLowerCase()
+      if (ext === '.svg' && st.size <= 2 * 1024 * 1024) {
+        const b64 = readFileSync(filePath).toString('base64')
+        return { ok: true, dataUrl: `data:image/svg+xml;base64,${b64}` }
+      }
+      const img = nativeImage.createFromPath(filePath)
+      if (!img.isEmpty()) {
+        const { width } = img.getSize()
+        const resized = width > 480 ? img.resize({ width: 480, quality: 'good' }) : img
+        if (ext === '.png' || ext === '.webp' || ext === '.gif') {
+          return { ok: true, dataUrl: `data:image/png;base64,${resized.toPNG().toString('base64')}` }
+        }
+        return { ok: true, dataUrl: `data:image/jpeg;base64,${resized.toJPEG(82).toString('base64')}` }
+      }
+      const fallbackMimes: Record<string, string> = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.webp': 'image/webp',
+        '.gif': 'image/gif',
+        '.bmp': 'image/bmp'
+      }
+      if (fallbackMimes[ext] && st.size <= 20 * 1024 * 1024) {
+        return {
+          ok: true,
+          dataUrl: `data:${fallbackMimes[ext]};base64,${readFileSync(filePath).toString('base64')}`
+        }
+      }
+      return { ok: false, error: '不支持缩略图解码' }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
   ipcMain.handle(IPC_CHANNELS.FilesReadPreview, (_e, filePath: string) => {
     if (!existsSync(filePath)) throw new Error('文件不存在')
     const st = statSync(filePath)

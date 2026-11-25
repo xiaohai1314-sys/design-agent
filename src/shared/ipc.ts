@@ -81,7 +81,11 @@ export const IPC_CHANNELS = {
   ModelPreviewPrepare: 'model-preview:prepare',
 
   FilesListWorkspace: 'files:list-workspace',
+  FilesListLibrary: 'files:list-library',
+  FilesAddLibraryFolder: 'files:add-library-folder',
+  FilesRemoveLibraryFolder: 'files:remove-library-folder',
   FilesReadPreview: 'files:read-preview',
+  FilesReadThumb: 'files:read-thumb',
   FilesReadBytes: 'files:read-bytes',
   FilesSaveText: 'files:save-text',
   FilesSaveAs: 'files:save-as',
@@ -118,6 +122,21 @@ export interface RecentFileEntry {
   kind: 'image' | 'file'
   size?: number
   lastUsedAt: number
+}
+
+export interface LocalLibraryEntry {
+  path: string
+  name: string
+  group: 'image' | 'cad3d' | 'doc'
+  sourceLabel: 'AI 交付成果' | '近期使用文件' | '工作区成果'
+  size: number
+  updatedAt: number
+}
+
+export interface LocalLibrarySnapshot {
+  items: LocalLibraryEntry[]
+  folders: string[]
+  defaultWorkspaceRoot: string
 }
 
 export interface AppGeneralSettings {
@@ -416,12 +435,16 @@ export interface ZmoBridgeApi {
   }
   files: {
     listWorkspace: (dirPath: string) => Promise<WorkspaceEntry[]>
+    listLibrary: () => Promise<LocalLibrarySnapshot>
+    addLibraryFolder: (folderPath: string) => Promise<LocalLibrarySnapshot>
+    removeLibraryFolder: (folderPath: string) => Promise<LocalLibrarySnapshot>
     readPreview: (filePath: string) => Promise<{
       kind: 'text' | 'image' | 'binary'
       content?: string
       mime?: string
       size: number
     }>
+    readThumb: (filePath: string) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
     readBytes: (filePath: string) => Promise<{ ok: boolean; base64?: string; size?: number; error?: string }>
     saveText: (filePath: string, content: string, rootDir?: string) => Promise<{ ok: boolean; error?: string }>
     saveAs: (filePath: string) => Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>

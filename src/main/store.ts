@@ -1,9 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, extname, join } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { basename, dirname, extname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
   AppGeneralSettings,
+  LocalLibraryEntry,
+  LocalLibrarySnapshot,
   ModelSettingsState,
   PersistedTurnItem,
   ProjectMeta,
@@ -371,6 +373,191 @@ export class LocalAppStore {
     )
     writeJsonAtomic(this.recentFilesPath(), next)
     return next
+  }
+
+  getLibraryFolders(): string[] {
+    const cur = readJsonSafe<{ libraryFolders?: unknown }>(this.settingsPath(), {})
+    if (!Array.isArray(cur.libraryFolders)) return []
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const raw of cur.libraryFolders) {
+      if (typeof raw !== 'string' || !raw.trim()) continue
+      const resolved = resolve(raw.trim())
+      const key = resolved.toLowerCase()
+      if (!seen.has(key) && existsSync(resolved)) {
+        seen.add(key)
+        out.push(resolved)
+      }
+    }
+    return out
+  }
+
+  addLibraryFolder(folderPath: string): LocalLibrarySnapshot {
+    const cleaned = folderPath?.trim()
+    if (cleaned && existsSync(cleaned)) {
+      const resolved = resolve(cleaned)
+      const cur = readJsonSafe<Record<string, unknown>>(this.settingsPath(), {})
+      const existing = this.getLibraryFolders()
+      if (!existing.some((d) => d.toLowerCase() === resolved.toLowerCase())) {
+        writeJsonAtomic(this.settingsPath(), {
+          ...cur,
+          libraryFolders: [...existing, resolved]
+        })
+      }
+    }
+    return this.scanLocalLibrary()
+  }
+
+  removeLibraryFolder(folderPath: string): LocalLibrarySnapshot {
+    const resolved = resolve(folderPath).toLowerCase()
+    const cur = readJsonSafe<Record<string, unknown>>(this.settingsPath(), {})
+    const next = this.getLibraryFolders().filter((d) => d.toLowerCase() !== resolved)
+    writeJsonAtomic(this.settingsPath(), { ...cur, libraryFolders: next })
+    return this.scanLocalLibrary()
+  }
+
+  scanLocalLibrary(): LocalLibrarySnapshot {
+    const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.svg'])
+    const cad3dExts = new Set(['.dwg', '.dxf', '.skp', '.3dm', '.glb', '.gltf', '.obj', '.fbx', '.stl'])
+    const docExts = new Set(['.pptx', '.potx', '.pdf', '.xlsx', '.xls', '.xlsm', '.docx', '.doc', '.md'])
+
+    const classifyExt = (filePath: string, kindHint?: string): 'image' | 'cad3d' | 'doc' | null => {
+      const ext = extname(filePath).toLowerCase()
+      if (imageExts.has(ext) || kindHint === 'image') return 'image'
+      if (cad3dExts.has(ext)) return 'cad3d'
+      if (docExts.has(ext)) return 'doc'
+      return null
+    }
+
+    const byPath = new Map<string, LocalLibraryEntry>()
+    const sourceRank: Record<LocalLibraryEntry['sourceLabel'], number> = {
+      'AI 交付成果': 3,
+      '近期使用文件': 2,
+      '工作区成果': 1
+    }
+
+    const upsert = (
+      filePath: string,
+      nameHint: string | undefined,
+      group: 'image' | 'cad3d' | 'doc',
+      sourceLabel: LocalLibraryEntry['sourceLabel'],
+      sizeHint?: number,
+      mtimeHint?: number
+    ): void => {
+      if (!filePath || !existsSync(filePath)) return
+      const resolved = resolve(filePath)
+      const key = resolved.toLowerCase()
+      let size = sizeHint ?? 0
+      let updatedAt = mtimeHint ?? 0
+      if (!size || !updatedAt) {
+        try {
+          const st = statSync(resolved)
+          if (!st.isFile()) return
+          size = st.size
+          updatedAt = st.mtimeMs
+        } catch {
+          return
+        }
+      }
+      const existing = byPath.get(key)
+      if (!existing || sourceRank[sourceLabel] > sourceRank[existing.sourceLabel]) {
+        byPath.set(key, {
+          path: resolved,
+          name: nameHint?.trim() || basename(resolved),
+          group,
+          sourceLabel,
+          size,
+          updatedAt: Math.max(updatedAt, existing?.updatedAt ?? 0)
+        })
+      }
+    }
+
+    // 1) 从磁盘历史会话记录提取 AI 交付成果（即使未在内存中点开对话）
+    try {
+      const buckets = readdirSync(this.workspacesDir, { withFileTypes: true })
+      for (const bucket of buckets) {
+        if (!bucket.isDirectory()) continue
+        const convDir = join(this.workspacesDir, bucket.name, 'conversations')
+        if (!existsSync(convDir)) continue
+        const threads = readdirSync(convDir, { withFileTypes: true })
+        for (const th of threads) {
+          if (!th.isDirectory()) continue
+          const tPath = join(convDir, th.name, 'transcript.json')
+          const turns = readJsonSafe<PersistedTurnItem[]>(tPath, [])
+          for (const turn of turns) {
+            if (turn.role !== 'assistant' || !Array.isArray(turn.deliverables)) continue
+            for (const d of turn.deliverables) {
+              if (!d?.path) continue
+              const group = classifyExt(d.path, d.kind)
+              if (!group) continue
+              upsert(d.path, d.title || basename(d.path), group, 'AI 交付成果', d.size)
+            }
+          }
+        }
+      }
+    } catch {
+      // ignore transcript scan failures
+    }
+
+    // 2) 合并近期使用文件
+    for (const rf of this.listRecentFiles()) {
+      const group = classifyExt(rf.path, rf.kind)
+      if (!group) continue
+      upsert(rf.path, rf.name, group, '近期使用文件', rf.size, rf.lastUsedAt)
+    }
+
+    // 3) 扫描默认工作区根目录、已配置项目目录及用户添加的本地资料目录
+    const folders = this.getLibraryFolders()
+    const scanRoots = new Map<string, string>()
+    const projectsRoot = dirname(this.defaultWorkspaceRoot)
+    const candidateRoots = [
+      existsSync(projectsRoot) ? projectsRoot : this.defaultWorkspaceRoot,
+      ...this.listProjects().map((p) => p.folderPath),
+      ...folders
+    ]
+    for (const r of candidateRoots) {
+      if (!r || !existsSync(r)) continue
+      const resolved = resolve(r)
+      scanRoots.set(resolved.toLowerCase(), resolved)
+    }
+
+    const skipDirs = new Set(['.git', 'node_modules', '.zmo', '__pycache__', '.venv', 'dist'])
+    let scannedCount = 0
+    const MAX_FILES = 400
+
+    const walk = (dir: string, depth: number): void => {
+      if (depth > 4 || scannedCount >= MAX_FILES) return
+      let entries
+      try {
+        entries = readdirSync(dir, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (scannedCount >= MAX_FILES) break
+        const full = join(dir, entry.name)
+        if (entry.isDirectory()) {
+          if (skipDirs.has(entry.name.toLowerCase())) continue
+          walk(full, depth + 1)
+        } else if (entry.isFile()) {
+          const group = classifyExt(full)
+          if (!group) continue
+          scannedCount++
+          upsert(full, entry.name, group, '工作区成果')
+        }
+      }
+    }
+
+    for (const root of scanRoots.values()) {
+      walk(root, 0)
+    }
+
+    const items = [...byPath.values()].sort((a, b) => b.updatedAt - a.updatedAt)
+    return {
+      items,
+      folders,
+      defaultWorkspaceRoot: this.defaultWorkspaceRoot
+    }
   }
 
   readProjectMemory(projectId: string): { memory: string; decisions: string } {
