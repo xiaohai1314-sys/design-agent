@@ -7,6 +7,7 @@ import type {
   PersistedTurnItem,
   ProjectSummary,
   RecentFileEntry,
+  RegulationStatsResult,
   SkillInfo,
   TaskSummary
 } from '@shared/ipc'
@@ -118,6 +119,8 @@ export interface PendingImageEditState {
   imagePath: string
 }
 
+export type ComposerMode = 'general' | 'image' | 'modeling' | 'report' | 'regulation'
+
 export interface ThreadSlice {
   turns: PersistedTurnItem[]
   running: boolean
@@ -130,6 +133,8 @@ export interface ThreadSlice {
 interface PreviewTarget {
   path: string
   title: string
+  compareBeforePath?: string
+  compareMode?: boolean
 }
 
 interface WorkspaceState {
@@ -145,8 +150,10 @@ interface WorkspaceState {
   activeProjectId: string | null
   activeTaskId: string | null
   openTabIds: string[]
-  activeView: 'chat' | 'toolbox'
+  activeView: 'chat' | 'toolbox' | 'library'
+  composerMode: ComposerMode
   recentFiles: RecentFileEntry[]
+  regulationStats: RegulationStatsResult | null
   generalSettings: AppGeneralSettings | null
   slices: Record<string, ThreadSlice>
   permissionMode: PermissionMode
@@ -174,8 +181,10 @@ interface WorkspaceState {
   deleteProject: (projectId: string) => Promise<void>
   setActiveProjectId: (projectId: string | null) => void
   closeTab: (taskId: string) => void
-  setActiveView: (view: 'chat' | 'toolbox') => void
+  setActiveView: (view: 'chat' | 'toolbox' | 'library') => void
+  setComposerMode: (mode: ComposerMode) => void
   refreshRecentFiles: () => Promise<void>
+  refreshRegulationStats: () => Promise<void>
   saveGeneralSettings: (next: AppGeneralSettings) => Promise<void>
 
   refreshMcpConnectors: () => Promise<void>
@@ -215,7 +224,11 @@ interface WorkspaceState {
 
   setWorkbenchOpen: (open: boolean) => void
   setWorkbenchTab: (tab: 'files' | 'preview' | 'skills' | 'memory') => void
-  openFilePreview: (path: string, title: string) => void
+  openFilePreview: (
+    path: string,
+    title: string,
+    options?: { compareBeforePath?: string; compareMode?: boolean }
+  ) => void
   handleRuntimeEvent: (event: RuntimeOutbound) => void
 }
 
@@ -304,7 +317,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   activeTaskId: null,
   openTabIds: [],
   activeView: 'chat',
+  composerMode: 'general',
   recentFiles: [],
+  regulationStats: null,
   generalSettings: null,
   slices: {},
   permissionMode: 'default',
@@ -323,7 +338,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (initInFlight) return initInFlight
 
     initInFlight = (async () => {
-      const [tasks, projects, modelSettings, permissionMode, skills, mcpConnectors, recentFiles, generalSettings] =
+      const [tasks, projects, modelSettings, permissionMode, skills, mcpConnectors, recentFiles, generalSettings, regulationStats] =
         await Promise.all([
           window.zmo.tasks.list(),
           window.zmo.projects.list(),
@@ -332,7 +347,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
           window.zmo.skills.list(),
           window.zmo.mcp.listConnectors(),
           window.zmo.recentFiles.list(),
-          window.zmo.settings.getGeneral()
+          window.zmo.settings.getGeneral(),
+          window.zmo.regulations.stats()
         ])
 
       offAgentEvents?.()
@@ -353,7 +369,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         skills,
         mcpConnectors,
         recentFiles,
-        generalSettings
+        generalSettings,
+        regulationStats
       })
 
       void get().refreshCcSwitchCandidates()
@@ -495,10 +512,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   setActiveView: (view) => set({ activeView: view }),
+  setComposerMode: (mode) => set({ composerMode: mode }),
 
   refreshRecentFiles: async () => {
     const recentFiles = await window.zmo.recentFiles.list()
     set({ recentFiles })
+  },
+
+  refreshRegulationStats: async () => {
+    const regulationStats = await window.zmo.regulations.stats()
+    set({ regulationStats })
   },
 
   saveGeneralSettings: async (next) => {
@@ -774,11 +797,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setWorkbenchOpen: (open) => set({ workbenchOpen: open }),
   setWorkbenchTab: (tab) => set({ workbenchTab: tab }),
-  openFilePreview: (path, title) => {
+  openFilePreview: (path, title, options) => {
     set({
       workbenchOpen: true,
       workbenchTab: 'preview',
-      previewTarget: { path, title }
+      previewTarget: {
+        path,
+        title,
+        ...(options?.compareBeforePath ? { compareBeforePath: options.compareBeforePath } : {}),
+        ...(options?.compareMode ? { compareMode: options.compareMode } : {})
+      }
     })
   },
 

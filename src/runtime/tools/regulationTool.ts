@@ -1,9 +1,80 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { extname, join } from 'node:path'
+import { dirname, extname, join } from 'node:path'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
 import type { RegulationChunk, RegulationToolData } from '@shared/protocol'
+
+function findRegIndexerExe(pythonExe: string): string | null {
+  const candidates = [
+    process.env.ZMO_RT_DIR ? join(process.env.ZMO_RT_DIR, 'reg-indexer.exe') : '',
+    process.env.ZMO_SKILLS_ROOT ? join(dirname(process.env.ZMO_SKILLS_ROOT), 'runtime', 'reg-indexer.exe') : '',
+    pythonExe && pythonExe !== 'python' ? join(dirname(dirname(pythonExe)), 'reg-indexer.exe') : '',
+    join(process.cwd(), 'resources', 'runtime', 'reg-indexer.exe'),
+    join(process.cwd(), 'tools', 'RegIndexerCs', 'publish', 'reg-indexer.exe')
+  ].filter(Boolean)
+  for (const p of candidates) {
+    if (existsSync(p)) return p
+  }
+  return null
+}
+
+interface NativeRegQueryResult {
+  indexedDocs: number
+  indexedPages: number
+  totalHits: number
+  queryMs: number
+  chunks: RegulationChunk[]
+}
+
+function queryWithNativeIndexer(params: {
+  exePath: string
+  folder: string
+  pythonExe: string
+  query: string
+  standard?: string
+  currentOnly?: boolean
+  mandatoryOnly?: boolean
+}): NativeRegQueryResult | null {
+  try {
+    const dbPath = join(params.folder, '.zmo-reg-index.db')
+    const args = [
+      'query',
+      '--folder',
+      params.folder,
+      '--db',
+      dbPath,
+      '--python',
+      params.pythonExe,
+      '--q',
+      params.query,
+      '--limit',
+      '8'
+    ]
+    if (params.standard?.trim()) {
+      args.push('--standard', params.standard.trim())
+    }
+    if (params.currentOnly) {
+      args.push('--current-only')
+    }
+    if (params.mandatoryOnly) {
+      args.push('--mandatory-only')
+    }
+    const raw = execFileSync(params.exePath, args, {
+      timeout: 60000,
+      encoding: 'utf8',
+      windowsHide: true,
+      maxBuffer: 12 * 1024 * 1024
+    })
+    const parsed = JSON.parse(raw) as NativeRegQueryResult
+    if (parsed && Array.isArray(parsed.chunks)) {
+      return parsed
+    }
+    return null
+  } catch {
+    return null
+  }
+}
 
 function collectRegulationFiles(root: string, acc: string[] = []): string[] {
   if (!root || !existsSync(root)) return acc
@@ -178,6 +249,56 @@ export function createLocalRegulationTool(params: {
       const folder = params.regulationFolder?.trim()
       if (!folder || !existsSync(folder)) {
         return '本地规范库目录尚未配置或为空。可在「设置 → 本地规范库目录」指定存放国标/地标 PDF 或 Markdown 文档的文件夹。'
+      }
+
+      // 优先使用内置 Rust + SQLite FTS5 持久化规范搜索引擎（一次抽文本落库，毫秒级命中+单位等价+效力分级+页码定位）
+      const nativeExe = findRegIndexerExe(params.pythonExe)
+      if (nativeExe) {
+        const nativeRes = queryWithNativeIndexer({
+          exePath: nativeExe,
+          folder,
+          pythonExe: params.pythonExe,
+          query,
+          standard,
+          currentOnly: current_only,
+          mandatoryOnly: mandatory_only
+        })
+        if (nativeRes && nativeRes.indexedDocs > 0) {
+          params.recordToolData(callId, {
+            kind: 'regulation_chunks',
+            queriesUsed: [query],
+            total: nativeRes.chunks.length,
+            retrievedChunks: nativeRes.chunks
+          })
+          if (nativeRes.chunks.length === 0) {
+            return `在本地规范持久化索引库（共 ${nativeRes.indexedDocs} 份规范 / ${nativeRes.indexedPages} 页，耗时 ${nativeRes.queryMs.toFixed(1)}ms）中未检索到与“${query}”直接匹配的条文。请补充本地规范或调整检索词。`
+          }
+          return JSON.stringify(
+            {
+              engine: 'sqlite-fts5',
+              sourceFolder: folder,
+              indexedDocs: nativeRes.indexedDocs,
+              indexedPages: nativeRes.indexedPages,
+              queryMs: Number(nativeRes.queryMs.toFixed(2)),
+              total: nativeRes.chunks.length,
+              chunks: nativeRes.chunks.map((c) => ({
+                cite: c.cite,
+                standardName: c.standardName,
+                standardNo: c.standardNo,
+                clauseId: c.clauseId,
+                ...(typeof c.pageNo === 'number' ? { pageNo: c.pageNo } : {}),
+                validityStatus: c.validityStatus,
+                ...(c.supersededBy ? { supersededBy: c.supersededBy } : {}),
+                ...(c.warningText ? { warningText: c.warningText } : {}),
+                isMandatory: Boolean(c.isMandatory),
+                text: c.text,
+                ...(c.explanation ? { explanation: c.explanation } : {})
+              }))
+            },
+            null,
+            2
+          )
+        }
       }
 
       const files = collectRegulationFiles(folder)

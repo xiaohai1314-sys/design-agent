@@ -4,6 +4,7 @@ import { appendFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { capturePreEditSnapshot } from '@shared/fileSnapshots'
 import type { TodoItem, WriteTodosToolData } from '@shared/protocol'
 
 function resolveTarget(rootDir: string, inputPath?: string): string {
@@ -268,6 +269,14 @@ export function createWorkspaceTools(params: {
         )
       }
       await requireApproval('write_file', { file_path: target, content }, toolCallId)
+      if (existsSync(target)) {
+        capturePreEditSnapshot({
+          targetPath: target,
+          rootDir,
+          sourceTool: 'write_file',
+          summary: 'Agent 覆写文件前自动快照'
+        })
+      }
       mkdirSync(dirname(target), { recursive: true })
       writeFileSync(target, content, 'utf8')
       return `已写入文件：${target.replace(/\\/g, '/')}（${Buffer.byteLength(content, 'utf8')} 字节）`
@@ -302,6 +311,12 @@ export function createWorkspaceTools(params: {
         throw new Error(`未在 ${target} 中找到完全匹配的 old_string，请先调用 read_file 核对原文与缩进。`)
       }
       const updated = current.replace(old_string, () => new_string)
+      capturePreEditSnapshot({
+        targetPath: target,
+        rootDir,
+        sourceTool: 'edit_file',
+        summary: 'Agent 局部编辑前自动快照'
+      })
       writeFileSync(target, updated, 'utf8')
       return `已成功编辑文件：${target.replace(/\\/g, '/')}`
     }

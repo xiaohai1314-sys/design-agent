@@ -21,6 +21,8 @@ import type {
   WebSearchConfig
 } from './protocol'
 import type { SelectedMcpConnector } from './mcp'
+export type { FileSnapshotEntry } from './fileSnapshots'
+import type { FileSnapshotEntry } from './fileSnapshots'
 
 export const IPC_CHANNELS = {
   AgentSend: 'agent:send',
@@ -83,11 +85,14 @@ export const IPC_CHANNELS = {
   FilesReadBytes: 'files:read-bytes',
   FilesSaveText: 'files:save-text',
   FilesSaveAs: 'files:save-as',
+  FilesListSnapshots: 'files:list-snapshots',
+  FilesRestoreSnapshot: 'files:restore-snapshot',
   ClipboardWriteImage: 'clipboard:write-image',
   PptWorkbenchApplyProposal: 'ppt-workbench:apply-proposal',
   ShellOpenPath: 'shell:open-path',
   ShellShowItemInFolder: 'shell:show-item-in-folder',
-  SkillsList: 'skills:list'
+  SkillsList: 'skills:list',
+  RegulationStats: 'regulations:stats'
 } as const
 
 export interface ProjectSummary {
@@ -118,6 +123,13 @@ export interface RecentFileEntry {
 export interface AppGeneralSettings {
   closeToTray: boolean
   desktopNotifications: boolean
+}
+
+export interface RegulationStatsResult {
+  folderPath: string
+  fileCount: number
+  chunkCount: number
+  sampleFiles: string[]
 }
 
 export interface TaskSummary {
@@ -411,8 +423,14 @@ export interface ZmoBridgeApi {
       size: number
     }>
     readBytes: (filePath: string) => Promise<{ ok: boolean; base64?: string; size?: number; error?: string }>
-    saveText: (filePath: string, content: string) => Promise<{ ok: boolean; error?: string }>
+    saveText: (filePath: string, content: string, rootDir?: string) => Promise<{ ok: boolean; error?: string }>
     saveAs: (filePath: string) => Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>
+    listSnapshots: (filePath: string, rootDir?: string) => Promise<FileSnapshotEntry[]>
+    restoreSnapshot: (
+      filePath: string,
+      snapshotId: string,
+      rootDir?: string
+    ) => Promise<{ ok: boolean; error?: string; restoredFrom?: FileSnapshotEntry }>
   }
   clipboard: {
     writeImage: (filePath: string) => Promise<{ ok: boolean; error?: string }>
@@ -422,6 +440,9 @@ export interface ZmoBridgeApi {
   }
   skills: {
     list: () => Promise<SkillInfo[]>
+  }
+  regulations: {
+    stats: () => Promise<RegulationStatsResult>
   }
   shell: {
     openPath: (targetPath: string) => Promise<string>

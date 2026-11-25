@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, extname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
   AppGeneralSettings,
@@ -8,6 +9,7 @@ import type {
   ProjectMeta,
   ProjectSummary,
   RecentFileEntry,
+  RegulationStatsResult,
   TaskSummary
 } from '@shared/ipc'
 import type {
@@ -52,6 +54,7 @@ export class LocalAppStore {
   private readonly workspacesDir: string
   private readonly defaultWorkspaceRoot: string
   private readonly defaultRegulationDir: string
+  private readonly regIndexerExe: string
 
   constructor(
     userDataDir: string,
@@ -64,6 +67,7 @@ export class LocalAppStore {
     const bundledReg = join(bundledResourcesDir, 'regulations')
     const userReg = join(userDataDir, 'regulations')
     this.defaultRegulationDir = existsSync(bundledReg) ? bundledReg : userReg
+    this.regIndexerExe = join(bundledResourcesDir, 'runtime', 'reg-indexer.exe')
     mkdirSync(this.workspacesDir, { recursive: true })
     mkdirSync(this.defaultWorkspaceRoot, { recursive: true })
     mkdirSync(this.defaultRegulationDir, { recursive: true })
@@ -223,6 +227,65 @@ export class LocalAppStore {
   saveModelSettings(settings: ModelSettingsState): ModelSettingsState {
     writeJsonAtomic(this.modelSettingsPath(), settings)
     return settings
+  }
+
+  getRegulationStats(): RegulationStatsResult {
+    const folderPath = this.getModelSettings().regulation?.folderPath || this.defaultRegulationDir
+    const sampleFiles: string[] = []
+    let fileCount = 0
+    let chunkCount = 0
+
+    const walk = (dir: string): void => {
+      if (!dir || !existsSync(dir)) return
+      try {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          if (entry.name.startsWith('.')) continue
+          const full = join(dir, entry.name)
+          if (entry.isDirectory()) {
+            walk(full)
+          } else if (entry.isFile()) {
+            const ext = extname(entry.name).toLowerCase()
+            if (['.json', '.md', '.txt', '.pdf'].includes(ext)) {
+              fileCount += 1
+              if (sampleFiles.length < 12) sampleFiles.push(entry.name)
+              if (ext === '.json') {
+                const parsed = readJsonSafe<unknown>(full, null)
+                if (Array.isArray(parsed)) {
+                  chunkCount += parsed.length
+                } else if (parsed && typeof parsed === 'object') {
+                  const obj = parsed as { citations?: unknown[]; chunks?: unknown[] }
+                  if (Array.isArray(obj.citations)) chunkCount += obj.citations.length
+                  else if (Array.isArray(obj.chunks)) chunkCount += obj.chunks.length
+                }
+              } else {
+                chunkCount += 1
+              }
+            }
+          }
+        }
+      } catch {
+        // ignore unreadable dir
+      }
+    }
+    walk(folderPath)
+
+    const dbPath = join(folderPath, '.zmo-reg-index.db')
+    if (existsSync(dbPath) && existsSync(this.regIndexerExe)) {
+      try {
+        const raw = execFileSync(this.regIndexerExe, ['stats', '--db', dbPath], {
+          timeout: 2500,
+          encoding: 'utf8',
+          windowsHide: true
+        })
+        const dbStats = JSON.parse(raw) as { totalPages?: number }
+        if (typeof dbStats.totalPages === 'number' && dbStats.totalPages > chunkCount) {
+          chunkCount = dbStats.totalPages
+        }
+      } catch {
+        // fallback to file-walk count
+      }
+    }
+    return { folderPath, fileCount, chunkCount, sampleFiles }
   }
 
   private projectsPath(): string {

@@ -118,6 +118,17 @@ body,
   text-align: left;
 }
 
+/* Windows / Electron frameless window native drag region */
+.app-drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 .zmo-markdown th {
   background: #f3f4f6;
   font-weight: 600;

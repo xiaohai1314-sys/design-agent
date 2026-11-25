@@ -96,9 +96,13 @@ const api: ZmoBridgeApi = {
     listWorkspace: (dirPath) => ipcRenderer.invoke(IPC_CHANNELS.FilesListWorkspace, dirPath),
     readPreview: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FilesReadPreview, filePath),
     readBytes: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FilesReadBytes, filePath),
-    saveText: (filePath, content) =>
-      ipcRenderer.invoke(IPC_CHANNELS.FilesSaveText, { filePath, content }),
-    saveAs: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FilesSaveAs, filePath)
+    saveText: (filePath, content, rootDir) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FilesSaveText, { filePath, content, rootDir }),
+    saveAs: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.FilesSaveAs, filePath),
+    listSnapshots: (filePath, rootDir) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FilesListSnapshots, { filePath, rootDir }),
+    restoreSnapshot: (filePath, snapshotId, rootDir) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FilesRestoreSnapshot, { filePath, snapshotId, rootDir })
   },
   clipboard: {
     writeImage: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.ClipboardWriteImage, filePath)
@@ -108,6 +112,9 @@ const api: ZmoBridgeApi = {
   },
   skills: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.SkillsList)
+  },
+  regulations: {
+    stats: () => ipcRenderer.invoke(IPC_CHANNELS.RegulationStats)
   },
   shell: {
     openPath: (targetPath) => ipcRenderer.invoke(IPC_CHANNELS.ShellOpenPath, targetPath),

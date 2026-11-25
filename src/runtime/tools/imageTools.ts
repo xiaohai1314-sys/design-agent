@@ -9,6 +9,7 @@ import type {
   ImageGenConfig,
   ModelProviderProfile
 } from '@shared/protocol'
+import { capturePreEditSnapshot, recordImageLineageSnapshot } from '@shared/fileSnapshots'
 import type { ApprovalGate } from './workspaceTools'
 
 function normalizeWinPath(raw: string): string {
@@ -382,6 +383,14 @@ export function createImageTools(params: {
             })
         })
 
+        if (existsSync(outPath)) {
+          capturePreEditSnapshot({
+            targetPath: outPath,
+            rootDir: params.rootDir,
+            sourceTool: 'generate_image',
+            summary: prompt.slice(0, 80)
+          })
+        }
         const bytesLen = saveImageBuffer(imgBuf, outPath)
         params.recordToolData(callId, {
           kind: 'generate_image',
@@ -450,7 +459,22 @@ export function createImageTools(params: {
           }
         })
 
+        if (existsSync(outPath)) {
+          capturePreEditSnapshot({
+            targetPath: outPath,
+            rootDir: params.rootDir,
+            sourceTool: 'edit_image_with_ref',
+            summary: `重绘前版本：${prompt.slice(0, 60)}`
+          })
+        }
         const bytesLen = saveImageBuffer(imgBuf, outPath)
+        recordImageLineageSnapshot({
+          afterPath: outPath,
+          beforeRefPath: refPath,
+          rootDir: params.rootDir,
+          sourceTool: 'edit_image_with_ref',
+          summary: prompt.slice(0, 80)
+        })
         params.recordToolData(callId, {
           kind: 'generate_image',
           prompt,

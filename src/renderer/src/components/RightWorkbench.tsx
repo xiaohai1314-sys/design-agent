@@ -9,6 +9,7 @@ import {
   File,
   Folder,
   FolderOpen,
+  History,
   MessageSquarePlus,
   Pencil,
   RefreshCw,
@@ -17,8 +18,9 @@ import {
   X
 } from 'lucide-react'
 import clsx from 'clsx'
-import type { SkillInfo, WorkspaceEntry } from '@shared/ipc'
+import type { FileSnapshotEntry, SkillInfo, WorkspaceEntry } from '@shared/ipc'
 import type { AgentAttachment, ModelAnnotationRef, PptProposal, PptWorkbenchSelection } from '@shared/protocol'
+import { BeforeAfterDiffView } from './BeforeAfterDiffView'
 import { CadViewerPanel } from './CadViewerPanel'
 import { ModelViewerPanel } from './ModelViewerPanel'
 import { PptWorkbenchPanel } from './PptWorkbenchPanel'
@@ -62,7 +64,12 @@ interface RightWorkbenchProps {
   projectId?: string | null
   skills: SkillInfo[]
   activeTab: 'files' | 'preview' | 'skills' | 'memory'
-  previewTarget: { path: string; title: string } | null
+  previewTarget: {
+    path: string
+    title: string
+    compareBeforePath?: string
+    compareMode?: boolean
+  } | null
   pptSelection: PptWorkbenchSelection | null
   pendingPptProposals: Record<string, PptProposal>
   onTabChange: (tab: 'files' | 'preview' | 'skills' | 'memory') => void
@@ -100,6 +107,8 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
   const [editedTextDraft, setEditedTextDraft] = useState('')
   const [textSavedFlag, setTextSavedFlag] = useState(false)
   const [reloadTextTick, setReloadTextTick] = useState(0)
+  const [diffMode, setDiffMode] = useState(false)
+  const [snapshots, setSnapshots] = useState<FileSnapshotEntry[]>([])
   const [previewState, setPreviewState] = useState<{
     loading: boolean
     kind?: 'text' | 'image' | 'binary'
@@ -140,6 +149,27 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
   const isSheetTarget = targetExt === 'xlsx' || targetExt === 'xls' || targetExt === 'xlsm'
   const isDocxTarget = targetExt === 'docx'
   const isPptxTarget = targetExt === 'pptx'
+
+  useEffect(() => {
+    if (!previewTarget) {
+      setSnapshots([])
+      setDiffMode(false)
+      return
+    }
+    setDiffMode(Boolean(previewTarget.compareMode))
+    let cancelled = false
+    window.zmo.files
+      .listSnapshots(previewTarget.path, rootDir)
+      .then((list) => {
+        if (!cancelled) setSnapshots(list)
+      })
+      .catch(() => {
+        if (!cancelled) setSnapshots([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [previewTarget, rootDir, reloadTextTick])
 
   useEffect(() => {
     if (
@@ -369,6 +399,28 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    {(snapshots.length > 0 || Boolean(previewTarget.compareBeforePath)) && (
+                      <button
+                        type="button"
+                        onClick={() => setDiffMode((v) => !v)}
+                        title="查看 Before / After 对比与一键回滚"
+                        className={clsx(
+                          'inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium cursor-pointer transition-colors',
+                          diffMode
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                        )}
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        <span>
+                          {diffMode
+                            ? '退出对比'
+                            : snapshots.length > 0
+                              ? `对比/回滚 (${snapshots.length})`
+                              : 'Before/After'}
+                        </span>
+                      </button>
+                    )}
                     {onAttachFileToChat && (
                       <button
                         type="button"
@@ -433,7 +485,22 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                   </div>
                 </div>
 
-                {isCadTarget ? (
+                {diffMode ? (
+                  <BeforeAfterDiffView
+                    filePath={previewTarget.path}
+                    rootDir={rootDir}
+                    currentKind={previewState.kind ?? 'binary'}
+                    currentContent={previewState.content}
+                    currentSize={previewState.size}
+                    snapshots={snapshots}
+                    explicitBeforePath={previewTarget.compareBeforePath}
+                    onRestored={() => {
+                      setReloadTextTick((t) => t + 1)
+                      if (currentDir) void refreshFiles(currentDir)
+                    }}
+                    onClose={() => setDiffMode(false)}
+                  />
+                ) : isCadTarget ? (
                   <CadViewerPanel
                     filePath={previewTarget.path}
                     title={previewTarget.title}
@@ -485,11 +552,13 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                               onClick={async () => {
                                 const res = await window.zmo.files.saveText(
                                   previewTarget.path,
-                                  editedTextDraft
+                                  editedTextDraft,
+                                  rootDir
                                 )
                                 if (res.ok) {
                                   setTextSavedFlag(true)
                                   setPreviewState((s) => ({ ...s, content: editedTextDraft }))
+                                  setReloadTextTick((t) => t + 1)
                                   setTimeout(() => setTextSavedFlag(false), 1500)
                                 }
                               }}

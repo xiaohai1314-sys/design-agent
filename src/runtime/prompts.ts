@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SkillInfo } from '@shared/ipc'
+import type { ModelingPresetInfo } from './presets'
 
 export function discoverSkills(skillsRoot: string): SkillInfo[] {
   if (!skillsRoot || !existsSync(skillsRoot)) return []
@@ -57,6 +58,7 @@ export function buildSupervisorSystemPrompt(params: {
   rootDir: string
   skillsRoot: string
   skills: SkillInfo[]
+  presets?: ModelingPresetInfo[]
   profile?: 'ai-scheme-v1' | 'default'
   projectMemory?: string
   projectCharter?: string
@@ -101,6 +103,18 @@ export function buildSupervisorSystemPrompt(params: {
 - **如果用户的核心诉求是生成效果图、夜景图、彩平图、渲染图、概念意向图、以图改图或直接出图，严禁先读取 SKILL.md、解析 CAD/DWG 图纸、调用 \`write_todos\` 或执行脚本去“先准备底图”消耗 Token！** 必须在第 1 步直接、简短地告诉用户当前模型无生图能力且未配置/开启独立生图 API，建议在「设置 → 效果图 / 图生图 API」中填入并开启生图 API（或切换支持生图的模型）后再试。`
       : ''
 
+  const presetsCatalog =
+    params.presets && params.presets.length > 0
+      ? [
+          '# 本地预置参数化建模包（Presets —— 已就绪，直接 load 调用）',
+          '- 当三维建模任务匹配下列本地工程包时，**禁止从零重写全套几何脚本**，应按对应宿主技能检查连接器后直接 `load` 入口脚本并传入参数执行：',
+          ...params.presets.map(
+            (p) =>
+              `  - **${p.id}**（${p.title} · 宿主 ${p.targetHost} · 入口 \`${p.entryScriptPath}\` · 调用 \`${p.invokeMethod}('${p.presetDir}', {...})\`）：${p.description}`
+          )
+        ].join('\n')
+      : ''
+
   return [
     imageCapBlock,
     `你是专业的建筑、室内、景观与空间设计智能体桌面助手。你直接操作用户的本地项目工作区，协助设计师完成图纸解析（CAD）、空间动线与指标分析、三维建模脚本驱动（SketchUp / Blender）、设计汇报文档生成（PPTX / DOCX / XLSX / PDF）与效果图提示词精修。`,
@@ -131,6 +145,7 @@ export function buildSupervisorSystemPrompt(params: {
 - 用户随消息上传的附件会在消息末尾 \`<files>\` 块中给出精确本机绝对路径，可直接用 \`read_file\` 或相应技能脚本读取。`,
 
     skillsCatalog,
+    presetsCatalog,
     aiSchemeBlock,
     memoryBlock
   ]

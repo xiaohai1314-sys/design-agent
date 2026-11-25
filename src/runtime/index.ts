@@ -26,6 +26,12 @@ import type {
 import type { SelectedMcpConnector } from '@shared/mcp'
 import { createChatModel } from './modelFactory'
 import { buildSupervisorSystemPrompt, discoverSkills } from './prompts'
+import {
+  buildModelingPresetDirective,
+  discoverModelingPresets,
+  matchModelingPreset,
+  type ModelingPresetInfo
+} from './presets'
 import { approvalDelta, splitMcpToolName, toolDelta, toolLabel } from './toolMeta'
 import { createDeliverTool } from './tools/deliver'
 import { createAskUserTool, formatAnswersForModel } from './tools/askUser'
@@ -198,6 +204,7 @@ function formatUserMessageWithContext(params: {
   sceneParam?: SceneParam
   mcp?: SelectedMcpConnector[]
   mcpStatusBlocks?: string[]
+  presetDirective?: string
 }): string {
   const blocks: string[] = [params.text.trim()]
 
@@ -208,6 +215,10 @@ function formatUserMessageWithContext(params: {
       .join('\n')
     const toolName = params.sceneParam.toolTitle ?? ''
     blocks.push(kv ? `<scene tool="${toolName}">\n${kv}\n</scene>` : `<scene tool="${toolName}" />`)
+  }
+
+  if (params.presetDirective) {
+    blocks.push(params.presetDirective)
   }
 
   if (params.mcp && params.mcp.length > 0) {
@@ -525,9 +536,11 @@ function buildProjectContext(
   projectId: string | null,
   skillsRoot: string,
   profile: 'ai-scheme-v1' | 'default' | undefined,
-  imageGenCapability?: { enabled: boolean; modelName: string }
+  imageGenCapability?: { enabled: boolean; modelName: string },
+  presets?: ModelingPresetInfo[]
 ): { projectMemoryFile: string; systemPrompt: string } {
   const skills = discoverSkills(skillsRoot)
+  const resolvedPresets = presets ?? discoverModelingPresets(undefined, skillsRoot)
   const workspacesBase = process.env.ZMO_WORKSPACES_DIR || join(rootDir, '.zmo-workspaces')
   const projectMemoryFile = projectId
     ? join(workspacesBase, projectId, 'memory.md')
@@ -564,6 +577,7 @@ function buildProjectContext(
       rootDir,
       skillsRoot,
       skills,
+      presets: resolvedPresets,
       profile,
       projectMemory,
       projectCharter,
@@ -1019,6 +1033,8 @@ async function executeTurn(
     return answer
   }
 
+  const skillsRoot = process.env.ZMO_SKILLS_ROOT || ''
+  const availablePresets = discoverModelingPresets(undefined, skillsRoot)
   let mcpBundle: Awaited<ReturnType<typeof connectMcpServers>> | null = null
   let extraMcpBundle: Awaited<ReturnType<typeof connectMcpServers>> | null = null
   let cancelAsyncJobs: (() => void) | null = null
@@ -1071,6 +1087,10 @@ async function executeTurn(
       }
     } else {
       const { text, filelist, annotations, conversationRefs, pptSelection, sceneParam, mcp } = msg
+      const matchedPreset = matchModelingPreset(availablePresets, { text, sceneParam, mcp })
+      const presetDirective = matchedPreset
+        ? buildModelingPresetDirective(matchedPreset, { text, sceneParam, skillsRoot })
+        : undefined
       const baseUserText = formatUserMessageWithContext({
         text,
         filelist,
@@ -1078,7 +1098,8 @@ async function executeTurn(
         conversationRefs,
         pptSelection,
         sceneParam,
-        mcp
+        mcp,
+        presetDirective
       })
 
       // 对齐原版 host-readiness 引导：若已选的连接器尚未打开/握手失败，弹窗引导打开后一键重连
@@ -1114,7 +1135,8 @@ async function executeTurn(
         pptSelection,
         sceneParam,
         mcp,
-        mcpStatusBlocks: mcpBundle?.serverPrompts
+        mcpStatusBlocks: mcpBundle?.serverPrompts,
+        presetDirective
       })
       const cleanBeforePush = sanitizeHistoryForResume(history)
       if (cleanBeforePush.length !== history.length) {
@@ -1146,13 +1168,13 @@ async function executeTurn(
       return
     }
 
-    const skillsRoot = process.env.ZMO_SKILLS_ROOT || ''
     const { projectMemoryFile, systemPrompt } = buildProjectContext(
       rootDir,
       projectId,
       skillsRoot,
       profile,
-      { enabled: imageCapable, modelName: modelProfile.model }
+      { enabled: imageCapable, modelName: modelProfile.model },
+      availablePresets
     )
 
     const extraEnvPaths = detectExtraRuntimePaths()

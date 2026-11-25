@@ -12,6 +12,14 @@ resources/mcp/computer-use/*.exe
 resources/mcp/computer-use/*.dll
 resources/mcp/computer-use/*.node
 resources/skills/cad/vendor/
+tools/*/target/
+tools/*/bin/
+tools/*/obj/
+tools/*/publish/
+*.pdb
+tools/*/bin/
+tools/*/obj/
 
 .DS_Store
 Thumbs.db
+.zmo-reg-index.db*

@@ -2,16 +2,21 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   ArrowUp,
   AtSign,
+  BookOpenCheck,
+  Box,
   Brain,
   ChevronDown,
+  ChevronRight,
   Compass,
   Eye,
   FileSpreadsheet,
   FileText,
   FolderPlus,
   History,
+  Image as ImageIcon,
   KeyRound,
   LayoutGrid,
+  Library,
   MapPin,
   Maximize2,
   MessageSquare,
@@ -39,7 +44,8 @@ import type { ProjectMeta, ProjectSummary } from '@shared/ipc'
 import type { FeatureSubmission } from './features/taskForm/compose'
 import {
   filterActiveRecognizedCandidates,
-  useWorkspaceStore
+  useWorkspaceStore,
+  type ComposerMode
 } from './store/useWorkspaceStore'
 import { TodoBar } from './components/TodoBar'
 import { InterruptCard } from './components/InterruptCard'
@@ -51,14 +57,24 @@ import { ImageEditModal } from './components/ImageEditModal'
 import { DeliveryPopover } from './components/DeliveryPopover'
 import {
   FunctionToolChips,
-  TOOLBOX_PRESETS,
   ToolboxPanel,
   type SceneToolboxPreset
 } from './components/SceneToolboxBar'
+import {
+  MODE_HEADLINE,
+  MODE_PLACEHOLDER,
+  MODE_TABS,
+  ModeEcosystemPanel,
+  ModelingMcpStrip,
+  RegulationScopeStrip,
+  ReportTemplateSlot
+} from './components/WorkspaceModeHome'
+import { LocalLibraryView } from './components/LocalLibraryView'
 
 const QUICK_SCENES = [
   {
     title: 'AI 空间方案策划',
+    featureCode: 'B2.1',
     desc: '基于任务书、CAD 或现状资料完成功能分区、动线分析与概念方案',
     prompt:
       '请帮我根据项目任务条件做一份空间概念设计与功能动线分析方案，如果有缺失的核心设计边界请先向我确认。',
@@ -66,6 +82,7 @@ const QUICK_SCENES = [
   },
   {
     title: 'CAD 图纸深度解析',
+    featureCode: 'B3.1',
     desc: '调用本地 cad.py 提取图幅、图层、房间尺寸与标高，支持右侧交互框选批注',
     prompt:
       '请读取我上传的 CAD 图纸（.dwg/.dxf），先列出图幅总览与主要空间尺寸指标，并检查是否存在天正对象或缺失项。',
@@ -73,6 +90,7 @@ const QUICK_SCENES = [
   },
   {
     title: 'SketchUp / Blender 建模联动',
+    featureCode: 'B3.6',
     desc: '开启下方软件连接器后，直接驱动本机 SketchUp 或 Blender 生成三维体块',
     prompt:
       '请检查当前已启用的三维建模软件连接器状态，并帮我创建一个现代极简客厅的基础墙体与沙发岛台体块模型。',
@@ -80,6 +98,7 @@ const QUICK_SCENES = [
   },
   {
     title: '建筑规范检索与效果图精修',
+    featureCode: 'B8.2',
     desc: '支持本地建筑规范知识库条文核验与 13 类室内/建筑效果图生成改图',
     prompt:
       '请帮我检索无障碍卫生间轮椅回转空间和抓杆尺寸的国家与北京规范要求，并附上条文引用。',
@@ -103,7 +122,9 @@ export const App: React.FC = () => {
     activeTaskId,
     openTabIds,
     activeView,
+    composerMode,
     recentFiles,
+    regulationStats,
     generalSettings,
     slices,
     permissionMode,
@@ -126,7 +147,9 @@ export const App: React.FC = () => {
     setActiveProjectId,
     closeTab,
     setActiveView,
+    setComposerMode,
     refreshRecentFiles,
+    refreshRegulationStats,
     saveGeneralSettings,
     refreshMcpConnectors,
     toggleMcpConnector,
@@ -163,6 +186,8 @@ export const App: React.FC = () => {
   const [plusSubmenu, setPlusSubmenu] = useState<'none' | 'recent' | 'conv' | 'mcp'>('none')
   const [permMenuOpen, setPermMenuOpen] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  const [regScope, setRegScope] = useState<'comprehensive' | 'retrieve' | 'qa'>('comprehensive')
   const [atBottom, setAtBottom] = useState(true)
   const [taskSearch, setTaskSearch] = useState('')
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
@@ -273,6 +298,21 @@ export const App: React.FC = () => {
     setSceneParamValues({})
   }
 
+  const handleOpenFeatureCode = (code: string): void => {
+    setInitialToolboxCode(code)
+    setActiveView('toolbox')
+  }
+
+  const switchLeftMode = async (mode: ComposerMode): Promise<void> => {
+    setMoreMenuOpen(false)
+    setActiveView('chat')
+    setComposerMode(mode)
+    if (turns.length > 0) {
+      await createNewTask()
+      setComposerMode(mode)
+    }
+  }
+
   const handleOpenProjectMeta = async (proj: ProjectSummary): Promise<void> => {
     const meta = await window.zmo.projects.readMeta(proj.id)
     setProjectMetaDraft(meta)
@@ -375,7 +415,16 @@ export const App: React.FC = () => {
     }
     const sceneParam: SceneParam | undefined = activeScenePreset
       ? { toolTitle: activeScenePreset.title, paramValues: sceneParamValues }
-      : undefined
+      : composerMode === 'regulation'
+        ? {
+            toolTitle:
+              regScope === 'retrieve'
+                ? '规范检索'
+                : regScope === 'qa'
+                  ? 'AI规范问答'
+                  : '建筑规范检索与合规核查'
+          }
+        : undefined
     const res = await sendMessage({
       text:
         content ||
@@ -418,15 +467,9 @@ export const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#f8f9fb] text-zinc-900">
-      {/* 顶部无边框自定义窗口栏 + 多标签页条（对齐原版 TabStripView + WindowControls） */}
-      <div
-        className="h-9 shrink-0 bg-[#eceef2] border-b border-zinc-200/90 flex items-center justify-between px-2 select-none"
-        style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-      >
-        <div
-          className="flex items-center gap-1 min-w-0 flex-1 overflow-x-auto"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
+      {/* 顶部无边框自定义窗口栏 + 多标签页条（留出 flex-1 纯空白拖拽热区，修复 Windows 无边框无法拖动） */}
+      <div className="h-9 shrink-0 bg-[#eceef2] border-b border-zinc-200/90 flex items-center px-2 select-none app-drag-region">
+        <div className="flex items-center gap-1 min-w-0 max-w-[calc(100%-250px)] overflow-x-auto">
           <div className="w-6 h-6 rounded-md bg-zinc-900 text-white flex items-center justify-center text-[11px] font-bold shrink-0 mr-1">
             Z
           </div>
@@ -435,7 +478,7 @@ export const App: React.FC = () => {
             type="button"
             onClick={() => setActiveView(activeView === 'toolbox' ? 'chat' : 'toolbox')}
             className={clsx(
-              'inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium shrink-0 cursor-pointer transition-colors',
+              'app-no-drag inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium shrink-0 cursor-pointer transition-colors',
               activeView === 'toolbox'
                 ? 'bg-white text-blue-700 shadow-2xs'
                 : 'text-zinc-600 hover:bg-zinc-200/70'
@@ -457,7 +500,7 @@ export const App: React.FC = () => {
                 key={tid}
                 onClick={() => void selectTask(tid)}
                 className={clsx(
-                  'group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-md text-[11px] max-w-44 cursor-pointer transition-colors shrink-0',
+                  'app-no-drag group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-md text-[11px] max-w-44 cursor-pointer transition-colors shrink-0',
                   isTabActive
                     ? 'bg-white text-zinc-900 font-medium shadow-2xs'
                     : 'text-zinc-600 hover:bg-zinc-200/60'
@@ -486,16 +529,20 @@ export const App: React.FC = () => {
             type="button"
             onClick={() => void createNewTask()}
             title="新建任务标签页"
-            className="p-1 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 cursor-pointer shrink-0"
+            className="app-no-drag p-1 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 cursor-pointer shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
         </div>
 
+        {/* 显式居中弹性拖拽区域（至少保留 64px 可拖动空白区，双击亦可最大化/还原） */}
         <div
-          className="flex items-center gap-1 shrink-0 ml-2"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
+          onDoubleClick={() => window.zmo.window.toggleMaximize()}
+          title="按住拖动窗口位置（双击最大化/还原）"
+          className="flex-1 h-full min-w-[64px] app-drag-region"
+        />
+
+        <div className="app-no-drag flex items-center gap-1 shrink-0 ml-2">
           <button
             type="button"
             onClick={() => taskSearchInputRef.current?.focus()}
@@ -541,21 +588,128 @@ export const App: React.FC = () => {
       </div>
 
       <div className="flex-1 min-h-0 flex overflow-hidden">
-      {/* 左侧导航栏 */}
-      <aside className="w-[216px] shrink-0 border-r border-zinc-200/90 bg-[#f3f4f6]/80 flex flex-col select-none">
-        <div className="h-11 px-3 flex items-center justify-between border-b border-zinc-200/70">
-          <span className="text-xs font-semibold tracking-tight text-zinc-800">
-            空间设计智能体
-          </span>
+      {/* 左侧导航栏（对齐 znzmo 场景导航 + 我的项目 + 任务记录） */}
+      <aside className="w-[224px] shrink-0 border-r border-zinc-200/90 bg-[#f5f6f8] flex flex-col select-none">
+        {/* 顶部功能导航区 */}
+        <div className="p-2.5 space-y-0.5 border-b border-zinc-200/70 relative">
           <button
             type="button"
-            onClick={() => void createNewTask()}
-            title="新建对话"
-            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-white border border-zinc-200 text-zinc-700 hover:bg-zinc-50 cursor-pointer transition-colors"
+            onClick={() => {
+              setComposerMode('general')
+              setActiveView('chat')
+              void createNewTask()
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-zinc-800 hover:bg-white hover:shadow-2xs transition-all cursor-pointer"
           >
-            <MessageSquarePlus className="w-3.5 h-3.5" />
-            <span>新任务</span>
+            <MessageSquarePlus className="w-4 h-4 text-zinc-600 shrink-0" />
+            <span>新建任务</span>
           </button>
+
+          {(
+            [
+              { mode: 'image' as const, label: 'AI 生图', icon: ImageIcon },
+              { mode: 'modeling' as const, label: 'AI 建模', icon: Box },
+              { mode: 'report' as const, label: 'AI 汇报', icon: Presentation, tag: 'PPT' },
+              { mode: 'regulation' as const, label: 'AI 查规范', icon: BookOpenCheck }
+            ] as const
+          ).map((nav) => {
+            const Icon = nav.icon
+            const isNavActive = activeView === 'chat' && composerMode === nav.mode
+            return (
+              <button
+                key={nav.mode}
+                type="button"
+                onClick={() => void switchLeftMode(nav.mode)}
+                className={clsx(
+                  'w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs transition-all cursor-pointer',
+                  isNavActive
+                    ? 'bg-zinc-200/80 text-zinc-900 font-semibold'
+                    : 'text-zinc-700 hover:bg-white/80'
+                )}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <Icon className="w-4 h-4 text-zinc-600 shrink-0" />
+                  <span className="truncate">{nav.label}</span>
+                </span>
+                {'tag' in nav && nav.tag && (
+                  <span className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 text-[9px] font-semibold shrink-0">
+                    {nav.tag}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+
+          <button
+            type="button"
+            onClick={() => {
+              setMoreMenuOpen(false)
+              void refreshRecentFiles()
+              setActiveView('library')
+            }}
+            className={clsx(
+              'w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs transition-all cursor-pointer',
+              activeView === 'library'
+                ? 'bg-zinc-200/80 text-zinc-900 font-semibold'
+                : 'text-zinc-700 hover:bg-white/80'
+            )}
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <Library className="w-4 h-4 text-zinc-600 shrink-0" />
+              <span>资料库</span>
+            </span>
+            <span className="text-[10px] text-zinc-400">本地成果</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMoreMenuOpen((v) => !v)}
+            className={clsx(
+              'w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs transition-all cursor-pointer',
+              activeView === 'toolbox' || moreMenuOpen
+                ? 'bg-zinc-200/80 text-zinc-900 font-semibold'
+                : 'text-zinc-700 hover:bg-white/80'
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <LayoutGrid className="w-4 h-4 text-zinc-600 shrink-0" />
+              <span>更多</span>
+            </span>
+            <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
+          </button>
+
+          {moreMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setMoreMenuOpen(false)} />
+              <div className="absolute left-[216px] top-44 z-40 w-44 rounded-2xl border border-zinc-200 bg-white shadow-xl p-1.5 space-y-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoreMenuOpen(false)
+                    setActiveView('chat')
+                    setWorkbenchOpen(true)
+                    setWorkbenchTab('preview')
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                  <span>AI 工作台画布</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMoreMenuOpen(false)
+                    setInitialToolboxCode(null)
+                    setActiveView('toolbox')
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 text-zinc-600" />
+                  <span>43 项工具箱</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="px-2.5 pt-2.5 pb-1.5">
@@ -816,6 +970,17 @@ export const App: React.FC = () => {
             onSubmitFeature={handleSubmitFeature}
             onFillComposer={handleFillFeature}
           />
+        ) : activeView === 'library' ? (
+          <LocalLibraryView
+            slices={slices}
+            recentFiles={recentFiles}
+            onPreview={(p, t) => openFilePreview(p, t)}
+            onAttachToNewTask={(att) => {
+              setActiveView('chat')
+              setComposerMode('image')
+              appendAttachedFiles([att])
+            }}
+          />
         ) : (
         <>
         <header className="h-11 px-4 border-b border-zinc-100 bg-white flex items-center justify-between gap-3 shrink-0">
@@ -872,253 +1037,57 @@ export const App: React.FC = () => {
           </div>
         </header>
 
-        <div className="flex-1 min-h-0 relative flex flex-col">
-          <div
-            ref={scrollContainerRef}
-            onScroll={(e) => {
-              const el = e.currentTarget
-              setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 64)
-            }}
-            className="flex-1 min-h-0 overflow-y-auto px-4 py-6"
-          >
-            <div className="max-w-[780px] mx-auto space-y-6">
-              {turns.length === 0 ? (
-                <div className="py-10 space-y-6">
-                  <div className="text-center space-y-2">
-                    <h1 className="text-xl font-semibold text-zinc-900">
-                      有什么空间设计、图纸解析或三维建模任务？
-                    </h1>
-                    <p className="text-xs text-zinc-500">
-                      内置 CAD 框选批注、3D 视口打点、PDF/Excel/Word/PPTX 原生预览、7 大设计软件 MCP 与本地建筑规范检索
-                    </p>
-                  </div>
-
-                  {!hasApiKey && (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3.5 flex items-center justify-between gap-3 text-xs text-amber-900">
-                      <span>
-                        开始对话前，请先填入你自己的大模型 API Key（支持 DeepSeek / 通义千问 / OpenAI / Claude 等任意接口）。
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setSettingsModalOpen(true)}
-                        className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium shrink-0 cursor-pointer"
-                      >
-                        立即配置 API
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {QUICK_SCENES.map((sc, i) => {
-                      const Icon = sc.icon
-                      const matchingPreset = TOOLBOX_PRESETS[i]
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => {
-                            if (matchingPreset) {
-                              setActiveScenePreset(matchingPreset)
-                              const defaults: Record<string, string> = {}
-                              for (const p of matchingPreset.params) defaults[p.name] = p.defaultValue
-                              setSceneParamValues(defaults)
-                              setInputText(sc.prompt)
-                            } else {
-                              void handleSend(sc.prompt)
-                            }
-                          }}
-                          className="group p-4 rounded-2xl border border-zinc-200/90 bg-white text-left hover:border-blue-400 hover:shadow-sm transition-all cursor-pointer space-y-1.5"
-                        >
-                          <div className="flex items-center gap-2 text-xs font-semibold text-zinc-900 group-hover:text-blue-600">
-                            <Icon className="w-4 h-4 text-blue-600" />
-                            <span>{sc.title}</span>
-                          </div>
-                          <p className="text-[11px] text-zinc-500 leading-relaxed">{sc.desc}</p>
-                        </button>
-                      )
-                    })}
-                  </div>
-
-                  <div className="flex justify-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInitialToolboxCode(null)
-                        setActiveView('toolbox')
-                      }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-zinc-200 bg-white hover:border-blue-400 hover:text-blue-600 text-xs font-medium text-zinc-600 transition-colors cursor-pointer"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span>浏览全部 43 项专业设计工作流与结构化表单 →</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                turns.map((item, idx) =>
-                  item.role === 'user' ? (
-                    <div key={item.id} className="flex flex-col items-end gap-2">
-                      {((item.attachments && item.attachments.length > 0) ||
-                        (item.annotations && item.annotations.length > 0) ||
-                        (item.conversationRefs && item.conversationRefs.length > 0) ||
-                        (item.mcp && item.mcp.length > 0)) && (
-                        <div className="flex flex-wrap justify-end gap-1.5 max-w-[78%]">
-                          {item.mcp?.map((m, i) => (
-                            <span
-                              key={`m_${i}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800"
-                            >
-                              🔌 {m.label}
-                            </span>
-                          ))}
-                          {item.conversationRefs?.map((c, i) => (
-                            <span
-                              key={`c_${i}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-[11px] text-indigo-800"
-                            >
-                              💬 引用：{c.title}
-                            </span>
-                          ))}
-                          {item.annotations?.map((ann, i) => (
-                            <span
-                              key={`ann_${i}`}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-800"
-                            >
-                              📍 {ann.title} · {ann.count} 条批注
-                            </span>
-                          ))}
-                          {item.attachments?.map((att, i) => (
-                            <button
-                              key={`att_${i}`}
-                              type="button"
-                              onClick={() => openFilePreview(att.path, att.name)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#f4f4f5] border border-zinc-200/80 text-[11px] text-zinc-700 hover:bg-zinc-200/70 cursor-pointer"
-                            >
-                              📎 {att.name}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                      {item.text && (
-                        <div className="max-w-[78%] rounded-2xl bg-[#f4f4f5] text-zinc-900 px-4 py-3 text-[14px] leading-relaxed">
-                          <div className="whitespace-pre-wrap break-words">{item.text}</div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <AssistantTurnView
-                      key={item.id}
-                      turn={item}
-                      isLastTurn={idx === turns.length - 1}
-                      onPreviewDeliverable={(path, title) => openFilePreview(path, title)}
-                      onPickSuggestion={(sugText) => setInputText(sugText)}
-                      onContinueInterrupted={() =>
-                        void handleSend('请从上次中断的步骤继续执行剩余任务。')
-                      }
-                      onRetry={() => {
-                        const prevUser = [...turns.slice(0, idx)]
-                          .reverse()
-                          .find((t) => t.role === 'user')
-                        if (prevUser && prevUser.role === 'user') {
-                          void sendMessage({
-                            text: prevUser.text,
-                            attachments: prevUser.attachments,
-                            annotations: prevUser.annotations,
-                            conversationRefs: prevUser.conversationRefs,
-                            sceneParam: prevUser.sceneParam
-                          })
-                        }
-                      }}
-                    />
-                  )
-                )
-              )}
-              <div ref={scrollBottomRef} />
-            </div>
-          </div>
-
-          {!atBottom && turns.length > 0 && (
-            <button
-              type="button"
-              onClick={() => scrollBottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
-              aria-label="回到底部"
-              className="absolute left-1/2 -translate-x-1/2 bottom-3 z-20 w-8 h-8 rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 shadow-sm flex items-center justify-center cursor-pointer transition-colors"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* 输入框及贴合挂件区（对齐知末原版 TaskDetail + TodoBar + ComposerShell） */}
         {(() => {
           const replacesComposer = Boolean(pendingAskUser || pendingImageEdit)
+          const isHomeEmpty = turns.length === 0 && !replacesComposer && !pendingInterrupt
           const showTodoBar =
-            latestTodos.length > 0 && !pendingInterrupt && !replacesComposer && !sendError
-          return (
-            <div className="max-w-[780px] w-full mx-auto">
-              {sendError && (
-                <div className="px-4 pb-2">
-                  <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs text-rose-700 flex items-center justify-between">
-                    <span>{sendError}</span>
-                    <button
-                      type="button"
-                      onClick={() => setSendError(null)}
-                      className="text-rose-500 hover:text-rose-800 cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
+            !isHomeEmpty &&
+            latestTodos.length > 0 &&
+            !pendingInterrupt &&
+            !replacesComposer &&
+            !sendError
+          const templateAttachment = attachments.find((a) => a.role === 'ppt_template')
+          const headline = MODE_HEADLINE[composerMode]
+          const activeProj = projects.find(
+            (p) => p.id === (activeTask?.projectId ?? activeProjectId)
+          )
 
-              {showTodoBar && (
-                <TodoBar
-                  todos={latestTodos}
-                  running={running}
-                  attached={!replacesComposer}
-                  open={todoOpen}
-                  onOpenChange={setTodoOpen}
-                />
-              )}
-
-              {pendingInterrupt && activeTaskId && (
-                <InterruptCard
-                  message={pendingInterrupt.message}
-                  delta={pendingInterrupt.delta}
-                  actions={pendingInterrupt.actions}
-                  onDecide={(decision) => void resolveInterrupt(activeTaskId, decision)}
-                />
-              )}
-
-              {pendingAskUser && activeTaskId && (
-                <ClarifyCard
-                  questions={pendingAskUser.questions}
-                  interaction={pendingAskUser.interaction}
-                  onSubmit={(answers) => void submitUserAnswer(activeTaskId, answers)}
-                />
-              )}
-
-              {!replacesComposer && (
-                <div
-                  className="px-4 pb-4"
-                  onDragOver={(e) => {
-                    e.preventDefault()
-                    setDragOver(true)
-                  }}
-                  onDragLeave={() => setDragOver(false)}
-                  onDrop={handleDropFiles}
-                >
-                  <div
-                    className={clsx(
-                      'border bg-white transition-colors px-4 pt-3 pb-2.5',
-                      showTodoBar
-                        ? 'rounded-t-none rounded-b-[20px] shadow-[0_2px_10px_rgba(0,0,0,0.04)]'
-                        : 'rounded-[20px] shadow-[0_2px_12px_rgba(0,0,0,0.05)]',
-                      dragOver
-                        ? 'border-blue-500 ring-2 ring-blue-200 bg-blue-50/20'
-                        : 'border-zinc-200/90 focus-within:border-zinc-300'
-                    )}
-                  >
-                    {(attachments.length > 0 ||
+          const composerCard = !replacesComposer ? (
+            <div
+              className={clsx(isHomeEmpty ? '' : 'px-4 pb-4')}
+              onDragOver={(e) => {
+                e.preventDefault()
+                setDragOver(true)
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDropFiles}
+            >
+              <div
+                className={clsx(
+                  'border bg-white transition-colors px-4 pt-3 pb-2.5',
+                  showTodoBar
+                    ? 'rounded-t-none rounded-b-[20px] shadow-[0_2px_10px_rgba(0,0,0,0.04)]'
+                    : 'rounded-[20px] shadow-[0_2px_14px_rgba(0,0,0,0.05)]',
+                  dragOver
+                    ? 'border-blue-500 ring-2 ring-blue-200 bg-blue-50/20'
+                    : 'border-zinc-200/90 focus-within:border-zinc-300'
+                )}
+              >
+                {composerMode === 'report' && isHomeEmpty && (
+                  <ReportTemplateSlot
+                    templateAtt={templateAttachment}
+                    onPickTemplate={() => void handlePickFiles('ppt_template')}
+                    onClearTemplate={() =>
+                      setAttachments((prev) => prev.filter((a) => a.role !== 'ppt_template'))
+                    }
+                    onHelperPrompt={() =>
+                      setInputText(
+                        '请结合附件资料为我策划并制作一套 12-16 页（16:9）可编辑设计汇报 PPT：包含项目定位、场地/现状分析、平面功能分区、核心空间效果图及关键做法对比。'
+                      )
+                    }
+                  />
+                )}
+                {(attachments.length > 0 ||
                       draftAnnotations.length > 0 ||
                       draftConversationRefs.length > 0 ||
                       pptSelection ||
@@ -1232,7 +1201,7 @@ export const App: React.FC = () => {
                     )}
 
                     <textarea
-                      rows={2}
+                      rows={isHomeEmpty ? 3 : 2}
                       value={inputText}
                       disabled={Boolean(pendingInterrupt)}
                       onChange={(e) => setInputText(e.target.value)}
@@ -1248,7 +1217,7 @@ export const App: React.FC = () => {
                           ? '请先在上方卡片完成操作授权…'
                           : running
                             ? '当前有任务进行中…'
-                            : '给智能体发消息… (Enter 发送，Shift+Enter 换行)'
+                            : MODE_PLACEHOLDER[composerMode]
                       }
                       className="w-full resize-none bg-transparent text-[14px] text-zinc-900 placeholder:text-zinc-400 outline-none max-h-40 leading-relaxed"
                     />
@@ -1504,6 +1473,14 @@ export const App: React.FC = () => {
                           )}
                         </div>
 
+                        {isHomeEmpty && composerMode === 'modeling' ? (
+                          <ModelingMcpStrip
+                            connectors={mcpConnectors}
+                            onToggle={(name, en) => void toggleMcpConnector(name, en)}
+                          />
+                        ) : isHomeEmpty && composerMode === 'regulation' ? (
+                          <RegulationScopeStrip scope={regScope} onChange={setRegScope} />
+                        ) : (
                         <div className="relative">
                           <button
                             type="button"
@@ -1566,6 +1543,7 @@ export const App: React.FC = () => {
                             </>
                           )}
                         </div>
+                        )}
                       </div>
 
                       {/* 右侧：模型选择菜单 + 圆形发送/停止钮 */}
@@ -1730,7 +1708,303 @@ export const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              )}
+          ) : null
+
+          if (isHomeEmpty) {
+            return (
+              <div className="flex-1 min-h-0 overflow-y-auto px-4 py-8">
+                <div className="max-w-[840px] mx-auto space-y-5">
+                  <div className="text-center space-y-1.5 pt-2">
+                    <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">
+                      {headline.title}
+                    </h1>
+                    <p className="text-xs text-zinc-500">{headline.subtitle}</p>
+                  </div>
+
+                  {/* 顶部 5 大模式切换胶囊（通用 / 生图 / 建模 / 汇报 / 查规范） */}
+                  <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                    {MODE_TABS.map((m) => {
+                      const Icon = m.icon
+                      const active = composerMode === m.id
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => setComposerMode(m.id)}
+                          className={clsx(
+                            'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs border transition-all cursor-pointer',
+                            active
+                              ? 'bg-white border-zinc-300 text-zinc-900 font-semibold shadow-xs'
+                              : 'bg-transparent border-transparent text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/80'
+                          )}
+                        >
+                          <Icon className="w-3.5 h-3.5" />
+                          <span>{m.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {!hasApiKey && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3 flex items-center justify-between gap-3 text-xs text-amber-900">
+                      <span>
+                        开始对话前，请先配置模型 API Key（可在输入框右下角点击「请配置模型」直接选用已识别配置）。
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSettingsModalOpen(true)}
+                        className="px-3 py-1.5 rounded-lg bg-zinc-900 text-white font-medium shrink-0 cursor-pointer"
+                      >
+                        立即配置
+                      </button>
+                    </div>
+                  )}
+
+                  {sendError && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs text-rose-700 flex items-center justify-between">
+                      <span>{sendError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSendError(null)}
+                        className="text-rose-500 hover:text-rose-800 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    {composerCard}
+                    <div className="flex items-center gap-4 px-2 text-xs text-zinc-500">
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateProject()}
+                        className="inline-flex items-center gap-1.5 hover:text-zinc-900 cursor-pointer"
+                        title="绑定或切换当前项目目录"
+                      >
+                        <FolderPlus className="w-3.5 h-3.5" />
+                        <span>{activeProj ? `项目：${activeProj.name}` : '进入项目工作'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void setPermissionMode(permissionMode === 'auto' ? 'default' : 'auto')
+                        }
+                        className={clsx(
+                          'inline-flex items-center gap-1 cursor-pointer',
+                          permissionMode === 'auto'
+                            ? 'text-amber-600 font-medium'
+                            : 'text-zinc-600 hover:text-zinc-900'
+                        )}
+                      >
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>{permissionMode === 'auto' ? '完全访问' : '默认权限'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <ModeEcosystemPanel
+                      mode={composerMode}
+                      quickScenes={QUICK_SCENES}
+                      recentFiles={recentFiles}
+                      regulationStats={regulationStats}
+                      onOpenCatalogFeature={handleOpenFeatureCode}
+                      onOpenAllToolbox={() => {
+                        setInitialToolboxCode(null)
+                        setActiveView('toolbox')
+                      }}
+                      onQuickPrompt={(p, toolTitle, _autoSend, presetScene) => {
+                        setInputText(p)
+                        if (toolTitle) {
+                          setActiveScenePreset({
+                            id: presetScene?.id || 'mode-quick',
+                            category: '场景工具',
+                            title: toolTitle,
+                            desc: '',
+                            prompt: p,
+                            params: presetScene?.params ?? []
+                          })
+                          setSceneParamValues(presetScene?.values ?? {})
+                        }
+                        if (presetScene?.targetHost) {
+                          const targetConn = mcpConnectors.find((c) => c.name === presetScene.targetHost)
+                          if (targetConn && !targetConn.enabled) {
+                            void toggleMcpConnector(targetConn.name, true)
+                          }
+                        }
+                      }}
+                      onPickTemplate={() => void handlePickFiles('ppt_template')}
+                      onSelectLocalTemplate={(rf) =>
+                        appendAttachedFiles([
+                          {
+                            path: rf.path,
+                            name: rf.name,
+                            kind: 'file',
+                            size: rf.size,
+                            role: 'ppt_template'
+                          }
+                        ])
+                      }
+                      onOpenRegulationSettings={() => setSettingsModalOpen(true)}
+                      onRefreshRegulationStats={() => void refreshRegulationStats()}
+                    />
+                  </div>
+                </div>
+              </div>
+            )
+          }
+
+          return (
+            <div className="flex-1 min-h-0 relative flex flex-col">
+              <div className="flex-1 min-h-0 relative flex flex-col">
+                <div
+                  ref={scrollContainerRef}
+                  onScroll={(e) => {
+                    const el = e.currentTarget
+                    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 64)
+                  }}
+                  className="flex-1 min-h-0 overflow-y-auto px-4 py-6"
+                >
+                  <div className="max-w-[780px] mx-auto space-y-6">
+                    {turns.map((item, idx) =>
+                      item.role === 'user' ? (
+                        <div key={item.id} className="flex flex-col items-end gap-2">
+                          {((item.attachments && item.attachments.length > 0) ||
+                            (item.annotations && item.annotations.length > 0) ||
+                            (item.conversationRefs && item.conversationRefs.length > 0) ||
+                            (item.mcp && item.mcp.length > 0)) && (
+                            <div className="flex flex-wrap justify-end gap-1.5 max-w-[78%]">
+                              {item.mcp?.map((m, i) => (
+                                <span
+                                  key={`m_${i}`}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800"
+                                >
+                                  🔌 {m.label}
+                                </span>
+                              ))}
+                              {item.conversationRefs?.map((c, i) => (
+                                <span
+                                  key={`c_${i}`}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-[11px] text-indigo-800"
+                                >
+                                  💬 引用：{c.title}
+                                </span>
+                              ))}
+                              {item.annotations?.map((ann, i) => (
+                                <span
+                                  key={`ann_${i}`}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-[11px] text-blue-800"
+                                >
+                                  📍 {ann.title} · {ann.count} 条批注
+                                </span>
+                              ))}
+                              {item.attachments?.map((att, i) => (
+                                <button
+                                  key={`att_${i}`}
+                                  type="button"
+                                  onClick={() => openFilePreview(att.path, att.name)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#f4f4f5] border border-zinc-200/80 text-[11px] text-zinc-700 hover:bg-zinc-200/70 cursor-pointer"
+                                >
+                                  📎 {att.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {item.text && (
+                            <div className="max-w-[78%] rounded-2xl bg-[#f4f4f5] text-zinc-900 px-4 py-3 text-[14px] leading-relaxed">
+                              <div className="whitespace-pre-wrap break-words">{item.text}</div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <AssistantTurnView
+                          key={item.id}
+                          turn={item}
+                          isLastTurn={idx === turns.length - 1}
+                          onPreviewDeliverable={(path, title, opts) => openFilePreview(path, title, opts)}
+                          onPickSuggestion={(sugText) => setInputText(sugText)}
+                          onContinueInterrupted={() =>
+                            void handleSend('请从上次中断的步骤继续执行剩余任务。')
+                          }
+                          onRetry={() => {
+                            const prevUser = [...turns.slice(0, idx)]
+                              .reverse()
+                              .find((t) => t.role === 'user')
+                            if (prevUser && prevUser.role === 'user') {
+                              void sendMessage({
+                                text: prevUser.text,
+                                attachments: prevUser.attachments,
+                                annotations: prevUser.annotations,
+                                conversationRefs: prevUser.conversationRefs,
+                                sceneParam: prevUser.sceneParam
+                              })
+                            }
+                          }}
+                        />
+                      )
+                    )}
+                    <div ref={scrollBottomRef} />
+                  </div>
+                </div>
+
+                {!atBottom && turns.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => scrollBottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
+                    aria-label="回到底部"
+                    className="absolute left-1/2 -translate-x-1/2 bottom-3 z-20 w-8 h-8 rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 shadow-sm flex items-center justify-center cursor-pointer transition-colors"
+                  >
+                    <ChevronDown className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              <div className="max-w-[780px] w-full mx-auto">
+                {sendError && (
+                  <div className="px-4 pb-2">
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs text-rose-700 flex items-center justify-between">
+                      <span>{sendError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSendError(null)}
+                        className="text-rose-500 hover:text-rose-800 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {showTodoBar && (
+                  <TodoBar
+                    todos={latestTodos}
+                    running={running}
+                    attached={!replacesComposer}
+                    open={todoOpen}
+                    onOpenChange={setTodoOpen}
+                  />
+                )}
+
+                {pendingInterrupt && activeTaskId && (
+                  <InterruptCard
+                    message={pendingInterrupt.message}
+                    delta={pendingInterrupt.delta}
+                    actions={pendingInterrupt.actions}
+                    onDecide={(decision) => void resolveInterrupt(activeTaskId, decision)}
+                  />
+                )}
+
+                {pendingAskUser && activeTaskId && (
+                  <ClarifyCard
+                    questions={pendingAskUser.questions}
+                    interaction={pendingAskUser.interaction}
+                    onSubmit={(answers) => void submitUserAnswer(activeTaskId, answers)}
+                  />
+                )}
+
+                {composerCard}
+              </div>
             </div>
           )
         })()}

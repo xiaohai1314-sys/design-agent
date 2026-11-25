@@ -11,6 +11,8 @@ files:
 extraResources:
   - from: resources/skills
     to: skills
+  - from: resources/presets
+    to: presets
   - from: resources/regulations
     to: regulations
   - from: resources/mcp

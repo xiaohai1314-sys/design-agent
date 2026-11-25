@@ -39,6 +39,11 @@ import { McpConnectorManager } from './mcpManager'
 import { applyPptProposalToFile } from './pptPatcher'
 import { discoverCcSwitchCandidates, testModelProfileConnection } from './ccSwitchService'
 import { discoverSkills } from '../runtime/prompts'
+import {
+  capturePreEditSnapshot,
+  listFileSnapshots,
+  restoreFileSnapshot
+} from '@shared/fileSnapshots'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -217,6 +222,7 @@ function registerIpcHandlers(): void {
   )
 
   ipcMain.handle(IPC_CHANNELS.SkillsList, () => discoverSkills(join(resolveResourcesDir(), 'skills')))
+  ipcMain.handle(IPC_CHANNELS.RegulationStats, () => store.getRegulationStats())
 
   ipcMain.handle(IPC_CHANNELS.McpListConnectors, () => mcpManager.listConnectors())
   ipcMain.handle(
@@ -474,14 +480,36 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.FilesSaveText,
-    (_e, payload: { filePath: string; content: string }) => {
+    (_e, payload: { filePath: string; content: string; rootDir?: string }) => {
       try {
+        capturePreEditSnapshot({
+          targetPath: payload.filePath,
+          rootDir: payload.rootDir,
+          sourceTool: 'manual_edit',
+          summary: '工作台编辑器手动保存'
+        })
         writeFileSync(payload.filePath, payload.content, 'utf8')
         return { ok: true }
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) }
       }
     }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.FilesListSnapshots,
+    (_e, payload: { filePath: string; rootDir?: string }) =>
+      listFileSnapshots({ filePath: payload.filePath, rootDir: payload.rootDir })
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.FilesRestoreSnapshot,
+    (_e, payload: { filePath: string; snapshotId: string; rootDir?: string }) =>
+      restoreFileSnapshot({
+        filePath: payload.filePath,
+        snapshotId: payload.snapshotId,
+        rootDir: payload.rootDir
+      })
   )
 
   ipcMain.handle(IPC_CHANNELS.AgentSend, async (_e, payload: SendMessagePayload) => {
@@ -714,6 +742,7 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
   const userData = app.getPath('userData')
   const resourcesDir = resolveResourcesDir()
   const skillsRoot = join(resourcesDir, 'skills')
+  const presetsRoot = join(resourcesDir, 'presets')
   const runtimeDir = join(resourcesDir, 'runtime')
 
   store = new LocalAppStore(userData, app.getPath('documents'), resourcesDir)
@@ -723,6 +752,7 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
 
   runtimeHost = new AgentRuntimeHost({
     skillsRoot,
+    presetsRoot,
     workspacesDir: store.getWorkspacesDir(),
     runtimeDir
   })

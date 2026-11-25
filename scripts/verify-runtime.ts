@@ -23,6 +23,17 @@ import {
   filterFeatures
 } from '../src/renderer/src/features/taskForm/compose'
 import { buildSystemMessage, offloadLargeToolOutput } from '../src/runtime/checkpoint'
+import {
+  listFileSnapshots,
+  recordImageLineageSnapshot,
+  restoreFileSnapshot
+} from '../src/shared/fileSnapshots'
+import { createLocalRegulationTool } from '../src/runtime/tools/regulationTool'
+import {
+  buildModelingPresetDirective,
+  discoverModelingPresets,
+  matchModelingPreset
+} from '../src/runtime/presets'
 import { selectToolsForSubagentRole } from '../src/runtime/tools/asyncSubagents'
 import { createImageTools } from '../src/runtime/tools/imageTools'
 import { createDeferredMcpTools, connectMcpServers } from '../src/runtime/tools/mcpBridge'
@@ -843,7 +854,158 @@ experimental_bearer_token = "sk-test-token"
     throw new Error(`composeFeatureSubmission mismatch: ${JSON.stringify(sub)}`)
   }
 
-  console.log('✅ [Hardening] ZNZMO.md protection + Tool Output Offload + Anthropic Cache + MCP hostState + Subagent Role Scoping + CC Switch Multi-Model / Unified Image + Empty Preset Stripping + Todo Settlement + 43-Task Forms PASSED!')
+  // 10. P1 SketchUp 住宅客厅预置建模工程包校验（脚本/贴图/参数解析/提示词指令 + 窗口拖拽区回归）
+  const presetsRoot = resolve('resources/presets')
+  const presetSkillsRoot = resolve('resources/skills')
+  const discoveredPresets = discoverModelingPresets(presetsRoot, presetSkillsRoot)
+  const suPreset = discoveredPresets.find((p) => p.id === 'living-room-modeling-v1')
+  if (!suPreset) {
+    throw new Error('living-room-modeling-v1 preset not discovered!')
+  }
+  const requiredScripts = ['run.rb', 'finish.rb', 'architecture.rb', 'furniture.rb', 'decor.rb', 'refine.rb']
+  for (const fname of requiredScripts) {
+    const fpath = join(suPreset.presetDir, 'scripts', fname)
+    if (!existsSync(fpath)) throw new Error(`Missing preset script: ${fpath}`)
+  }
+  for (const tex of ['oak_wood.png', 'walnut_wood.png', 'terrazzo_stone.png', 'microcement_plaster.png', 'linen_fabric.png', 'boucle_rug.png']) {
+    const tpath = join(suPreset.presetDir, 'textures', tex)
+    const buf = readFileSync(tpath)
+    if (buf.length < 64 || buf[0] !== 0x89 || buf[1] !== 0x50 || buf[2] !== 0x4e || buf[3] !== 0x47) {
+      throw new Error(`Invalid PNG texture in preset: ${tpath}`)
+    }
+  }
+  const matchedExplicit = matchModelingPreset(discoveredPresets, {
+    text: '生成一个新中式 5.2x7.0m 客厅模型',
+    sceneParam: {
+      toolTitle: '照图建模',
+      paramValues: { 预置包: 'living-room-modeling-v1', 建模软件: 'SketchUp' }
+    }
+  })
+  const matchedNatural = matchModelingPreset(discoveredPresets, {
+    text: '在 SketchUp 里帮我建一个 5.2米x7米 侘寂原木风住宅客厅白模'
+  })
+  const skippedRenderOnly = matchModelingPreset(discoveredPresets, {
+    text: '帮我画一张现代简约客厅夜景效果图'
+  })
+  if (!matchedExplicit || !matchedNatural || skippedRenderOnly) {
+    throw new Error(
+      `Preset matching logic mismatch: explicit=${Boolean(matchedExplicit)}, natural=${Boolean(matchedNatural)}, renderOnly=${Boolean(skippedRenderOnly)}`
+    )
+  }
+  const directive = buildModelingPresetDirective(suPreset, {
+    text: '新中式 5.2m x 7.0m 层高 3.0m',
+    skillsRoot: presetSkillsRoot
+  })
+  if (
+    !directive.includes("load '") ||
+    !directive.includes('LivingRoomPreset.build(') ||
+    !directive.includes("style: 'new_chinese'") ||
+    !directive.includes('width_mm: 5200') ||
+    !directive.includes('depth_mm: 7000')
+  ) {
+    throw new Error(`Unexpected preset directive output: ${directive}`)
+  }
+
+  const globalsCss = readFileSync(resolve('src/renderer/src/styles/globals.css'), 'utf8')
+  const appTsx = readFileSync(resolve('src/renderer/src/App.tsx'), 'utf8')
+  if (!globalsCss.includes('.app-drag-region') || !appTsx.includes('flex-1 h-full min-w-[64px] app-drag-region')) {
+    throw new Error('Frameless window drag spacer regression detected!')
+  }
+
+  // 11. P2 本地规范库 SQLite FTS5 持久化索引 + 单位等价 + 效力替代 + 页码定位校验
+  const regSandbox = join(tempRoot, 'reg-fts-test')
+  mkdirSync(regSandbox, { recursive: true })
+  writeFileSync(
+    join(regSandbox, 'GB50016-2014《建筑设计防火规范》.md'),
+    [
+      '5.5.18 除本规范另有规定外，公共建筑内疏散门和安全出口的净宽度不应小于 0.90m，面积大于 200m² 的房间应设两个疏散门。',
+      '',
+      '5.5.180 干扰测试条号不得命中 5.5.18。'
+    ].join('\n'),
+    'utf8'
+  )
+  writeFileSync(
+    join(regSandbox, 'GB55037-2022《建筑防火通用规范》.md'),
+    '7.1.4 公共建筑内每个防火分区或一个防火分区的每个楼层，其安全出口的数量应经计算确定，且不应少于2个。房间建筑面积大于 200㎡ 时至少设两个疏散门。',
+    'utf8'
+  )
+  let capturedRegData: { retrievedChunks: Array<{ standardNo: string; pageNo?: number; supersededBy?: string; clauseId: string }> } | null = null
+  const regTool = createLocalRegulationTool({
+    regulationFolder: regSandbox,
+    pythonExe: resolve('resources/runtime/python/python.exe'),
+    recordToolData: (_id, d) => {
+      capturedRegData = d
+    }
+  })
+  // 测试工程单位等价：查 200平方米 应命中文本中的 200m² 与 200㎡，且 GB 55037 通用规范排位高于已替代强条 GB 50016，且带 pageNo & supersededBy
+  const unitOut = String(await regTool.invoke({ query: '200平方米 疏散门' }))
+  const unitJson = JSON.parse(unitOut) as {
+    engine?: string
+    chunks: Array<{ standardNo: string; pageNo?: number; supersededBy?: string; clauseId: string }>
+  }
+  if (
+    unitJson.engine !== 'sqlite-fts5' ||
+    !existsSync(join(regSandbox, '.zmo-reg-index.db')) ||
+    unitJson.chunks.length < 2 ||
+    !unitJson.chunks.some((c) => c.standardNo.includes('55037')) ||
+    !unitJson.chunks.some((c) => c.supersededBy?.includes('GB 55037-2022')) ||
+    !capturedRegData?.retrievedChunks?.every((c) => typeof c.pageNo === 'number' && c.pageNo >= 1)
+  ) {
+    throw new Error(`Native FTS5 regulation search failed: ${unitOut}`)
+  }
+  // 测试排除词 -55037 过滤
+  const excludeOut = JSON.parse(String(await regTool.invoke({ query: '疏散门 -55037' }))) as {
+    chunks: Array<{ standardNo: string }>
+  }
+  if (excludeOut.chunks.some((c) => c.standardNo.includes('55037'))) {
+    throw new Error('Negative term exclusion (-55037) failed!')
+  }
+
+  // 12. P2 Before/After 文件级快照、图生图血缘记录与可逆一键回滚校验
+  const snapSandbox = join(tempRoot, 'snap-test')
+  mkdirSync(snapSandbox, { recursive: true })
+  const snapTools = createWorkspaceTools({
+    rootDir: snapSandbox,
+    signal: new AbortController().signal,
+    requireApproval: async () => {},
+    recordToolData: () => {},
+    onTodosChange: () => {}
+  })
+  const snapWrite = snapTools.find((t) => t.name === 'write_file')!
+  const snapEdit = snapTools.find((t) => t.name === 'edit_file')!
+  await snapWrite.invoke({ file_path: 'living_room.rb', content: "style = 'modern'\nwidth = 4800\n" })
+  await snapEdit.invoke({ file_path: 'living_room.rb', old_string: "style = 'modern'", new_string: "style = 'new_chinese'" })
+  await snapWrite.invoke({ file_path: 'living_room.rb', content: "style = 'wabi'\nwidth = 5200\n" })
+  const snaps = listFileSnapshots({ filePath: join(snapSandbox, 'living_room.rb'), rootDir: snapSandbox })
+  if (snaps.length < 2 || snaps[0].sourceTool !== 'write_file' || snaps[1].sourceTool !== 'edit_file') {
+    throw new Error(`Expected >=2 snapshots (write_file + edit_file), got ${JSON.stringify(snaps)}`)
+  }
+  const restoreRes = restoreFileSnapshot({
+    filePath: join(snapSandbox, 'living_room.rb'),
+    snapshotId: snaps[1].id,
+    rootDir: snapSandbox
+  })
+  const restoredText = readFileSync(join(snapSandbox, 'living_room.rb'), 'utf8')
+  const snapsAfterRollback = listFileSnapshots({ filePath: join(snapSandbox, 'living_room.rb'), rootDir: snapSandbox })
+  if (!restoreRes.ok || !restoredText.includes("style = 'modern'") || snapsAfterRollback[0]?.sourceTool !== 'pre_rollback') {
+    throw new Error(`Rollback failed or missing pre_rollback safety backup: ${restoredText}`)
+  }
+  const refImg = join(snapSandbox, 'before_render.png')
+  const editedImg = join(snapSandbox, 'after_render.png')
+  writeFileSync(refImg, Buffer.from(TINY_PNG_BASE64, 'base64'))
+  writeFileSync(editedImg, Buffer.from(TINY_PNG_BASE64, 'base64'))
+  recordImageLineageSnapshot({
+    afterPath: editedImg,
+    beforeRefPath: refImg,
+    rootDir: snapSandbox,
+    sourceTool: 'edit_image_with_ref',
+    summary: '改为暖光夜景'
+  })
+  const imgSnaps = listFileSnapshots({ filePath: editedImg, rootDir: snapSandbox })
+  if (imgSnaps.length !== 1 || !imgSnaps[0].beforeRefPath?.endsWith('before_render.png')) {
+    throw new Error(`Image lineage snapshot failed: ${JSON.stringify(imgSnaps)}`)
+  }
+  console.log('✅ [Hardening] ZNZMO.md protection + Tool Output Offload + Anthropic Cache + MCP hostState + Subagent Role Scoping + CC Switch Multi-Model / Unified Image + Empty Preset Stripping + Todo Settlement + 43-Task Forms + P1 SU Preset & Drag Fix + P2 FTS5 Regulation Engine + P2 Before/After Diff & Rollback PASSED!')
 }
 
 async function main(): Promise<void> {

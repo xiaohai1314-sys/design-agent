@@ -17,6 +17,7 @@ import {
   MessageSquareMore,
   Presentation,
   RotateCcw,
+  SplitSquareHorizontal,
   ThumbsDown,
   ThumbsUp,
   Wrench,
@@ -28,6 +29,7 @@ import type {
   AskImageEditToolData,
   AskUserToolData,
   Deliverable,
+  GenerateImageToolData,
   PptWorkbenchToolData,
   RegulationToolData,
   WebSearchToolData
@@ -113,7 +115,16 @@ const ImageThumbPreview: React.FC<{ path: string; title: string }> = ({ path, ti
   )
 }
 
-const ToolCallItem: React.FC<{ tc: ToolCallRecord }> = ({ tc }) => {
+type PreviewDeliverableFn = (
+  path: string,
+  title: string,
+  options?: { compareBeforePath?: string; compareMode?: boolean }
+) => void
+
+const ToolCallItem: React.FC<{ tc: ToolCallRecord; onPreviewDeliverable?: PreviewDeliverableFn }> = ({
+  tc,
+  onPreviewDeliverable
+}) => {
   const [expanded, setExpanded] = useState(false)
 
   const askData =
@@ -176,6 +187,13 @@ const ToolCallItem: React.FC<{ tc: ToolCallRecord }> = ({ tc }) => {
       ? (tc.toolData as PptWorkbenchToolData)
       : null
 
+  const genImageData =
+    tc.toolData &&
+    typeof tc.toolData === 'object' &&
+    (tc.toolData as { kind?: string }).kind === 'generate_image'
+      ? (tc.toolData as GenerateImageToolData)
+      : null
+
   return (
     <div className="rounded-lg border border-zinc-200/70 bg-zinc-50/60 overflow-hidden">
       <button
@@ -225,6 +243,36 @@ const ToolCallItem: React.FC<{ tc: ToolCallRecord }> = ({ tc }) => {
         ) : (
           <span className="flex-1" />
         )}
+        {genImageData?.referenceImagePath && onPreviewDeliverable && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation()
+              const title = genImageData.imagePath.split(/[\\/]/).pop() || '局部重绘对比.png'
+              onPreviewDeliverable(genImageData.imagePath, title, {
+                compareBeforePath: genImageData.referenceImagePath,
+                compareMode: true
+              })
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                e.stopPropagation()
+                const title = genImageData.imagePath.split(/[\\/]/).pop() || '局部重绘对比.png'
+                onPreviewDeliverable(genImageData.imagePath, title, {
+                  compareBeforePath: genImageData.referenceImagePath,
+                  compareMode: true
+                })
+              }
+            }}
+            title="在工作台打开 Before / After 滑块对比"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 text-[10px] font-medium shrink-0"
+          >
+            <SplitSquareHorizontal className="w-3 h-3" />
+            <span>滑块对比</span>
+          </span>
+        )}
         <ChevronRight
           className={clsx(
             'w-3.5 h-3.5 text-zinc-400 transition-transform shrink-0',
@@ -239,10 +287,37 @@ const ToolCallItem: React.FC<{ tc: ToolCallRecord }> = ({ tc }) => {
             <div className="space-y-1.5">
               <div className="text-emerald-700 font-medium">检索命中的规范依据：</div>
               {regData.retrievedChunks.map((ch, idx) => (
-                <div key={idx} className="p-2 rounded bg-emerald-50/50 border border-emerald-100 space-y-0.5">
-                  <div className="font-semibold text-zinc-900">
-                    {ch.standardNo}《{ch.standardName}》第 {ch.clauseId} 条 · {ch.validityStatus}
+                <div key={idx} className="p-2 rounded bg-emerald-50/50 border border-emerald-100 space-y-1">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="font-semibold text-zinc-900">
+                      {ch.standardNo}《{ch.standardName}》
+                      {ch.clauseId ? ` 第 ${ch.clauseId} 条` : ''}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0 text-[10px]">
+                      {typeof ch.pageNo === 'number' && ch.pageNo > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-white border border-zinc-200 text-zinc-600 font-mono">
+                          P.{ch.pageNo}
+                        </span>
+                      )}
+                      <span
+                        className={clsx(
+                          'px-1.5 py-0.5 rounded font-medium',
+                          ch.validityStatus.includes('废止')
+                            ? 'bg-rose-100 text-rose-700'
+                            : ch.validityStatus.includes('替代')
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-emerald-100 text-emerald-800'
+                        )}
+                      >
+                        {ch.validityStatus}
+                      </span>
+                    </div>
                   </div>
+                  {(ch.supersededBy || ch.warningText) && (
+                    <div className="text-[10px] text-amber-800 bg-amber-50/90 border border-amber-200/80 rounded px-1.5 py-0.5">
+                      {ch.warningText || `部分强条已由 ${ch.supersededBy} 替代`}
+                    </div>
+                  )}
                   <div className="text-zinc-600 line-clamp-3">{ch.text}</div>
                 </div>
               ))}
@@ -428,7 +503,7 @@ const DeliverableCard: React.FC<DeliverableCardProps> = ({ item, onPreview }) =>
 interface AssistantTurnViewProps {
   turn: Extract<PersistedTurnItem, { role: 'assistant' }>
   isLastTurn: boolean
-  onPreviewDeliverable: (path: string, title: string) => void
+  onPreviewDeliverable: PreviewDeliverableFn
   onPickSuggestion: (text: string) => void
   onContinueInterrupted?: () => void
   onRetry?: () => void
@@ -548,7 +623,7 @@ export const AssistantTurnView: React.FC<AssistantTurnViewProps> = ({
               {turn.toolCalls.length > 0 && (
                 <div className="space-y-1.5">
                   {turn.toolCalls.map((tc) => (
-                    <ToolCallItem key={tc.id} tc={tc} />
+                    <ToolCallItem key={tc.id} tc={tc} onPreviewDeliverable={onPreviewDeliverable} />
                   ))}
                 </div>
               )}

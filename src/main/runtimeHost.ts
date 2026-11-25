@@ -17,6 +17,7 @@ export class AgentRuntimeHost extends EventEmitter {
   constructor(
     private readonly options: {
       skillsRoot: string
+      presetsRoot: string
       workspacesDir: string
       runtimeDir: string
     }
@@ -37,6 +38,7 @@ export class AgentRuntimeHost extends EventEmitter {
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
         ZMO_SKILLS_ROOT: this.options.skillsRoot,
+        ZMO_PRESETS_ROOT: this.options.presetsRoot,
         ZMO_WORKSPACES_DIR: this.options.workspacesDir,
         ZMO_RT_DIR: this.options.runtimeDir
       }

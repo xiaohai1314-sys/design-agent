@@ -104,9 +104,12 @@ export interface RegulationChunk {
   standardName: string
   standardNo: string
   clauseId: string
+  pageNo?: number
   text: string
   explanation?: string
   validityStatus: string
+  supersededBy?: string
+  warningText?: string
   isMandatory?: boolean
   sourceFile?: string
 }

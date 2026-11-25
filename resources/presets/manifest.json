@@ -1,0 +1,44 @@
+{
+  "presets": [
+    {
+      "id": "living-room-modeling-v1",
+      "title": "住宅客厅参数化精模包",
+      "targetHost": "sketchup",
+      "entryScript": "scripts/run.rb",
+      "invokeMethod": "LivingRoomPreset.build",
+      "sceneTools": [
+        "照图建模",
+        "参考还原三维建模",
+        "图纸转三维模型",
+        "三维参数化建模",
+        "三维模型深化",
+        "SketchUp / Blender 建模联动"
+      ],
+      "keywords": [
+        "客厅",
+        "客餐厅",
+        "住宅起居",
+        "沙发",
+        "电视背景墙",
+        "living room"
+      ],
+      "styles": {
+        "modern_minimal": "现代极简（浅灰微水泥墙+橡木地板+岩板电视墙）",
+        "new_chinese": "新中式（胡桃木格栅+素白肌理漆+山水意境挂画）",
+        "wabi_wood": "侘寂原木（暖米色艺术漆+原木地板+亚麻织物）",
+        "light_luxury": "轻奢商业（爵士白石材+拉丝香槟金+烟熏橡木）"
+      },
+      "defaultParams": {
+        "width_mm": 4800,
+        "depth_mm": 6400,
+        "height_mm": 2900,
+        "wall_thickness_mm": 200,
+        "style": "modern_minimal",
+        "include_balcony": true,
+        "include_furniture": true,
+        "include_decor": true
+      },
+      "description": "包含架构墙体/吊顶灯槽/阳台推拉门、模块化沙发茶几电视墙、软装挂画绿植、材质贴图、图层归类与双机位场景的完整 SketchUp Ruby 工程包。"
+    }
+  ]
+}
