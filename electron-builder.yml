@@ -1,0 +1,30 @@
+appId: com.designagent.desktop
+productName: DesignAgentDesktop
+copyright: Copyright © 2026 Design Agent Workspace
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - '!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
+  - '!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
+extraResources:
+  - from: resources/skills
+    to: skills
+  - from: resources/regulations
+    to: regulations
+  - from: resources/mcp
+    to: mcp
+  - from: resources/runtime
+    to: runtime
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

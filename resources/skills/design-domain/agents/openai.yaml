@@ -1,0 +1,4 @@
+interface:
+  display_name: '设计专业分析'
+  short_description: '基于项目原件与证据完成建筑室内空间组织和动线专业分析'
+  default_prompt: 'Use $design-domain to analyze this architecture or interior-design task from source evidence.'

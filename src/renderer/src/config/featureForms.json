@@ -1,0 +1,1870 @@
+{
+  "B1.1": {
+    "fields": [
+      {
+        "code": "B1.1.r0",
+        "label": "待解读资料",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传要解读的任务书或图纸",
+        "order": 1
+      },
+      {
+        "code": "B1.1.r1",
+        "label": "解读目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明要解读的内容范围与关注重点",
+        "order": 2
+      },
+      {
+        "code": "B1.1.o0",
+        "label": "关注问题",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写影响后续决策的关键问题",
+        "order": 3
+      },
+      {
+        "code": "B1.1.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  },
+  "B1.2": {
+    "fields": [
+      {
+        "code": "B1.2.r0",
+        "label": "分析对象与范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写需分析的场地建筑空间或设施范围",
+        "order": 1
+      },
+      {
+        "code": "B1.2.r1",
+        "label": "现状依据",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "上传图纸照片或填写现状说明",
+        "order": 2
+      },
+      {
+        "code": "B1.2.o0",
+        "label": "使用与运营情况",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明目前的使用情况及运营问题",
+        "order": 3
+      },
+      {
+        "code": "B1.2.o1",
+        "label": "历史变化及周边信息",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "补充场地历史变化与周边环境信息",
+        "order": 4
+      },
+      {
+        "code": "B1.2.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B1.3": {
+    "fields": [
+      {
+        "code": "B1.3.r0",
+        "label": "研究问题",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明要研究的市场、客群或案例问题",
+        "order": 1
+      },
+      {
+        "code": "B1.3.o0",
+        "label": "研究对象与范围",
+        "widget": "text",
+        "required": false,
+        "placeholder": "说明研究对象、所属领域及覆盖范围",
+        "order": 2
+      },
+      {
+        "code": "B1.3.o1",
+        "label": "研究参考文件",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传研究报告或填写已有调研资料",
+        "order": 3
+      },
+      {
+        "code": "B1.3.o2",
+        "label": "研究维度",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写要对比的面积、客群或运营模式",
+        "order": 4
+      },
+      {
+        "code": "B1.3.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B1.4": {
+    "fields": [
+      {
+        "code": "B1.4.r0",
+        "label": "项目基本情况",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传项目类型及现有情况",
+        "order": 1
+      },
+      {
+        "code": "B1.4.r1",
+        "label": "策划目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写项目定位与策划的策划目标",
+        "order": 2
+      },
+      {
+        "code": "B1.4.o0",
+        "label": "客群及市场资料",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明目标客群或上传市场调研资料",
+        "order": 3
+      },
+      {
+        "code": "B1.4.o1",
+        "label": "场地规模与资源约束",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写或上传场地规模与资源约束",
+        "order": 4
+      },
+      {
+        "code": "B1.4.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B2.1": {
+    "fields": [
+      {
+        "code": "B2.1.r0",
+        "label": "项目情况",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写项目背景或上传相关项目资料",
+        "order": 1
+      },
+      {
+        "code": "B2.1.r1",
+        "label": "设计目标与问题",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明本轮要解决的设计问题与目标",
+        "order": 2
+      },
+      {
+        "code": "B2.1.o0",
+        "label": "场地与人群资料",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明场地和人群特征或上传资料",
+        "order": 3
+      },
+      {
+        "code": "B2.1.o1",
+        "label": "案例与已有方案",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明参考案例或上传已有方案资料",
+        "order": 4
+      },
+      {
+        "code": "B2.1.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B2.2": {
+    "fields": [
+      {
+        "code": "B2.2.r0",
+        "label": "原始平面底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B2.2.r1",
+        "label": "功能与使用需求",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "说明空间用途、人数与所需功能",
+        "order": 2
+      },
+      {
+        "code": "B2.2.o0",
+        "label": "面积与尺寸要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写各功能面积、关键尺寸及单位",
+        "order": 3
+      },
+      {
+        "code": "B2.2.o1",
+        "label": "人流车流要求",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明人车出入口、动线或分流要求",
+        "order": 4
+      },
+      {
+        "code": "B2.2.o2",
+        "label": "交付类型",
+        "widget": "text",
+        "required": false,
+        "placeholder": "请文字说明本次平面布局的具体要求",
+        "order": 5
+      },
+      {
+        "code": "B2.2.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 6
+      }
+    ]
+  },
+  "B2.3": {
+    "fields": [
+      {
+        "code": "B2.3.r0",
+        "label": "设计对象与基本条件",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传空间体量及边界条件",
+        "order": 1
+      },
+      {
+        "code": "B2.3.r1",
+        "label": "空间形态目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写需新建比较或调整的核心关系",
+        "order": 2
+      },
+      {
+        "code": "B2.3.o0",
+        "label": "场地与功能关系",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明场地限制及各功能之间的关系",
+        "order": 3
+      },
+      {
+        "code": "B2.3.o1",
+        "label": "参考方向",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "描述希望保留的形态或上传参考图",
+        "order": 4
+      },
+      {
+        "code": "B2.3.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B2.4": {
+    "fields": [
+      {
+        "code": "B2.4.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B2.4.r1",
+        "label": "任务类型/领域",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写设计领域，如室内、建筑或景观",
+        "order": 2
+      },
+      {
+        "code": "B2.4.r2",
+        "label": "生成对象与范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "请填写需表现的空间、立面或建筑部分",
+        "order": 3
+      },
+      {
+        "code": "B2.4.o0",
+        "label": "空间类型",
+        "widget": "text",
+        "required": false,
+        "placeholder": "请填写需表现的空间类型如客厅",
+        "order": 4
+      },
+      {
+        "code": "B2.4.o1",
+        "label": "建筑层数",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写建筑总层数及需要表现的楼层",
+        "order": 5
+      },
+      {
+        "code": "B2.4.o2",
+        "label": "底图标注",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传底图标注或填写关键尺寸关系",
+        "order": 6
+      },
+      {
+        "code": "B2.4.o3",
+        "label": "材质风格参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明材质和风格偏好或上传参考图",
+        "order": 7
+      },
+      {
+        "code": "B2.4.o4",
+        "label": "目标视角",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "请填写目标视角或上传参考图",
+        "order": 8
+      },
+      {
+        "code": "B2.4.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 9
+      }
+    ]
+  },
+  "B2.5": {
+    "fields": [
+      {
+        "code": "B2.5.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B2.5.r1",
+        "label": "领域与空间类型",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写设计领域及空间的具体用途",
+        "order": 2
+      },
+      {
+        "code": "B2.5.o0",
+        "label": "风格细节偏好",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "输入风格偏好文字或上传参考图",
+        "order": 3
+      },
+      {
+        "code": "B2.5.o1",
+        "label": "周边环境补全",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写周边环境说明或上传参考文件",
+        "order": 4
+      },
+      {
+        "code": "B2.5.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B2.6": {
+    "fields": [
+      {
+        "code": "B2.6.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B2.6.r1",
+        "label": "领域与改造目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写需改善的外观材料功能或空间配置",
+        "order": 2
+      },
+      {
+        "code": "B2.6.o0",
+        "label": "改造区域、保留对象与现场限制",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写改造要求或上传现场照片",
+        "order": 3
+      },
+      {
+        "code": "B2.6.o1",
+        "label": "风格材料偏好",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传实景图或填写风格材料偏好",
+        "order": 4
+      },
+      {
+        "code": "B2.6.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B2.7": {
+    "fields": [
+      {
+        "code": "B2.7.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B2.7.r1",
+        "label": "空间类型",
+        "widget": "text",
+        "required": true,
+        "placeholder": "请填写本次空间类型及装修内容",
+        "order": 2
+      },
+      {
+        "code": "B2.7.o0",
+        "label": "风格材质参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传风格材质图或填写文字描述",
+        "order": 3
+      },
+      {
+        "code": "B2.7.o1",
+        "label": "家具需求与保留条件",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明家具需求及需要保留的设施",
+        "order": 4
+      },
+      {
+        "code": "B2.7.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B2.8": {
+    "fields": [
+      {
+        "code": "B2.8.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B2.8.r1",
+        "label": "空间类型",
+        "widget": "text",
+        "required": true,
+        "placeholder": "请填写空间类型以确定空间用途",
+        "order": 2
+      },
+      {
+        "code": "B2.8.o0",
+        "label": "风格材质软装参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传或填写风格材质软装参考",
+        "order": 3
+      },
+      {
+        "code": "B2.8.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  },
+  "B3.1": {
+    "fields": [
+      {
+        "code": "B3.1.r0",
+        "label": "转绘图纸",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B3.1.o0",
+        "label": "尺寸比例与单位",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写转绘比例、基准尺寸及单位",
+        "order": 2
+      },
+      {
+        "code": "B3.1.o1",
+        "label": "图层标注与版本要求",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写图层标注要求或上传参考文件",
+        "order": 3
+      },
+      {
+        "code": "B3.1.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  },
+  "B3.2": {
+    "fields": [
+      {
+        "code": "B3.2.r0",
+        "label": "已有图纸",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B3.2.r1",
+        "label": "深化目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明需深化的部位、内容和图纸深度",
+        "order": 2
+      },
+      {
+        "code": "B3.2.o0",
+        "label": "尺寸与材料基准",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明基准尺寸、材料或上传相关资料",
+        "order": 3
+      },
+      {
+        "code": "B3.2.o1",
+        "label": "图纸标准及关联专业资料",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明制图标准或上传关联专业资料",
+        "order": 4
+      },
+      {
+        "code": "B3.2.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.3": {
+    "fields": [
+      {
+        "code": "B3.3.r0",
+        "label": "已有图纸",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B3.3.r1",
+        "label": "处理目标与范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写需检查整理交付的图纸范围",
+        "order": 2
+      },
+      {
+        "code": "B3.3.o0",
+        "label": "检查清单与图面标准",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写检查清单或上传图纸文件",
+        "order": 3
+      },
+      {
+        "code": "B3.3.o1",
+        "label": "输出软件、版本与打印规格",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写输出软件版本与打印规格",
+        "order": 4
+      },
+      {
+        "code": "B3.3.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.4": {
+    "fields": [
+      {
+        "code": "B3.4.r0",
+        "label": "构件目标与形态依据",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传构件目标与形态依据",
+        "order": 1
+      },
+      {
+        "code": "B3.4.r1",
+        "label": "绘制或修改要求",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写轮廓、视图或几何关系要求",
+        "order": 2
+      },
+      {
+        "code": "B3.4.o0",
+        "label": "精确尺寸与单位",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写构件的精确尺寸数值与单位",
+        "order": 3
+      },
+      {
+        "code": "B3.4.o1",
+        "label": "图层与线型规则",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明图层命名、线型及标注要求",
+        "order": 4
+      },
+      {
+        "code": "B3.4.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.5": {
+    "fields": [
+      {
+        "code": "B3.5.r0",
+        "label": "形态参考",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B3.5.r1",
+        "label": "还原范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明要还原的建筑、空间或局部",
+        "order": 2
+      },
+      {
+        "code": "B3.5.o0",
+        "label": "尺寸与多角度参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "补充实际尺寸或上传多角度参考图",
+        "order": 3
+      },
+      {
+        "code": "B3.5.o1",
+        "label": "材质与细节要求",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写材质细节或上传参考文件",
+        "order": 4
+      },
+      {
+        "code": "B3.5.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.6": {
+    "fields": [
+      {
+        "code": "B3.6.r0",
+        "label": "组件对象及形态依据",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "描述目标组件形态或上传参考素材",
+        "order": 1
+      },
+      {
+        "code": "B3.6.r1",
+        "label": "组件操作目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写需新建调整整理的可复用对象",
+        "order": 2
+      },
+      {
+        "code": "B3.6.o0",
+        "label": "尺度尺寸要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写组件长宽高、比例及尺寸单位",
+        "order": 3
+      },
+      {
+        "code": "B3.6.o1",
+        "label": "拓扑、面数及材质要求",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写拓扑面数材质或上传文件",
+        "order": 4
+      },
+      {
+        "code": "B3.6.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.7": {
+    "fields": [
+      {
+        "code": "B3.7.r0",
+        "label": "二维图纸",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B3.7.r1",
+        "label": "建模范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明要建模的楼层、区域或构件",
+        "order": 2
+      },
+      {
+        "code": "B3.7.o0",
+        "label": "尺度尺寸要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写图纸中缺失的关键尺寸及单位",
+        "order": 3
+      },
+      {
+        "code": "B3.7.o1",
+        "label": "材质细节参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明材质与构件细节或上传参考",
+        "order": 4
+      },
+      {
+        "code": "B3.7.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.8": {
+    "fields": [
+      {
+        "code": "B3.8.r0",
+        "label": "已有三维模型",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B3.8.r1",
+        "label": "修改对象与目标变化",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传修改对象与目标变化",
+        "order": 2
+      },
+      {
+        "code": "B3.8.o0",
+        "label": "风格细节参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传或填写风格细节参考以提高精度",
+        "order": 3
+      },
+      {
+        "code": "B3.8.o1",
+        "label": "尺度尺寸要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "请填写尺度尺寸要求及场景影响说明",
+        "order": 4
+      },
+      {
+        "code": "B3.8.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.9": {
+    "fields": [
+      {
+        "code": "B3.9.r0",
+        "label": "已有模型",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B3.9.r1",
+        "label": "处理与交付目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "请文字说明本次模型处理与交付要求",
+        "order": 2
+      },
+      {
+        "code": "B3.9.o0",
+        "label": "尺寸与材料基准",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明基准尺寸、材料或上传相关资料",
+        "order": 3
+      },
+      {
+        "code": "B3.9.o1",
+        "label": "图纸标准及关联专业资料",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明制图标准或上传关联专业资料",
+        "order": 4
+      },
+      {
+        "code": "B3.9.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.10": {
+    "fields": [
+      {
+        "code": "B3.10.r0",
+        "label": "三维模型",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B3.10.r1",
+        "label": "成果类型",
+        "widget": "text",
+        "required": true,
+        "placeholder": "请填写本次三维渲染成果类型",
+        "order": 2
+      },
+      {
+        "code": "B3.10.o0",
+        "label": "材质、光照与风格参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写或上传材质光照风格参考",
+        "order": 3
+      },
+      {
+        "code": "B3.10.o1",
+        "label": "机位、分辨率和时长要求",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写机位分辨率时长或上传参考文件",
+        "order": 4
+      },
+      {
+        "code": "B3.10.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.11": {
+    "fields": [
+      {
+        "code": "B3.11.r0",
+        "label": "建模对象与规则目标",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "说明建模对象及需要可调的部分",
+        "order": 1
+      },
+      {
+        "code": "B3.11.r1",
+        "label": "参数与约束关系",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写参数单位、约束和联动关系",
+        "order": 2
+      },
+      {
+        "code": "B3.11.o0",
+        "label": "参数范围及边界案例",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写参数范围或上传边界案例文件",
+        "order": 3
+      },
+      {
+        "code": "B3.11.o1",
+        "label": "目标软件与复用场景",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写目标软件及模型的复用场景",
+        "order": 4
+      },
+      {
+        "code": "B3.11.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B3.12": {
+    "fields": [
+      {
+        "code": "B3.12.r0",
+        "label": "目标材质资产与用途",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写材质用途或上传贴图文件",
+        "order": 1
+      },
+      {
+        "code": "B3.12.r1",
+        "label": "原素材或制作要求",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "上传贴图材质UV或填写外观要求",
+        "order": 2
+      },
+      {
+        "code": "B3.12.o0",
+        "label": "尺度、分辨率与通道规范",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写贴图尺度、分辨率与通道规范",
+        "order": 3
+      },
+      {
+        "code": "B3.12.o1",
+        "label": "外观参考与目标模型",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "描述材质外观或上传目标模型参考",
+        "order": 4
+      },
+      {
+        "code": "B3.12.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B4.1": {
+    "fields": [
+      {
+        "code": "B4.1.r0",
+        "label": "已确定的主题",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "输入主题文字或上传概念意象图",
+        "order": 1
+      },
+      {
+        "code": "B4.1.o0",
+        "label": "现状成果图",
+        "widget": "file",
+        "required": false,
+        "placeholder": "",
+        "order": 2
+      },
+      {
+        "code": "B4.1.o1",
+        "label": "意象情绪",
+        "widget": "text",
+        "required": false,
+        "placeholder": "请填写意象情绪以提升主题针对性",
+        "order": 3
+      },
+      {
+        "code": "B4.1.o2",
+        "label": "素材色彩风格参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "描述色彩和风格偏好或上传参考",
+        "order": 4
+      },
+      {
+        "code": "B4.1.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B4.2": {
+    "fields": [
+      {
+        "code": "B4.2.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B4.2.r1",
+        "label": "领域与分析类型",
+        "widget": "text",
+        "required": true,
+        "placeholder": "文字说明本次设计分析图的具体关系",
+        "order": 2
+      },
+      {
+        "code": "B4.2.o0",
+        "label": "对应分析依据",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "补充出入口、材质等分析所需依据",
+        "order": 3
+      },
+      {
+        "code": "B4.2.o1",
+        "label": "重点关系与视觉参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写重点关系或上传视觉参考文件",
+        "order": 4
+      },
+      {
+        "code": "B4.2.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B4.3": {
+    "fields": [
+      {
+        "code": "B4.3.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B4.3.r1",
+        "label": "领域",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写设计领域，如室内、建筑或景观",
+        "order": 2
+      },
+      {
+        "code": "B4.3.o0",
+        "label": "材质参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传材质参考图或填写材质描述",
+        "order": 3
+      },
+      {
+        "code": "B4.3.o1",
+        "label": "光照、氛围、环境、植物等参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传或填写光照氛围等渲染参考",
+        "order": 4
+      },
+      {
+        "code": "B4.3.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B4.4": {
+    "fields": [
+      {
+        "code": "B4.4.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B4.4.r1",
+        "label": "领域",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写设计领域，如室内、建筑或景观",
+        "order": 2
+      },
+      {
+        "code": "B4.4.o0",
+        "label": "美化目标",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写需改善的光影色彩细节或材质表现",
+        "order": 3
+      },
+      {
+        "code": "B4.4.o1",
+        "label": "氛围参考",
+        "widget": "file",
+        "required": false,
+        "placeholder": "",
+        "order": 4
+      },
+      {
+        "code": "B4.4.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B4.5": {
+    "fields": [
+      {
+        "code": "B4.5.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B4.5.r1",
+        "label": "编辑对象与目标变化",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写改图位置与目标风格或表达",
+        "order": 2
+      },
+      {
+        "code": "B4.5.o0",
+        "label": "参考图",
+        "widget": "file",
+        "required": false,
+        "placeholder": "",
+        "order": 3
+      },
+      {
+        "code": "B4.5.o1",
+        "label": "修改范围",
+        "widget": "file",
+        "required": false,
+        "placeholder": "",
+        "order": 4
+      },
+      {
+        "code": "B4.5.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B4.6": {
+    "fields": [
+      {
+        "code": "B4.6.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B4.6.r1",
+        "label": "目标视角变化",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传目标视角变化说明",
+        "order": 2
+      },
+      {
+        "code": "B4.6.o0",
+        "label": "补充视角或平面信息",
+        "widget": "file",
+        "required": false,
+        "placeholder": "",
+        "order": 3
+      },
+      {
+        "code": "B4.6.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  },
+  "B4.7": {
+    "fields": [
+      {
+        "code": "B4.7.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B4.7.r1",
+        "label": "目标氛围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写目标时段、天气或灯光氛围",
+        "order": 2
+      },
+      {
+        "code": "B4.7.o0",
+        "label": "氛围参考",
+        "widget": "file",
+        "required": false,
+        "placeholder": "",
+        "order": 3
+      },
+      {
+        "code": "B4.7.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  },
+  "B4.8": {
+    "fields": [
+      {
+        "code": "B4.8.r0",
+        "label": "设计底图",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B4.8.o0",
+        "label": "配色或材质偏好",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明希望使用的配色及材质纹理",
+        "order": 2
+      },
+      {
+        "code": "B4.8.o1",
+        "label": "表现风格参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传风格参考图或填写风格描述",
+        "order": 3
+      },
+      {
+        "code": "B4.8.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  },
+  "B5.1": {
+    "fields": [
+      {
+        "code": "B5.1.r0",
+        "label": "已有项目资料",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "上传或填写能判断汇报主题的资料",
+        "order": 1
+      },
+      {
+        "code": "B5.1.o0",
+        "label": "汇报对象与沟通重点",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写向谁汇报以及要讲清的重点",
+        "order": 2
+      },
+      {
+        "code": "B5.1.o1",
+        "label": "页数要求时长与结构约束",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填页数时长结构或上传逐页脚本",
+        "order": 3
+      },
+      {
+        "code": "B5.1.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  },
+  "B5.2": {
+    "fields": [
+      {
+        "code": "B5.2.r0",
+        "label": "待编排资料或待修改文件",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "请填写文字或上传待编排资料",
+        "order": 1
+      },
+      {
+        "code": "B5.2.r1",
+        "label": "编排或修改目标与范围",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "输入文字或上传文件确定编排目标",
+        "order": 2
+      },
+      {
+        "code": "B5.2.o0",
+        "label": "已有大纲与逐页内容安排",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "上传文件或填写大纲与逐页内容",
+        "order": 3
+      },
+      {
+        "code": "B5.2.o1",
+        "label": "保留内容与对象编辑要求",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明需保留内容和独立编辑的对象",
+        "order": 4
+      },
+      {
+        "code": "B5.2.o2",
+        "label": "版式、字体与视觉参考",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "输入版式字体参考图或文字说明",
+        "order": 5
+      },
+      {
+        "code": "B5.2.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 6
+      }
+    ]
+  },
+  "B5.3": {
+    "fields": [
+      {
+        "code": "B5.3.r0",
+        "label": "原始数据或表格",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "可上传或填写待整理的原始数据表格",
+        "order": 1
+      },
+      {
+        "code": "B5.3.r1",
+        "label": "处理目标与范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写需整理的记录、字段及期望结果",
+        "order": 2
+      },
+      {
+        "code": "B5.3.o0",
+        "label": "字段口径、分类规则与处理规则",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写或上传字段口径、分类与处理规则",
+        "order": 3
+      },
+      {
+        "code": "B5.3.o1",
+        "label": "显示格式与使用场景",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写或上传表格格式与场景要求",
+        "order": 4
+      },
+      {
+        "code": "B5.3.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B5.4": {
+    "fields": [
+      {
+        "code": "B5.4.r0",
+        "label": "支撑讲解的项目资料",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传支撑讲解的项目资料",
+        "order": 1
+      },
+      {
+        "code": "B5.4.r1",
+        "label": "讲解主题与范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写讲解主题与本次要覆盖的内容",
+        "order": 2
+      },
+      {
+        "code": "B5.4.o0",
+        "label": "听众与沟通目的",
+        "widget": "text",
+        "required": false,
+        "placeholder": "说明听众是谁及希望达成的目标",
+        "order": 3
+      },
+      {
+        "code": "B5.4.o1",
+        "label": "时长及表达风格",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "输入目标时长及风格，或上传参考文件",
+        "order": 4
+      },
+      {
+        "code": "B5.4.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B5.5": {
+    "fields": [
+      {
+        "code": "B5.5.r0",
+        "label": "待转换文件",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "B5.5.r1",
+        "label": "目标文件格式",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写转换后的文件格式，如PDF",
+        "order": 2
+      },
+      {
+        "code": "B5.5.o0",
+        "label": "目标软件或设备",
+        "widget": "text",
+        "required": false,
+        "placeholder": "输入目标软件或设备以提升兼容性",
+        "order": 3
+      },
+      {
+        "code": "B5.5.o1",
+        "label": "字体、页面及可编辑性要求",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "说明要保留的字体、版式及编辑能力",
+        "order": 4
+      },
+      {
+        "code": "B5.5.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B6.1": {
+    "fields": [
+      {
+        "code": "B6.1.r0",
+        "label": "项目对象及技术依据",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "描述工程对象或上传方案与技术图纸",
+        "order": 1
+      },
+      {
+        "code": "B6.1.r1",
+        "label": "本次技术目标与范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "请文字说明本次施工图设计要求",
+        "order": 2
+      },
+      {
+        "code": "B6.1.o0",
+        "label": "材料、工艺及价格基准",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "提供材料规格、工艺及价格基准",
+        "order": 3
+      },
+      {
+        "code": "B6.1.o1",
+        "label": "现场限制及成本目标",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写或上传现场限制及成本目标",
+        "order": 4
+      },
+      {
+        "code": "B6.1.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "B6.3": {
+    "fields": [
+      {
+        "code": "B6.3.r0",
+        "label": "服务对象与现场情境",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传工程对象与施工情境",
+        "order": 1
+      },
+      {
+        "code": "B6.3.r1",
+        "label": "服务问题或目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明需处理的交底、巡检或验收事项",
+        "order": 2
+      },
+      {
+        "code": "B6.3.o0",
+        "label": "现场图纸、记录或照片",
+        "widget": "file",
+        "required": false,
+        "placeholder": "",
+        "order": 3
+      },
+      {
+        "code": "B6.3.o1",
+        "label": "工期、参与角色及管理要求",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写或上传工期、角色及管理要求",
+        "order": 4
+      },
+      {
+        "code": "B6.3.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "G1.1": {
+    "fields": [
+      {
+        "code": "G1.1.r0",
+        "label": "已有设计成果",
+        "widget": "file",
+        "required": true,
+        "placeholder": "",
+        "order": 1
+      },
+      {
+        "code": "G1.1.r1",
+        "label": "评审问题与范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明本次评审范围和要判断的问题",
+        "order": 2
+      },
+      {
+        "code": "G1.1.o0",
+        "label": "任务要求与评价基准",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写或上传任务要求与评价基准",
+        "order": 3
+      },
+      {
+        "code": "G1.1.o1",
+        "label": "用户关注点及方案背景",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写关注点背景或上传相关文件",
+        "order": 4
+      },
+      {
+        "code": "G1.1.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "G1.2": {
+    "fields": [
+      {
+        "code": "G1.2.r0",
+        "label": "专项对象与问题",
+        "widget": "text",
+        "required": true,
+        "placeholder": "说明要审查的专业系统或构造问题",
+        "order": 1
+      },
+      {
+        "code": "G1.2.r1",
+        "label": "与判断深度匹配的技术资料",
+        "widget": "textFile",
+        "required": true,
+        "placeholder": "填写或上传匹配判断深度的技术资料",
+        "order": 2
+      },
+      {
+        "code": "G1.2.o0",
+        "label": "检测、计算及专业基准资料",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写或上传检测计算及专业基准资料",
+        "order": 3
+      },
+      {
+        "code": "G1.2.o1",
+        "label": "整改目标与实施限制",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写整改目标与现场实施限制条件",
+        "order": 4
+      },
+      {
+        "code": "G1.2.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 5
+      }
+    ]
+  },
+  "C1.1": {
+    "fields": [
+      {
+        "code": "C1.1.r0",
+        "label": "检索或识别目标",
+        "widget": "text",
+        "required": true,
+        "placeholder": "输入关键词或描述要检索识别的目标",
+        "order": 1
+      },
+      {
+        "code": "C1.1.o0",
+        "label": "参考图片或文件",
+        "widget": "file",
+        "required": false,
+        "placeholder": "",
+        "order": 2
+      },
+      {
+        "code": "C1.1.o1",
+        "label": "筛选条件",
+        "widget": "text",
+        "required": false,
+        "placeholder": "填写地区、风格、年份或规格条件",
+        "order": 3
+      },
+      {
+        "code": "C1.1.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  },
+  "C1.2": {
+    "fields": [
+      {
+        "code": "C1.2.r0",
+        "label": "规范问题与适用范围",
+        "widget": "text",
+        "required": true,
+        "placeholder": "填写技术对象、问题及适用范围",
+        "order": 1
+      },
+      {
+        "code": "C1.2.o0",
+        "label": "项目所在地、用途及参数",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "填写项目所在地、用途及关键参数",
+        "order": 2
+      },
+      {
+        "code": "C1.2.o1",
+        "label": "已指定规范及对比对象",
+        "widget": "textFile",
+        "required": false,
+        "placeholder": "输入规范条文或上传规范文件",
+        "order": 3
+      },
+      {
+        "code": "C1.2.extra",
+        "label": "其他明确要求",
+        "widget": "text",
+        "required": false,
+        "placeholder": "补充保留条件、风格或参考图用途",
+        "order": 4
+      }
+    ]
+  }
+}

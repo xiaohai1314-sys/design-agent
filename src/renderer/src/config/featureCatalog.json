@@ -1,0 +1,954 @@
+[
+  {
+    "featureCode": "B1.1",
+    "title": "需求与资料解读",
+    "category": "策划",
+    "description": "解读任务书、图纸等资料，明确需求、约束与差异，形成设计资料理解基准。",
+    "cover": {
+      "kind": "single",
+      "single": "B1.1_需求与资料解读.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 1,
+    "searchAlias": [
+      "任务书解读",
+      "设计需求梳理",
+      "甲方需求提取",
+      "项目资料梳理",
+      "读任务书"
+    ],
+    "todayRecommend": "周二",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B1.2",
+    "title": "现状条件分析",
+    "category": "策划",
+    "description": "基于区位、图纸、照片与测量资料，客观分析现状条件，形成设计依据。",
+    "cover": {
+      "kind": "single",
+      "single": "B1.2_现状条件分析.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 2,
+    "searchAlias": [
+      "场地现状分析",
+      "现场条件梳理",
+      "基地分析",
+      "区位分析",
+      "现状调查"
+    ],
+    "todayRecommend": "周五",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B1.3",
+    "title": "专题与案例研究",
+    "category": "策划",
+    "description": "围绕项目需求开展多维度研究比较，输出结论、机会判断与可借鉴经验。",
+    "cover": {
+      "kind": "single",
+      "single": "B1.3_专题与案例研究.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 3,
+    "searchAlias": [
+      "案例调研",
+      "竞品分析",
+      "对标项目",
+      "设计案例拆解",
+      "专题调研"
+    ],
+    "todayRecommend": "周日",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B1.4",
+    "title": "项目定位与策划",
+    "category": "策划",
+    "description": "综合项目需求与研究成果，输出项目定位与策划基准。",
+    "cover": {
+      "kind": "single",
+      "single": "B1.4_项目定位与策划.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 4,
+    "searchAlias": [
+      "项目前期策划",
+      "项目定位",
+      "业态策划",
+      "目标客群定位",
+      "项目策划书"
+    ],
+    "todayRecommend": "周三",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B2.1",
+    "title": "概念定位与策略",
+    "category": "概念方案",
+    "description": "结合项目情况明确设计方向、提炼核心概念，形成可指导后续方案的设计策略。",
+    "cover": {
+      "kind": "single",
+      "single": "B2.1_概念定位与策略.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 5,
+    "searchAlias": [
+      "概念定位与设计策略",
+      "设计理念",
+      "概念构思",
+      "设计主题",
+      "设计方向",
+      "策略推演"
+    ],
+    "todayRecommend": "周六",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B2.2",
+    "title": "平面布局",
+    "category": "概念方案",
+    "description": "基于平面图与需求配置功能、组织空间并输出布局图或CAD文件。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B2.2_平面布局-输入图.jpg",
+      "generated": "B2.2-平面布局-生成图.jpg"
+    },
+    "order": 6,
+    "searchAlias": [
+      "功能规划与场地组织",
+      "户型优化",
+      "平面方案",
+      "功能分区",
+      "动线规划",
+      "场地布局"
+    ],
+    "todayRecommend": "周四",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B2.3",
+    "title": "形体推敲",
+    "category": "概念方案",
+    "description": "依据功能、场地与目标，推演空间形态，生成可深化的空间方案。",
+    "cover": {
+      "kind": "single",
+      "single": "B2.3_形体推敲.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 7,
+    "searchAlias": [
+      "空间原型与形态推演",
+      "体块推敲",
+      "建筑形体",
+      "体量推演",
+      "空间形态"
+    ],
+    "todayRecommend": "周三",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B2.4",
+    "title": "平立剖转效果图",
+    "category": "概念方案",
+    "description": "基于平立剖图纸生成透视效果图，保留空间与几何约束，不重做核心方案。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B2.4_平立剖转效果图-输入图.jpg",
+      "generated": "B2.4_平立剖转效果图-生成图.jpg"
+    },
+    "order": 8,
+    "searchAlias": [
+      "平面图出效果图",
+      "立面图出效果图",
+      "剖面图出效果图",
+      "图纸转透视图"
+    ],
+    "todayRecommend": "周二",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B2.5",
+    "title": "创意快速渲染",
+    "category": "概念方案",
+    "description": "基于低完成度草图或体块图像，快速补全细节与氛围生成方案预览图。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B2.5_创意快速渲染-输入图.jpg",
+      "generated": "B2.5_创意快速渲染-生成图.jpg"
+    },
+    "order": 9,
+    "searchAlias": [
+      "草图渲染",
+      "手绘变效果图",
+      "体块渲染",
+      "草图出图",
+      "创意出图"
+    ],
+    "todayRecommend": "周日",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B2.6",
+    "title": "照片实景改造",
+    "category": "概念方案",
+    "description": "基于实景照片与改造目标，生成对应空间的改造设计效果。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B2.6_照片实景改造-输入图.jpg",
+      "generated": "B2.6_照片实景改造-生成图.jpg"
+    },
+    "order": 10,
+    "searchAlias": [
+      "实景翻新",
+      "照片改造",
+      "旧房改造",
+      "立面改造效果图",
+      "现场照片出改造图"
+    ],
+    "todayRecommend": "周四",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B2.7",
+    "title": "室内毛坯设计",
+    "category": "概念方案",
+    "description": "基于室内毛坯实景照片与需求，输出墙地顶及风格装修方案与效果。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B2.7_室内毛坯设计-输入图.jpg",
+      "generated": "B2.7_室内毛坯设计-生成图.jpg"
+    },
+    "order": 11,
+    "searchAlias": [
+      "毛坯房装修",
+      "毛坯照片出效果图",
+      "裸墙装修",
+      "毛坯变精装"
+    ],
+    "todayRecommend": "周五",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B2.8",
+    "title": "空房设计",
+    "category": "概念方案",
+    "description": "基于带基础硬装的空房图，按需求生成软硬装设计方案与效果图。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B2.8_空房设计-输入图.jpg",
+      "generated": "B2.8_空房设计-生成图.jpg"
+    },
+    "order": 12,
+    "searchAlias": [
+      "空房软装设计",
+      "空屋布置",
+      "空房摆家具",
+      "空房软硬装",
+      "虚拟布置"
+    ],
+    "todayRecommend": "周日",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B3.1",
+    "title": "图转CAD",
+    "category": "深化建模",
+    "description": "将参考图中的已有图纸转绘为CAD或PDF图纸，不创建新构件。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B3.1_图转CAD-输入图.jpg",
+      "generated": "B3.1_图转CAD-生成图.jpg"
+    },
+    "order": 13,
+    "searchAlias": [
+      "图片转CAD",
+      "照片转CAD",
+      "扫描图转DWG",
+      "图纸描图",
+      "图纸转绘"
+    ],
+    "todayRecommend": "周五",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B3.2",
+    "title": "平立剖深化",
+    "category": "深化建模",
+    "description": "基于既定方案深化平立剖图纸，不重定空间，不做加工级构造。",
+    "cover": {
+      "kind": "single",
+      "single": "B3.2_平立剖深化.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 14,
+    "searchAlias": [
+      "平面深化",
+      "立面深化",
+      "剖面深化",
+      "方案图深化",
+      "补齐平立剖"
+    ],
+    "todayRecommend": "周一",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B3.3",
+    "title": "图纸检查整理",
+    "category": "深化建模",
+    "description": "在不改动设计实质前提下，完成图纸检查、整理、导出与统计成果输出。",
+    "cover": {
+      "kind": "single",
+      "single": "B3.3_图纸检查整理.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 15,
+    "searchAlias": [
+      "图纸整理",
+      "CAD清理",
+      "图层整理",
+      "图纸批量导出",
+      "图纸统计"
+    ],
+    "todayRecommend": "周六",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B3.4",
+    "title": "二维构件绘制",
+    "category": "深化建模",
+    "description": "在二维CAD中创建或调整独立构件、零件及几何对象图形。",
+    "cover": {
+      "kind": "single",
+      "single": "B3.4_二维构件绘制.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 16,
+    "searchAlias": [
+      "CAD构件绘制",
+      "二维零件图",
+      "二维图块绘制",
+      "CAD构件修改"
+    ],
+    "todayRecommend": "周三",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B3.5",
+    "title": "参考还原三维建模",
+    "category": "深化建模",
+    "description": "依据参考图与尺寸还原建筑室内空间，生成可编辑三维模型。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B3.5-参考还原建模-输入图.jpg",
+      "generated": "B3.5-参考还原建模-生成图.jpg"
+    },
+    "order": 17,
+    "searchAlias": [
+      "参考图建模",
+      "照片建模",
+      "场景还原",
+      "按图还原空间",
+      "看图建SU模型"
+    ],
+    "todayRecommend": "周日",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B3.6",
+    "title": "三维素材建模",
+    "category": "深化建模",
+    "description": "依据参考图完成独立三维组件建模、调整与整理，支持入库复用。",
+    "cover": {
+      "kind": "single",
+      "single": "B3.6_三维素材组件生产.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 18,
+    "searchAlias": [
+      "组件建模",
+      "家具建模",
+      "单体建模",
+      "三维资产制作",
+      "模型组件入库"
+    ],
+    "todayRecommend": "周六",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B3.7",
+    "title": "图纸转三维模型",
+    "category": "深化建模",
+    "description": "依据CAD及平立剖等图纸，将二维技术信息转换为可编辑的对应三维模型。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B3.7_图纸转三维模型-输入图.jpg",
+      "generated": "B3.7_图纸转三维模型-生成图.jpg"
+    },
+    "order": 19,
+    "searchAlias": [
+      "CAD转3D",
+      "CAD转SU",
+      "二维图纸建模",
+      "平立剖转模型",
+      "DWG转三维"
+    ],
+    "todayRecommend": "周二",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B3.8",
+    "title": "三维模型深化",
+    "category": "深化建模",
+    "description": "在既定方案下深化三维模型细节，保持结构一致且版本可追溯。",
+    "cover": {
+      "kind": "single",
+      "single": "B3.8_三维模型深化.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 20,
+    "searchAlias": [
+      "模型细化",
+      "补模型细节",
+      "模型精细化",
+      "调整模型构造",
+      "细化SU模型"
+    ],
+    "todayRecommend": "周二",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B3.9",
+    "title": "三维模型检查整理",
+    "category": "深化建模",
+    "description": "对已有三维模型检查整理、优化转换并导出技术视图完成交付",
+    "cover": {
+      "kind": "single",
+      "single": "B3.9_三维模型检查整理.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 21,
+    "searchAlias": [
+      "模型清理",
+      "模型检查",
+      "模型减面",
+      "模型格式转换",
+      "导出模型视图"
+    ],
+    "todayRecommend": "周一",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B3.10",
+    "title": "三维渲染表现",
+    "category": "深化建模",
+    "description": "基于三维场景配置材质灯光相机，输出效果图、全景图及多机位视觉成果。",
+    "cover": {
+      "kind": "single",
+      "single": "B3.10_三维渲染表现.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 22,
+    "searchAlias": [
+      "模型渲染",
+      "三维场景渲染",
+      "SU模型渲染",
+      "全景渲染",
+      "多机位渲染"
+    ],
+    "todayRecommend": "周二",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B3.11",
+    "title": "三维参数化建模",
+    "category": "深化建模",
+    "description": "基于参数与约束规则，交付可独立验收的三维参数化建模系统。",
+    "cover": {
+      "kind": "single",
+      "single": "B3.11_三维参数化建模.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 23,
+    "searchAlias": [
+      "参数建模",
+      "规则建模",
+      "Grasshopper建模",
+      "GH建模",
+      "可调参数模型"
+    ],
+    "todayRecommend": "周六",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B3.12",
+    "title": "三维材质贴图处理",
+    "category": "深化建模",
+    "description": "处理三维材质、着色器与贴图组合，输出可编辑材质资产。",
+    "cover": {
+      "kind": "single",
+      "single": "B3.12_三维材质贴图处理.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 24,
+    "searchAlias": [
+      "PBR材质",
+      "贴图制作",
+      "UV贴图",
+      "纹理贴图",
+      "着色器设置"
+    ],
+    "todayRecommend": "周日",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B4.1",
+    "title": "概念意象图制作",
+    "category": "生图",
+    "description": "基于已定设计概念与方向，生成用于提案汇报的概念意象视觉图像。",
+    "cover": {
+      "kind": "single",
+      "single": "B4.1_概念意向图制作.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 25,
+    "searchAlias": [
+      "概念意向图",
+      "概念视觉图",
+      "氛围意向图",
+      "情绪板",
+      "概念配图"
+    ],
+    "todayRecommend": "周三",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B4.2",
+    "title": "设计分析图制作",
+    "category": "生图",
+    "description": "基于已定方案与分析资料，将设计逻辑转化为适合汇报的清晰图示。",
+    "cover": {
+      "kind": "single",
+      "single": "B4.2_设计分析图制作.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 26,
+    "searchAlias": [
+      "功能分析图",
+      "流线分析图",
+      "材质分析图",
+      "节点分析图",
+      "方案演变图",
+      "轴测分析图"
+    ],
+    "todayRecommend": "周三",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B4.3",
+    "title": "精准渲染",
+    "category": "生图",
+    "description": "基于较完整的二维图片，设置渲染参数生成忠实空间设计效果图。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B4.3_精模渲染-输入图.jpg",
+      "generated": "B4.3_精模渲染-生成图.jpg"
+    },
+    "order": 27,
+    "searchAlias": [
+      "精模渲染",
+      "模型截图渲染",
+      "截图出效果图",
+      "白模截图渲染",
+      "保持构图渲染"
+    ],
+    "todayRecommend": "周五",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B4.4",
+    "title": "效果图美化",
+    "category": "生图",
+    "description": "在不改动设计构图视角前提下，优化效果图光影色彩质感并补充外部环境。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B4.4_效果图美化-输入图.jpg",
+      "generated": "B4.4_效果图美化-生成图.jpg"
+    },
+    "order": 28,
+    "searchAlias": [
+      "效果图润色",
+      "效果图调色",
+      "渲染图优化",
+      "光影优化",
+      "提升效果图质感"
+    ],
+    "todayRecommend": "周一",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B4.5",
+    "title": "图片编辑",
+    "category": "生图",
+    "description": "基于既有图片按目标调整指定内容，完成增删修补、风格转换与高清修复。",
+    "cover": {
+      "kind": "single",
+      "single": "B4.5_图片编辑.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 29,
+    "searchAlias": [
+      "局部改图",
+      "去水印",
+      "换背景",
+      "图片风格转换",
+      "高清修复",
+      "图片放大",
+      "超分"
+    ],
+    "todayRecommend": "周二",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B4.6",
+    "title": "更换视角",
+    "category": "生图",
+    "description": "基于输入的空间效果图，保持设计一致，生成新视角效果图。",
+    "cover": {
+      "kind": "single",
+      "single": "B4.6_更换视角.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 30,
+    "searchAlias": [
+      "换角度",
+      "效果图换机位",
+      "换相机角度",
+      "正视图转侧视图",
+      "效果图换视角"
+    ],
+    "todayRecommend": "周四",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B4.7",
+    "title": "更换氛围",
+    "category": "生图",
+    "description": "保留空间构图与物体配置，调整光环境生成指定氛围效果图。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B4.7_更换氛围-输入图.jpg",
+      "generated": "B4.7_更换氛围-生成图.jpg"
+    },
+    "order": 31,
+    "searchAlias": [
+      "日景转夜景",
+      "白天变夜景",
+      "换天气",
+      "换季节",
+      "灯光氛围调整"
+    ],
+    "todayRecommend": "周五",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B4.8",
+    "title": "平立剖填彩",
+    "category": "生图",
+    "description": "基于平立剖线稿填色加材质光影，输出非透视平立剖图面。",
+    "cover": {
+      "kind": "compare",
+      "single": null,
+      "input": "B4.8_平立剖填彩-输入图.jpg",
+      "generated": "B4.8_平立剖填彩-生成图.jpg"
+    },
+    "order": 32,
+    "searchAlias": [
+      "彩平",
+      "彩色平面图",
+      "平面图上色",
+      "立面图填色",
+      "剖面填彩"
+    ],
+    "todayRecommend": "周五",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B5.1",
+    "title": "汇报框架整理",
+    "category": "汇报",
+    "description": "依据项目资料与汇报目标，生成结构化汇报大纲或逐页内容规划。",
+    "cover": {
+      "kind": "single",
+      "single": "B5.1_汇报框架整理.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 33,
+    "searchAlias": [
+      "PPT大纲",
+      "汇报提纲",
+      "汇报逻辑",
+      "汇报目录",
+      "逐页规划",
+      "汇报框架"
+    ],
+    "todayRecommend": "周六",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B5.2",
+    "title": "文档图文编排",
+    "category": "汇报",
+    "description": "基于已有图文资料，按需撰写配套文字并完成版式编排，生成连贯图文材料。",
+    "cover": {
+      "kind": "single",
+      "single": "B5.2_文档图文编排.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 34,
+    "searchAlias": [
+      "PPT排版",
+      "展板排版",
+      "方案册排版",
+      "图文讲解",
+      "版式调整",
+      "展板标题"
+    ],
+    "todayRecommend": "周六",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "B5.3",
+    "title": "数据表格整理",
+    "category": "汇报",
+    "description": "基于项目数据或已有表格，提取清洗汇总并优化结构格式，输出清晰准确的表格成果。",
+    "cover": {
+      "kind": "single",
+      "single": "B5.3_数据表格整理.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 35,
+    "searchAlias": [
+      "Excel表格整理",
+      "彩色表格",
+      "数据汇总",
+      "清单提取",
+      "表格美化",
+      "表格清洗"
+    ],
+    "todayRecommend": "周四",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B5.4",
+    "title": "汇报讲稿编写",
+    "category": "汇报",
+    "description": "基于项目资料与汇报需求，生成适配口头讲解的连贯汇报讲稿。",
+    "cover": {
+      "kind": "single",
+      "single": "B5.4_汇报讲稿编写.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 36,
+    "searchAlias": [
+      "汇报口播稿",
+      "方案解说词",
+      "提案讲稿",
+      "逐页讲稿",
+      "甲方汇报发言稿"
+    ],
+    "todayRecommend": "周四",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B5.5",
+    "title": "文档格式转换",
+    "category": "汇报",
+    "description": "基于已有文档或演示文件，保持内容与版式基本一致，转换为指定格式以适配目标场景。",
+    "cover": {
+      "kind": "single",
+      "single": "B5.5_文档格式转换.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 37,
+    "searchAlias": [
+      "PDF转Word",
+      "Word转PDF",
+      "PPT转PDF",
+      "文档转格式",
+      "演示稿格式转换"
+    ],
+    "todayRecommend": "周一",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B6.1",
+    "title": "施工图设计与深化",
+    "category": "施工",
+    "description": "依据方案、图纸与现场条件，深化施工图并核算工程量、编制预算。",
+    "cover": {
+      "kind": "single",
+      "single": "B6.1_施工图设计与深化.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 38,
+    "searchAlias": [
+      "施工图深化",
+      "施工详图",
+      "施工节点大样",
+      "工程量计算",
+      "施工预算"
+    ],
+    "todayRecommend": "周日",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "B6.3",
+    "title": "施工与后期服务",
+    "category": "施工",
+    "description": "覆盖施工至运维全阶段，提供现场技术服务及闭环成果。",
+    "cover": {
+      "kind": "single",
+      "single": "B6.3_施工与后期服务.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 39,
+    "searchAlias": [
+      "现场技术交底",
+      "施工变更",
+      "现场问题处理",
+      "竣工验收",
+      "运维移交"
+    ],
+    "todayRecommend": "不参与推荐",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "G1.1",
+    "title": "设计评审",
+    "category": "评审",
+    "description": "依据任务要求与设计基准，分析已有设计成果并输出评审结论与改进建议。",
+    "cover": {
+      "kind": "single",
+      "single": "G1.1_设计评审.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 40,
+    "searchAlias": [
+      "方案评审",
+      "设计方案对比",
+      "设计审查",
+      "方案比选",
+      "设计改进建议"
+    ],
+    "todayRecommend": "周一",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "G1.2",
+    "title": "专项技术评审",
+    "category": "评审",
+    "description": "结合项目技术条件审查专项问题，输出整改要求或推进结论。",
+    "cover": {
+      "kind": "single",
+      "single": "G1.2_专项技术评审.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 41,
+    "searchAlias": [
+      "专项审查",
+      "机电协调审查",
+      "消防设计审查",
+      "无障碍审查",
+      "技术可行性评估"
+    ],
+    "todayRecommend": "周一",
+    "recommendTab": false
+  },
+  {
+    "featureCode": "C1.1",
+    "title": "搜索",
+    "category": "检索",
+    "description": "围绕项目需求检索内外部素材，提供名称、规格、来源及获取方式。",
+    "cover": {
+      "kind": "single",
+      "single": "C1.1_搜索.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 42,
+    "searchAlias": [
+      "素材搜索",
+      "找素材",
+      "找材质贴图",
+      "查产品资料",
+      "找参考图",
+      "找模型素材"
+    ],
+    "todayRecommend": "周三",
+    "recommendTab": true
+  },
+  {
+    "featureCode": "C1.2",
+    "title": "查规范",
+    "category": "检索",
+    "description": "按项目条件检索规范条文，解释适用条件并生成对应核对表。",
+    "cover": {
+      "kind": "single",
+      "single": "C1.2_查规范.jpg",
+      "input": null,
+      "generated": null
+    },
+    "order": 43,
+    "searchAlias": [
+      "规范检索",
+      "查标准",
+      "找条文",
+      "规范依据",
+      "规范条文核对"
+    ],
+    "todayRecommend": "周四",
+    "recommendTab": true
+  }
+]

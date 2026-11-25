@@ -1,0 +1,17 @@
+node_modules/
+dist/
+out/
+*.tsbuildinfo
+*.log
+
+# Large bundled binaries & third-party runtime packages
+resources/runtime/
+resources/mcp/*/lib/
+resources/mcp/*/node_modules/
+resources/mcp/computer-use/*.exe
+resources/mcp/computer-use/*.dll
+resources/mcp/computer-use/*.node
+resources/skills/cad/vendor/
+
+.DS_Store
+Thumbs.db

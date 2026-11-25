@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "installDuringTask": false,
+  "runtimes": ["node", "python"],
+  "bundledCapabilities": ["cad_dwg_conversion", "cad_dxf_parse", "artifact_static_validation"],
+  "conditionalCapabilities": ["local_libreoffice"]
+}

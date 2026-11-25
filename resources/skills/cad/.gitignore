@@ -1,0 +1,8 @@
+# LibreDWG 运行时（原生二进制、依赖 DLL、WASM）随构建注入，不入 git：
+# 体积大且为第三方 GPL 产物，由打包流程从固定版本拉取/暂存到此处。
+# 版本与来源见 apps/agent-runtime/scripts/fetch-cad-runtime.mjs。git 只持有本技能自有代码（SKILL.md + scripts/）。
+vendor/
+
+# Python 运行时缓存（scripts/*.py 执行/编译产物），非源码，不入 git。
+__pycache__/
+*.pyc

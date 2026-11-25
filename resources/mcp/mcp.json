@@ -1,0 +1,107 @@
+{
+  "servers": {
+    "rhino": {
+      "description": "Rhino（犀牛）—— 操作用户本机正在编辑的 3D 模型：读场景/选择、视口截图与相机、跑 Python/C# 脚本与 Rhino 命令、图层材质、Grasshopper 参数化建模。需要用户已从 Rhino 包管理器安装 Rhino-MCP-Platform 插件。",
+      "resolver": "rhino",
+      "middleware": "rhino",
+      "defer": true,
+      "connectTimeoutMs": 10000,
+      "enabled": false,
+      "hostState": "host-missing"
+    },
+    "sketchup": {
+      "description": "SketchUp（草图大师）—— 操作用户本机正在编辑的模型：创建/删除/变换组件、设置材质、读取当前选择、导出场景、跑 Ruby 脚本。需要用户已在 SketchUp 里安装并启用扩展。",
+      "command": "${MCP_PYTHON}",
+      "args": [
+        "-m",
+        "sketchup_mcp"
+      ],
+      "env": {
+        "PYTHONPATH": "${SELF}/lib",
+        "PYTHONNOUSERSITE": "1"
+      },
+      "defer": true,
+      "connectTimeoutMs": 15000,
+      "enabled": false,
+      "hostState": "host-missing"
+    },
+    "blender": {
+      "description": "Blender —— 操作用户本机正在运行的 Blender：查看场景和物体、截取视口画面、创建和修改模型、调整材质与灯光、导出场景。需要用户已打开 Blender。",
+      "command": "${MCP_PYTHON}",
+      "args": [
+        "-m",
+        "blender_mcp.server"
+      ],
+      "env": {
+        "PYTHONPATH": "${SELF}/lib",
+        "PYTHONNOUSERSITE": "1",
+        "DISABLE_TELEMETRY": "1",
+        "BLENDER_MCP_DISABLE_TELEMETRY": "1",
+        "MCP_DISABLE_TELEMETRY": "1"
+      },
+      "defer": true,
+      "connectTimeoutMs": 15000,
+      "enabled": false,
+      "userChoice": true,
+      "hostState": "host-missing"
+    },
+    "3dsmax": {
+      "description": "3ds Max —— 操作用户本机正在运行的 3ds Max：创建与变换物体、多边形与网格编辑、修改器、材质与材质节点网络、灯光与渲染、样条与放样、层级组织与选择集、场景查询与视口控制、关键帧与控制器、tyFlow / RailClone / MCG 等插件操作，以及直接执行 MaxScript。需要用户已安装 3ds Max 2023–2027，我们会自动铺设桥接插件。",
+      "command": "${MCP_PYTHON}",
+      "args": [
+        "-m",
+        "maxmcp.server"
+      ],
+      "env": {
+        "PYTHONPATH": "${SELF}/lib",
+        "PYTHONNOUSERSITE": "1",
+        "MCP_TOOL_PROFILE": "full"
+      },
+      "defer": true,
+      "connectTimeoutMs": 15000,
+      "enabled": false,
+      "hostState": "host-missing"
+    },
+    "computer-use": {
+      "description": "本机桌面通用操作 —— 枚举应用与窗口、读界面无障碍树、点击/输入/快捷键/菜单，可后台操作不抢光标。【定位优先级】优先按无障碍树里的元素操作：树里每行 [N] 就是 element_index，连同结果里的 snapshot_id 一起传给 click / type_text 等，发 AXPress 等动作；不要一上来就用像素坐标——坐标点击返回 not driver-verified，无法确认点中，只能再截图自查。界面是中文的，按元素的 label 文本选即可。【截图】get_window_state 的截图会直接内联在结果里，不用额外读取；只有当树很大、预算不够内联时，结果里才给 screenshot_file_path，那时再用 read_file 读它。【看不清就放大】截图里字小、图标小看不清时，用 zoom 看局部（传 pid、window_id、x1,y1,x2,y2）。注意它的 x1,y1,x2,y2 不是截图像素，是窗口原生像素：按「截图像素 × window_bounds 宽 ÷ 截图宽」换算；区域取小一点（输出最宽 500）。zoom 只用来看清楚；要点击或输入，回到截图上的坐标或按元素操作，不要用 from_zoom。【控制体积】读无障碍树时优先传 query 过滤（同一棵树过滤后约 2KB，不过滤约 1 万字符），或用 max_depth 收深度；过滤越狠留给截图的预算越多，图越清晰。【已知限制】browser_* 那套（browser_prepare 等）在中文界面的 Chrome 上不可用，会被 refused；要打开网页用 launch_app 传 urls。list_windows 会返回大量 1x1、宽条等辅助窗口，只挑 is_on_screen=true 且面积最大的那个。",
+      "resolver": "computer-use",
+      "defer": true,
+      "connectTimeoutMs": 15000,
+      "enabled": true,
+      "hostState": "ready"
+    },
+    "photoshop": {
+      "description": "Adobe Photoshop —— 操作用户本机正在编辑的图像：图层、选区、蒙版、滤镜、调色、文字、生成式填充/扩展/去除、抠图与批处理配方，以及读取当前状态和预览图。",
+      "command": "${MCP_NODE}",
+      "args": [
+        "${SELF}/node_modules/@alisaitteke/photoshop-mcp/dist/index.js"
+      ],
+      "env": {
+        "ANALYTICS_DISABLED": "1",
+        "LOG_LEVEL": "1"
+      },
+      "defer": true,
+      "connectTimeoutMs": 15000,
+      "middleware": "photoshop",
+      "enabled": false,
+      "userChoice": true,
+      "hostState": "host-missing"
+    },
+    "multicad": {
+      "description": "CAD（AutoCAD / 中望CAD / 浩辰CAD / BricsCAD）—— 操作用户本机正在编辑的图纸：打开图纸文件、绘制与修改图元、图层、块、标注、文字、选择集与批量操作、导出数据与截图。需要用户已安装受支持的 CAD 软件（未启动时会自动拉起）。",
+      "command": "${MCP_PYTHON}",
+      "args": [
+        "${SELF}/lib/server.py"
+      ],
+      "env": {
+        "PYTHONPATH": "${SELF}/lib",
+        "PYTHONNOUSERSITE": "1"
+      },
+      "defer": true,
+      "connectTimeoutMs": 15000,
+      "enabled": false,
+      "hostState": "host-outdated",
+      "hostError": "需要 AutoCAD 2018 或更高（检测到 R19）"
+    }
+  }
+}
