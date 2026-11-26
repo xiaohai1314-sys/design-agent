@@ -1,15 +1,20 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
 import type {
   AskImageEditToolData,
   GenerateImageToolData,
   ImageEditAnswer,
+  ImageGenChannel,
   ImageGenConfig,
-  ModelProviderProfile
+  ModelProviderProfile,
+  SceneParam
 } from '@shared/protocol'
 import { capturePreEditSnapshot, recordImageLineageSnapshot } from '@shared/fileSnapshots'
+import { resolveImageChannels, sortChannelsForRole } from '@shared/imageChannels'
+import { resolveImageTaskRoute } from '../imageRouting'
+import { runImageOnChannel, type ImageRunRequest } from './imageChannelExec'
 import type { ApprovalGate } from './workspaceTools'
 
 function normalizeWinPath(raw: string): string {
@@ -22,41 +27,8 @@ function resolveLocalFile(rootDir: string, input: string): string {
   return isAbsolute(cleaned) ? resolve(cleaned) : resolve(rootDir, cleaned)
 }
 
-function mimeForExt(p: string): string {
-  const ext = extname(p).toLowerCase()
-  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
-  if (ext === '.webp') return 'image/webp'
-  return 'image/png'
-}
-
-function normalizeOpenAiBaseUrl(rawUrl: string): string {
-  const trimmed = rawUrl.trim().replace(/\/+$/, '').replace(/\/images\/(generations|edits)$/i, '')
-  if (!trimmed) return 'https://api.openai.com/v1'
-  return /\/v\d+$/i.test(trimmed) ? trimmed : `${trimmed}/v1`
-}
-
-function withRequestTimeout(parentSignal: AbortSignal, timeoutMs: number): AbortSignal {
-  const timeoutSignal = AbortSignal.timeout(timeoutMs)
-  if (typeof AbortSignal.any === 'function') {
-    return AbortSignal.any([parentSignal, timeoutSignal])
-  }
-  const ac = new AbortController()
-  const onParentAbort = (): void => ac.abort(parentSignal.reason)
-  const onTimeoutAbort = (): void => ac.abort(timeoutSignal.reason)
-  if (parentSignal.aborted) ac.abort(parentSignal.reason)
-  else {
-    parentSignal.addEventListener('abort', onParentAbort, { once: true })
-    timeoutSignal.addEventListener('abort', onTimeoutAbort, { once: true })
-  }
-  return ac.signal
-}
-
 const IMAGE_CAPABLE_MODEL_RE =
   /(dall-e|gpt-image|gpt-4o-image|imagen|flux|sdxl|stable-diffusion|midjourney|\bmj\b|jimeng|seedream|wanx|cogview|kolors|recraft|ideogram|nano-?banana|banana|image-preview|flash-image|pro-image|gemini-.*image|grok-2-image|doubao-seedream|hunyuan-image|qwen-image)/i
-
-// Gemini / Nano-Banana 类中转生图模型通常原生走 /chat/completions，先走对话生图可省去 /images/* 60s 无效等待与重连超时
-const CHAT_IMAGE_FIRST_RE = /(gemini-|nano-?banana|banana)/i
-const IMAGE_REQUEST_TIMEOUT_MS = 90000
 
 export function isImageCapableModel(modelName?: string): boolean {
   const m = (modelName || '').trim()
@@ -68,7 +40,7 @@ export function hasImageGenCapability(params: {
   modelProfile?: ModelProviderProfile
   imageGenConfig?: ImageGenConfig
 }): boolean {
-  if (params.imageGenConfig?.enabled && params.imageGenConfig.apiKey.trim()) {
+  if (resolveImageChannels(params.imageGenConfig).length > 0) {
     return true
   }
   if (params.modelProfile?.apiKey?.trim() && isImageCapableModel(params.modelProfile.model)) {
@@ -77,121 +49,12 @@ export function hasImageGenCapability(params: {
   return false
 }
 
-function formatFetchError(err: unknown, parentSignal: AbortSignal, timeoutSec: number): string {
-  if (parentSignal.aborted) return '操作已取消'
-  const name = (err as { name?: string })?.name ?? ''
-  if (name === 'TimeoutError' || name === 'AbortError') {
-    return `生图接口请求超时（等待超过 ${timeoutSec} 秒未响应）`
-  }
-  return err instanceof Error ? err.message : String(err)
-}
-
-async function decodeImagePayload(params: {
-  dataUrlOrUrl?: string
-  b64?: string
-  signal: AbortSignal
-}): Promise<Buffer> {
-  if (params.b64) return Buffer.from(params.b64, 'base64')
-  const val = (params.dataUrlOrUrl || '').trim()
-  if (!val) throw new Error('响应中未包含有效图片数据')
-  const dataMatch = /^data:image\/[a-zA-Z0-9+.-]+;base64,(.+)$/s.exec(val)
-  if (dataMatch) return Buffer.from(dataMatch[1], 'base64')
-  const resp = await fetch(val, { signal: withRequestTimeout(params.signal, 45000) })
-  if (!resp.ok) throw new Error(`下载生成的图片失败：HTTP ${resp.status}`)
-  return Buffer.from(await resp.arrayBuffer())
-}
-
-async function tryChatCompletionsImageFallback(params: {
-  baseUrl: string
-  apiKey: string
-  model: string
-  prompt: string
-  refPath?: string
-  signal: AbortSignal
-}): Promise<Buffer | null> {
-  const endpoint = `${params.baseUrl}/chat/completions`
-  const userContent: unknown = params.refPath
-    ? [
-        { type: 'text', text: params.prompt },
-        {
-          type: 'image_url',
-          image_url: {
-            url: `data:${mimeForExt(params.refPath)};base64,${readFileSync(params.refPath).toString('base64')}`
-          }
-        }
-      ]
-    : params.prompt
-
-  let resp: Response
-  try {
-    resp = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${params.apiKey}`
-      },
-      body: JSON.stringify({
-        model: params.model,
-        messages: [{ role: 'user', content: userContent }]
-      }),
-      signal: withRequestTimeout(params.signal, IMAGE_REQUEST_TIMEOUT_MS)
-    })
-  } catch (err) {
-    if (params.signal.aborted) throw err
-    return null
-  }
-  if (!resp.ok) return null
-
-  const json = (await resp.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string | Array<{ type?: string; image_url?: { url?: string }; text?: string }>
-        images?: Array<{ image_url?: { url?: string }; b64_json?: string; url?: string }>
-      }
-    }>
-  }
-  const msg = json.choices?.[0]?.message
-  if (!msg) return null
-
-  const attachedImg = msg.images?.[0]
-  if (attachedImg?.b64_json || attachedImg?.url || attachedImg?.image_url?.url) {
-    return decodeImagePayload({
-      b64: attachedImg.b64_json,
-      dataUrlOrUrl: attachedImg.url || attachedImg.image_url?.url,
-      signal: params.signal
-    })
-  }
-
-  if (Array.isArray(msg.content)) {
-    for (const part of msg.content) {
-      if (part?.type === 'image_url' && part.image_url?.url) {
-        return decodeImagePayload({ dataUrlOrUrl: part.image_url.url, signal: params.signal })
-      }
-    }
-  }
-
-  const text =
-    typeof msg.content === 'string'
-      ? msg.content
-      : Array.isArray(msg.content)
-        ? msg.content.map((p) => p?.text || '').join('\n')
-        : ''
-
-  const dataUriMatch = /data:image\/[a-zA-Z0-9+.-]+;base64,[A-Za-z0-9+/=]+/.exec(text)
-  if (dataUriMatch) {
-    return decodeImagePayload({ dataUrlOrUrl: dataUriMatch[0], signal: params.signal })
-  }
-  const mdUrlMatch = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/.exec(text)
-  if (mdUrlMatch) {
-    return decodeImagePayload({ dataUrlOrUrl: mdUrlMatch[1], signal: params.signal })
-  }
-  return null
-}
-
 export function createImageTools(params: {
   rootDir: string
   modelProfile?: ModelProviderProfile
   imageGenConfig?: ImageGenConfig
+  /** 当前轮次的任务上下文（目录 featureCode / toolTitle），用于生图渠道按任务路由 */
+  sceneParam?: SceneParam
   signal: AbortSignal
   requireApproval: ApprovalGate
   waitForImageEdit: (toolCallId: string, imagePath: string, hint: string) => Promise<ImageEditAnswer>
@@ -240,109 +103,82 @@ export function createImageTools(params: {
   })
   tools.push(askImageEditTool)
 
-  // 2. generate_image & edit_image_with_ref：优先使用独立配置「效果图 / 图生图 API」，否则仅在当前主模型本身具备生图能力时挂载
-  const useLegacyConfig = Boolean(
-    params.imageGenConfig?.enabled && params.imageGenConfig.apiKey.trim()
-  )
-  const rawBaseUrl = useLegacyConfig
-    ? params.imageGenConfig!.baseUrl
-    : params.modelProfile?.baseUrl || ''
-  const activeApiKey = (
-    useLegacyConfig ? params.imageGenConfig!.apiKey : params.modelProfile?.apiKey || ''
-  ).trim()
-  const activeModel = (
-    useLegacyConfig ? params.imageGenConfig!.model : params.modelProfile?.model || ''
-  ).trim()
-  const activeEditModel = (
-    useLegacyConfig ? params.imageGenConfig!.editModel || activeModel : activeModel
-  ).trim()
-  const defaultSize = params.imageGenConfig?.defaultSize || '1024x1024'
-
-  const canGenerate = hasImageGenCapability({
-    modelProfile: params.modelProfile,
-    imageGenConfig: params.imageGenConfig
+  // 2. generate_image & edit_image_with_ref：
+  //    优先使用独立配置的生图渠道列表（多渠道降级链），未配渠道时才回退到主模型原生生图。
+  const taskRoute = resolveImageTaskRoute({
+    featureCode: params.sceneParam?.featureCode,
+    toolTitle: params.sceneParam?.toolTitle
   })
 
-  if (canGenerate && activeApiKey) {
-    const baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl)
+  const configuredChannels = resolveImageChannels(params.imageGenConfig)
+  // 非主渠道要求字段完整（baseUrl + model），残缺的备用渠道直接跳过、不进降级链
+  const usableConfigured = configuredChannels.filter(
+    (c, i) => i === 0 || (c.baseUrl.trim() && c.model.trim())
+  )
+  const profileChannel: ImageGenChannel | null =
+    params.modelProfile?.apiKey?.trim() && isImageCapableModel(params.modelProfile.model)
+      ? {
+          id: 'chat-profile',
+          name: `主对话模型（${params.modelProfile.label || params.modelProfile.model}）`,
+          enabled: true,
+          baseUrl: params.modelProfile.baseUrl || '',
+          apiKey: params.modelProfile.apiKey,
+          model: params.modelProfile.model || '',
+          protocol: 'auto'
+        }
+      : null
+  const candidateChannels: ImageGenChannel[] =
+    usableConfigured.length > 0 ? usableConfigured : profileChannel ? [profileChannel] : []
 
+  if (candidateChannels.length > 0) {
     const saveImageBuffer = (buf: Buffer, outPath: string): number => {
       mkdirSync(dirname(outPath), { recursive: true })
       writeFileSync(outPath, buf)
       return buf.byteLength
     }
 
-    const extractFromImagesResp = async (resp: Response): Promise<Buffer> => {
-      const json = (await resp.json()) as {
-        data?: Array<{ b64_json?: string; url?: string }>
-      }
-      const first = json.data?.[0]
-      if (!first) throw new Error('接口未返回图片数据')
-      return decodeImagePayload({
-        b64: first.b64_json,
-        dataUrlOrUrl: first.url,
-        signal: params.signal
+    // 单渠道出图走共享执行模块（imageChannelExec），与设置页渠道连通性测试共用同一条调用路径
+    const runOnChannel = (
+      channel: ImageGenChannel,
+      req: ImageRunRequest
+    ): Promise<{ buf: Buffer; model: string }> =>
+      runImageOnChannel({
+        channel,
+        req,
+        signal: params.signal,
+        fallbackDefaultSize: params.imageGenConfig?.defaultSize
       })
-    }
 
-    const runWithFallback = async (paramsRun: {
-      targetModel: string
-      prompt: string
-      refPath?: string
-      unsupportedLabel: string
-      callImagesEndpoint: () => Promise<Response>
-    }): Promise<Buffer> => {
-      const chatFirst = CHAT_IMAGE_FIRST_RE.test(paramsRun.targetModel)
-      let resp: Response | null = null
-      let imgBuf: Buffer | null = null
-      let imgErrText = ''
-
-      const tryImagesApi = async (): Promise<void> => {
+    // 降级链：按任务路由偏好排序渠道，逐个尝试；全部失败后才报错，
+    // 报错语义保持不变——如实告知用户，严禁用假图/脚本渲染顶替。
+    const runWithChannelChain = async (
+      req: ImageRunRequest
+    ): Promise<{ buf: Buffer; channel: ImageGenChannel; model: string }> => {
+      const ordered = sortChannelsForRole(
+        candidateChannels,
+        taskRoute?.preferRole ?? req.kind
+      )
+      const failures: string[] = []
+      for (const channel of ordered) {
         try {
-          resp = await paramsRun.callImagesEndpoint()
-          if (resp.ok) {
-            imgBuf = await extractFromImagesResp(resp)
-          } else {
-            imgErrText = (await resp.text().catch(() => '')).slice(0, 220)
-          }
+          const hit = await runOnChannel(channel, req)
+          return { buf: hit.buf, channel, model: hit.model }
         } catch (err) {
           if (params.signal.aborted) throw err
-          imgErrText = formatFetchError(err, params.signal, IMAGE_REQUEST_TIMEOUT_MS / 1000)
+          failures.push(
+            `${channel.name}：${err instanceof Error ? err.message : String(err)}`
+          )
         }
       }
-
-      const tryChatApi = async (): Promise<void> => {
-        imgBuf = await tryChatCompletionsImageFallback({
-          baseUrl,
-          apiKey: activeApiKey,
-          model: paramsRun.targetModel,
-          prompt: paramsRun.prompt,
-          refPath: paramsRun.refPath,
-          signal: params.signal
-        })
-      }
-
-      if (chatFirst) {
-        await tryChatApi()
-        if (!imgBuf) await tryImagesApi()
-      } else {
-        await tryImagesApi()
-        if (!imgBuf) await tryChatApi()
-      }
-
-      if (!imgBuf) {
-        const statusNote = resp ? `HTTP ${(resp as Response).status}` : '请求异常/超时'
-        throw new Error(
-          `当前模型（${paramsRun.targetModel}）或所在中转渠道${paramsRun.unsupportedLabel}（${statusNote}${imgErrText ? `：${imgErrText}` : ''}）。请直接停下并如实告知用户切换支持出图的模型/渠道，严禁用相同参数重试或改用 Python 编写三维模型/软渲染器代替。`
-        )
-      }
-      return imgBuf
+      throw new Error(
+        `已依次尝试全部 ${ordered.length} 个生图渠道仍未出图（${failures.join('；')}）。请直接停下并如实告知用户检查或切换生图渠道，严禁用相同参数重试或改用 Python 编写三维模型/软渲染器代替。`
+      )
     }
 
     const generateImageTool = new DynamicStructuredTool({
       name: 'generate_image',
       description:
-        '文生图工具：直接通过当前模型/中转渠道生成空间效果图、概念意向图或彩平图并保存到工作区。生成前请先阅读 image-prompt-rewrite 技能优化提示词。若返回当前模型不支持生图，请直接如实告知用户切换支持出图的模型/渠道，严禁改用 Python 编写三维模型或渲染脚本代替。',
+        '文生图工具：直接通过生图渠道（多渠道自动降级）生成空间效果图、概念意向图或彩平图并保存到工作区。生成前请先阅读 image-prompt-rewrite 技能优化提示词。若返回全部渠道不支持生图，请直接如实告知用户检查或切换生图渠道，严禁改用 Python 编写三维模型或渲染脚本代替。',
       schema: z.object({
         prompt: z.string().min(1).describe('精细完整的图像生成提示词（详细描述空间尺度、材质、光影、视角与风格）'),
         image_name: z.string().optional().describe('输出图片文件名（不含扩展名，如“茶室概念意向图_01”）'),
@@ -360,27 +196,10 @@ export function createImageTools(params: {
 
         await params.requireApproval('generate_image', { image_name: `${safeName}.png`, prompt }, callId)
 
-        const targetModel = activeModel || 'dall-e-3'
-        const endpoint = `${baseUrl}/images/generations`
-        const imgBuf = await runWithFallback({
-          targetModel,
+        const { buf: imgBuf, channel, model } = await runWithChannelChain({
+          kind: 'generate',
           prompt,
-          unsupportedLabel: '不支持生图或响应超时',
-          callImagesEndpoint: () =>
-            fetch(endpoint, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${activeApiKey}`
-              },
-              body: JSON.stringify({
-                model: targetModel,
-                prompt,
-                n: 1,
-                size: size || defaultSize
-              }),
-              signal: withRequestTimeout(params.signal, IMAGE_REQUEST_TIMEOUT_MS)
-            })
+          size
         })
 
         if (existsSync(outPath)) {
@@ -395,10 +214,12 @@ export function createImageTools(params: {
         params.recordToolData(callId, {
           kind: 'generate_image',
           prompt,
-          imagePath: outPath
+          imagePath: outPath,
+          channelName: channel.name,
+          model
         })
 
-        return `图片已生成并保存至：${outPath.replace(/\\/g, '/')}（${bytesLen} bytes）。如需作为最终成果展示给用户，请调用 deliver 工具交付该路径。`
+        return `图片已生成并保存至：${outPath.replace(/\\/g, '/')}（${bytesLen} bytes，出图渠道：${channel.name} / ${model}）。如需作为最终成果展示给用户，请调用 deliver 工具交付该路径。`
       }
     })
     tools.push(generateImageTool)
@@ -406,7 +227,7 @@ export function createImageTools(params: {
     const editImageWithRefTool = new DynamicStructuredTool({
       name: 'edit_image_with_ref',
       description:
-        '图生图 / 垫图出效果图工具：以本地参考底图（如 CAD 导出 PNG、白模截图、现场照或局部标注图）为基础，按提示词直接生成效果图。若当前模型不支持生图报错，请直接如实告知用户切换支持出图的模型/渠道，严禁私自编写 Python 三维建模或渲染脚本代替。',
+        '图生图 / 垫图出效果图工具：以本地参考底图（如 CAD 导出 PNG、白模截图、现场照或局部标注图）为基础，按提示词直接生成效果图。若全部生图渠道报错，请直接如实告知用户检查或切换生图渠道，严禁私自编写 Python 三维建模或渲染脚本代替。',
       schema: z.object({
         reference_image_path: z.string().min(1).describe('参考底图/标注图的本机路径'),
         prompt: z.string().min(1).describe('改图或效果图渲染提示词（说明保留结构与材质/光影/环境/视角细节）'),
@@ -433,30 +254,13 @@ export function createImageTools(params: {
           callId
         )
 
-        const targetModel = activeEditModel || activeModel || 'gpt-image-1'
         const fileBuf = readFileSync(refPath)
-        const editEndpoint = `${baseUrl}/images/edits`
-        const imgBuf = await runWithFallback({
-          targetModel,
+        const { buf: imgBuf, channel, model } = await runWithChannelChain({
+          kind: 'edit',
           prompt,
           refPath,
-          unsupportedLabel: '不支持图生图或响应超时',
-          callImagesEndpoint: () => {
-            const form = new FormData()
-            form.append('image', new Blob([fileBuf], { type: mimeForExt(refPath) }), basename(refPath))
-            form.append('prompt', prompt)
-            form.append('model', targetModel)
-            form.append('n', '1')
-            form.append('size', size || defaultSize)
-            return fetch(editEndpoint, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${activeApiKey}`
-              },
-              body: form,
-              signal: withRequestTimeout(params.signal, IMAGE_REQUEST_TIMEOUT_MS)
-            })
-          }
+          fileBuf,
+          size
         })
 
         if (existsSync(outPath)) {
@@ -473,16 +277,18 @@ export function createImageTools(params: {
           beforeRefPath: refPath,
           rootDir: params.rootDir,
           sourceTool: 'edit_image_with_ref',
-          summary: prompt.slice(0, 80)
+          summary: `${prompt.slice(0, 80)}（出图渠道：${channel.name} / ${model}）`
         })
         params.recordToolData(callId, {
           kind: 'generate_image',
           prompt,
           imagePath: outPath,
-          referenceImagePath: refPath
+          referenceImagePath: refPath,
+          channelName: channel.name,
+          model
         })
 
-        return `图生图完成，结果已保存至：${outPath.replace(/\\/g, '/')}（${bytesLen} bytes）。若作为最终成品交付给用户，请调用 deliver 工具。`
+        return `图生图完成，结果已保存至：${outPath.replace(/\\/g, '/')}（${bytesLen} bytes，出图渠道：${channel.name} / ${model}）。若作为最终成品交付给用户，请调用 deliver 工具。`
       }
     })
     tools.push(editImageWithRefTool)

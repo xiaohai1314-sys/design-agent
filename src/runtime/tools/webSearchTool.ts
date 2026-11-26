@@ -89,6 +89,25 @@ async function searchBocha(
   }))
 }
 
+/** 按配置执行一次联网检索（web_search 工具与 search_inspiration 的联网兜底共用同一实现） */
+export async function runWebSearch(params: {
+  config?: WebSearchConfig
+  query: string
+  signal: AbortSignal
+}): Promise<{ provider: string; results: WebSearchResultItem[] }> {
+  const provider = params.config?.provider ?? 'duckduckgo'
+  const apiKey = params.config?.apiKey?.trim() ?? ''
+  let results: WebSearchResultItem[] = []
+  if (provider === 'tavily' && apiKey) {
+    results = await searchTavily(params.query, apiKey, params.signal)
+  } else if (provider === 'bocha' && apiKey) {
+    results = await searchBocha(params.query, apiKey, params.signal)
+  } else {
+    results = await searchDuckDuckGo(params.query, params.signal)
+  }
+  return { provider, results }
+}
+
 export function createWebSearchTool(params: {
   config?: WebSearchConfig
   signal: AbortSignal
@@ -96,7 +115,6 @@ export function createWebSearchTool(params: {
 }): DynamicStructuredTool | null {
   if (params.config && params.config.enabled === false) return null
   const provider = params.config?.provider ?? 'duckduckgo'
-  const apiKey = params.config?.apiKey?.trim() ?? ''
 
   return new DynamicStructuredTool({
     name: 'web_search',
@@ -110,14 +128,11 @@ export function createWebSearchTool(params: {
         (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable?.toolCallId ??
         `web_${Date.now()}`
 
-      let results: WebSearchResultItem[] = []
-      if (provider === 'tavily' && apiKey) {
-        results = await searchTavily(query, apiKey, params.signal)
-      } else if (provider === 'bocha' && apiKey) {
-        results = await searchBocha(query, apiKey, params.signal)
-      } else {
-        results = await searchDuckDuckGo(query, params.signal)
-      }
+      const { results } = await runWebSearch({
+        config: params.config,
+        query,
+        signal: params.signal
+      })
 
       params.recordToolData(callId, {
         kind: 'web_search',
