@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import type { CadEntity, CadLayerInfo, CadPreviewResult, CadSnapPoint } from '@shared/ipc'
+import { distPointToSeg, segSegIntersect } from '@shared/cadGeometry'
 import type { ModelAnnotationRef } from '@shared/protocol'
 
 interface CadBoxAnnotation {
@@ -44,24 +45,6 @@ interface DynamicSnapPoint {
   y: number
   kind: CadSnapPoint['kind'] | 'intersection' | 'perpendicular'
   layer: string
-}
-
-function distPointToSeg(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number
-): { dist: number; footX: number; footY: number } {
-  const dx = bx - ax
-  const dy = by - ay
-  const len2 = dx * dx + dy * dy
-  if (len2 < 1e-9) return { dist: Math.hypot(px - ax, py - ay), footX: ax, footY: ay }
-  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2))
-  const fx = ax + t * dx
-  const fy = ay + t * dy
-  return { dist: Math.hypot(px - fx, py - fy), footX: fx, footY: fy }
 }
 
 export const CadViewerPanel: React.FC<CadViewerPanelProps> = ({
@@ -337,12 +320,65 @@ export const CadViewerPanel: React.FC<CadViewerPanelProps> = ({
         ctx.lineTo(hx + 6, hy + 5)
         ctx.closePath()
         ctx.stroke()
+      } else if (hoverSnap.kind === 'intersection') {
+        // 交点用叉号，和圆心圆圈区分开
+        ctx.strokeStyle = '#f472b6'
+        ctx.beginPath()
+        ctx.moveTo(hx - 5, hy - 5)
+        ctx.lineTo(hx + 5, hy + 5)
+        ctx.moveTo(hx + 5, hy - 5)
+        ctx.lineTo(hx - 5, hy + 5)
+        ctx.stroke()
       } else {
         ctx.strokeStyle = '#eab308'
         ctx.beginPath()
         ctx.arc(hx, hy, 5, 0, Math.PI * 2)
         ctx.stroke()
       }
+    }
+
+    // 十字光标叠层：贯穿画布的十字线 + 中心拾取框
+    if (cursorWorld && !panDragRef.current) {
+      const [cx, cy] = worldToScreen(cursorWorld[0], cursorWorld[1], w, h)
+      ctx.save()
+      ctx.lineWidth = 1
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)'
+      ctx.beginPath()
+      ctx.moveTo(0, cy)
+      ctx.lineTo(w, cy)
+      ctx.moveTo(cx, 0)
+      ctx.lineTo(cx, h)
+      ctx.stroke()
+      // 拾取框：开捕捉时略大，便于对齐
+      const box = snapEnabled ? 9 : 6
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.85)'
+      ctx.strokeRect(cx - box, cy - box, box * 2, box * 2)
+      ctx.restore()
+    }
+
+    // UCS 坐标轴图标：二维视图不旋转，X 恒朝右、Y 恒朝上
+    {
+      const ox = 36
+      const oy = h - 36
+      const len = 24
+      ctx.save()
+      ctx.lineWidth = 2
+      ctx.strokeStyle = '#ef4444'
+      ctx.beginPath()
+      ctx.moveTo(ox, oy)
+      ctx.lineTo(ox + len, oy)
+      ctx.stroke()
+      ctx.strokeStyle = '#22c55e'
+      ctx.beginPath()
+      ctx.moveTo(ox, oy)
+      ctx.lineTo(ox, oy - len)
+      ctx.stroke()
+      ctx.font = '11px ui-sans-serif, system-ui, sans-serif'
+      ctx.fillStyle = '#ef4444'
+      ctx.fillText('X', ox + len + 4, oy + 4)
+      ctx.fillStyle = '#22c55e'
+      ctx.fillText('Y', ox - 5, oy - len - 5)
+      ctx.restore()
     }
   }, [
     data,
@@ -397,6 +433,34 @@ export const CadViewerPanel: React.FC<CadViewerPanelProps> = ({
           if (d2 < bestSq) {
             bestSq = d2
             best = { x: perp.footX, y: perp.footY, kind: 'perpendicular', layer: ent.layer }
+          }
+        }
+      }
+    }
+    // 交点捕捉：只拿光标附近的线段两两求交，避免整图 O(n²)
+    if (!best && data.entities) {
+      const near: Array<{ a: [number, number]; b: [number, number]; layer: string }> = []
+      const radius = maxDistWorld * 4
+      for (const ent of data.entities) {
+        if (layerVis[ent.layer] === false || ent.kind !== 'polyline') continue
+        for (let i = 0; i + 1 < ent.pts.length; i += 1) {
+          const a = ent.pts[i]
+          const b = ent.pts[i + 1]
+          if (distPointToSeg(wx, wy, a[0], a[1], b[0], b[1]).dist <= radius) {
+            near.push({ a, b, layer: ent.layer })
+          }
+          if (near.length >= 200) break
+        }
+        if (near.length >= 200) break
+      }
+      for (let i = 0; i < near.length; i += 1) {
+        for (let j = i + 1; j < near.length; j += 1) {
+          const p = segSegIntersect(near[i].a, near[i].b, near[j].a, near[j].b)
+          if (!p) continue
+          const d2 = (p[0] - wx) ** 2 + (p[1] - wy) ** 2
+          if (d2 < bestSq) {
+            bestSq = d2
+            best = { x: p[0], y: p[1], kind: 'intersection', layer: near[i].layer }
           }
         }
       }
