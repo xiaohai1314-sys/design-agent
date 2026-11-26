@@ -111,6 +111,24 @@ const api: DesignAgentBridgeApi = {
         ipcRenderer.removeListener(IPC_CHANNELS.ModelsInspirationRebuildProgress, wrapped)
     }
   },
+  downloads: {
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.DownloadsList),
+    start: (req) => ipcRenderer.invoke(IPC_CHANNELS.DownloadsStart, req),
+    pause: (id) => ipcRenderer.invoke(IPC_CHANNELS.DownloadsPause, id),
+    resume: (id) => ipcRenderer.invoke(IPC_CHANNELS.DownloadsResume, id),
+    remove: (id) => ipcRenderer.invoke(IPC_CHANNELS.DownloadsRemove, id),
+    openFile: (id) => ipcRenderer.invoke(IPC_CHANNELS.DownloadsOpenFile, id),
+    openFolder: (id) => ipcRenderer.invoke(IPC_CHANNELS.DownloadsOpenFolder, id),
+    pickDir: () => ipcRenderer.invoke(IPC_CHANNELS.DownloadsPickDir),
+    onChanged: (listener) => {
+      const wrapped = (
+        _e: Electron.IpcRendererEvent,
+        tasks: import('@shared/protocol').DownloadTask[]
+      ): void => listener(tasks)
+      ipcRenderer.on(IPC_CHANNELS.DownloadsChanged, wrapped)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.DownloadsChanged, wrapped)
+    }
+  },
   mcp: {
     listConnectors: () => ipcRenderer.invoke(IPC_CHANNELS.McpListConnectors),
     setEnabled: (payload) => ipcRenderer.invoke(IPC_CHANNELS.McpSetEnabled, payload),

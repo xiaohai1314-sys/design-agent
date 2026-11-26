@@ -13,6 +13,8 @@ import type {
   ImageGenConfig,
   ClipModelDownloadProgress,
   ClipModelStatus,
+  DownloadStartRequest,
+  DownloadTask,
   InspirationConfig,
   InspirationRebuildProgress,
   InspirationRebuildResult,
@@ -86,6 +88,16 @@ export const IPC_CHANNELS = {
   ModelsClipModelDownloadProgress: 'models:clip-model-download-progress',
   ModelsRebuildInspirationIndex: 'models:rebuild-inspiration-index',
   ModelsInspirationRebuildProgress: 'models:inspiration-rebuild-progress',
+
+  DownloadsList: 'downloads:list',
+  DownloadsStart: 'downloads:start',
+  DownloadsPause: 'downloads:pause',
+  DownloadsResume: 'downloads:resume',
+  DownloadsRemove: 'downloads:remove',
+  DownloadsOpenFile: 'downloads:open-file',
+  DownloadsOpenFolder: 'downloads:open-folder',
+  DownloadsPickDir: 'downloads:pick-dir',
+  DownloadsChanged: 'downloads:changed',
 
   McpListConnectors: 'mcp:list-connectors',
   McpSetEnabled: 'mcp:set-enabled',
@@ -453,6 +465,17 @@ export interface DesignAgentBridgeApi {
       clipModelDir?: string
     }) => Promise<InspirationRebuildResult>
     onInspirationRebuildProgress: (cb: (p: InspirationRebuildProgress) => void) => () => void
+  }
+  downloads: {
+    list: () => Promise<DownloadTask[]>
+    start: (req: DownloadStartRequest) => Promise<DownloadTask[]>
+    pause: (id: string) => Promise<DownloadTask[]>
+    resume: (id: string) => Promise<DownloadTask[]>
+    remove: (id: string) => Promise<DownloadTask[]>
+    openFile: (id: string) => Promise<void>
+    openFolder: (id: string) => Promise<void>
+    pickDir: () => Promise<string | null>
+    onChanged: (cb: (tasks: DownloadTask[]) => void) => () => void
   }
   mcp: {
     listConnectors: () => Promise<McpConnectorInfo[]>

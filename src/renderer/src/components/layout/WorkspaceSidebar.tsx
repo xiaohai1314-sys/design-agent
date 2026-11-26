@@ -3,6 +3,7 @@ import {
   BookOpenCheck,
   Box,
   ChevronRight,
+  Download,
   FolderPlus,
   Image as ImageIcon,
   KeyRound,
@@ -20,6 +21,7 @@ import {
 import clsx from 'clsx'
 import type { PermissionMode } from '@shared/protocol'
 import type { ProjectSummary, TaskSummary } from '@shared/ipc'
+import { DownloadCenter } from '../DownloadCenter'
 
 export type LeftNavMode = 'image' | 'modeling' | 'report' | 'regulation'
 
@@ -99,6 +101,7 @@ export function WorkspaceSidebar({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState('')
   const [taskSearch, setTaskSearch] = useState('')
+  const [downloadsOpen, setDownloadsOpen] = useState(false)
 
   const filteredTasks = tasks
     .filter((t) => (activeProjectId ? t.projectId === activeProjectId : true))
@@ -443,6 +446,18 @@ export function WorkspaceSidebar({
 
         <button
           type="button"
+          onClick={() => setDownloadsOpen(true)}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-700 hover:bg-white transition-colors cursor-pointer"
+        >
+          <span className="flex items-center gap-1.5">
+            <Download className="w-3.5 h-3.5 text-zinc-500" />
+            <span>下载中心</span>
+          </span>
+          <ChevronRight className="w-3 h-3 text-zinc-400" />
+        </button>
+
+        <button
+          type="button"
           onClick={onOpenSettings}
           className={clsx(
             'w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer',
@@ -460,6 +475,8 @@ export function WorkspaceSidebar({
           </span>
         </button>
       </div>
+
+      {downloadsOpen && <DownloadCenter onClose={() => setDownloadsOpen(false)} />}
     </aside>
   )
 }

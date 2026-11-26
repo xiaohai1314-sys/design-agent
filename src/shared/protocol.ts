@@ -262,6 +262,33 @@ export interface ClipModelDownloadProgress {
   overallRatio: number
 }
 
+/** 下载中心任务状态 */
+export type DownloadStatus = 'queued' | 'downloading' | 'paused' | 'success' | 'error'
+
+/** 下载中心的一条任务 */
+export interface DownloadTask {
+  id: string
+  name: string
+  url: string
+  destPath: string
+  totalBytes: number
+  receivedBytes: number
+  /** 字节/秒，暂停与非下载态为 0 */
+  speedBps: number
+  status: DownloadStatus
+  error?: string
+  createdAt: number
+  finishedAt?: number
+}
+
+/** 发起一次下载 */
+export interface DownloadStartRequest {
+  url: string
+  destDir: string
+  /** 不填则从 URL 或 Content-Disposition 推导 */
+  fileName?: string
+}
+
 /** 应用内重建灵感索引的结果（设置页「重建索引」按钮） */
 export interface InspirationRebuildResult {
   ok: boolean

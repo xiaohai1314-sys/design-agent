@@ -27,6 +27,7 @@ import type {
   AgentAttachment,
   AgentDecision,
   AskAnswer,
+  DownloadStartRequest,
   ImageChannelTestLevel,
   ImageEditAnswer,
   ImageGenChannel,
@@ -36,6 +37,7 @@ import type {
   RuntimeOutbound
 } from '@shared/protocol'
 import { LocalAppStore } from './store'
+import { DownloadCenter } from './downloadCenter'
 import { AgentRuntimeHost } from './runtimeHost'
 import { CadPreviewService } from './cadService'
 import { ModelPreviewService } from './modelService'
@@ -461,6 +463,37 @@ function registerIpcHandlers(): void {
         }
       })
   )
+
+  // 下载中心
+  const downloadCenter = new DownloadCenter(join(app.getPath('userData'), 'downloads.json'))
+  downloadCenter.onChange((tasks) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(IPC_CHANNELS.DownloadsChanged, tasks)
+    }
+  })
+  ipcMain.handle(IPC_CHANNELS.DownloadsList, () => downloadCenter.list())
+  ipcMain.handle(IPC_CHANNELS.DownloadsStart, (_e, req: DownloadStartRequest) => downloadCenter.start(req))
+  ipcMain.handle(IPC_CHANNELS.DownloadsPause, (_e, id: string) => downloadCenter.pause(id))
+  ipcMain.handle(IPC_CHANNELS.DownloadsResume, (_e, id: string) => downloadCenter.resume(id))
+  ipcMain.handle(IPC_CHANNELS.DownloadsRemove, (_e, id: string) => downloadCenter.remove(id))
+  ipcMain.handle(IPC_CHANNELS.DownloadsOpenFile, async (_e, id: string) => {
+    const task = downloadCenter.get(id)
+    if (!task || task.status !== 'success') return
+    // 与 ShellOpenPath 一致：可执行文件和脚本不直接运行
+    if (BLOCKED_OPEN_EXTS.has(extname(task.destPath).toLowerCase())) {
+      shell.showItemInFolder(task.destPath)
+      return
+    }
+    await shell.openPath(task.destPath)
+  })
+  ipcMain.handle(IPC_CHANNELS.DownloadsOpenFolder, (_e, id: string) => {
+    const task = downloadCenter.get(id)
+    if (task) shell.showItemInFolder(task.destPath)
+  })
+  ipcMain.handle(IPC_CHANNELS.DownloadsPickDir, async () => {
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+    return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
 
   ipcMain.handle(IPC_CHANNELS.AgentGetPermissionMode, () => store.getPermissionMode())
   ipcMain.handle(IPC_CHANNELS.AgentSetPermissionMode, (_e, mode: PermissionMode) => {
