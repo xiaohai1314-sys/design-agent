@@ -7,7 +7,15 @@ import type {
   ConversationRef,
   Deliverable,
   ImageEditAnswer,
+  ImageChannelTestLevel,
+  ImageChannelTestResult,
+  ImageGenChannel,
   ImageGenConfig,
+  ClipModelDownloadProgress,
+  ClipModelStatus,
+  InspirationConfig,
+  InspirationRebuildProgress,
+  InspirationRebuildResult,
   ModelAnnotationRef,
   ModelProviderProfile,
   PermissionMode,
@@ -71,6 +79,12 @@ export const IPC_CHANNELS = {
   ModelsSaveSettings: 'models:save-settings',
   ModelsDiscoverCcSwitch: 'models:discover-cc-switch',
   ModelsTestConnection: 'models:test-connection',
+  ModelsTestImageChannel: 'models:test-image-channel',
+  ModelsGetClipModelStatus: 'models:get-clip-model-status',
+  ModelsDownloadClipModel: 'models:download-clip-model',
+  ModelsClipModelDownloadProgress: 'models:clip-model-download-progress',
+  ModelsRebuildInspirationIndex: 'models:rebuild-inspiration-index',
+  ModelsInspirationRebuildProgress: 'models:inspiration-rebuild-progress',
 
   McpListConnectors: 'mcp:list-connectors',
   McpSetEnabled: 'mcp:set-enabled',
@@ -231,6 +245,7 @@ export interface ModelSettingsState {
   profiles: ModelProviderProfile[]
   imageGen: ImageGenConfig
   regulation: RegulationConfig
+  inspiration: InspirationConfig
   webSearch?: WebSearchConfig
 }
 
@@ -420,6 +435,21 @@ export interface ZmoBridgeApi {
       resolvedUseResponsesApi?: boolean
       resolvedAuthStyle?: AnthropicAuthStyle
     }>
+    testImageChannel: (
+      channel: ImageGenChannel,
+      level: ImageChannelTestLevel
+    ) => Promise<ImageChannelTestResult>
+    /** 查询本地向量模型（Chinese-CLIP）状态：缺失/下载中/就绪 */
+    getClipModelStatus: (modelDir: string) => Promise<ClipModelStatus>
+    /** 下载向量模型到指定目录（首次使用时）；进度经 onClipModelDownloadProgress 推送 */
+    downloadClipModel: (modelDir: string) => Promise<ClipModelStatus>
+    onClipModelDownloadProgress: (cb: (p: ClipModelDownloadProgress) => void) => () => void
+    /** 扫描灵感库目录并重建 inspiration-index.json（端口径与种子生成器一致） */
+    rebuildInspirationIndex: (payload: {
+      folder: string
+      clipModelDir?: string
+    }) => Promise<InspirationRebuildResult>
+    onInspirationRebuildProgress: (cb: (p: InspirationRebuildProgress) => void) => () => void
   }
   mcp: {
     listConnectors: () => Promise<McpConnectorInfo[]>

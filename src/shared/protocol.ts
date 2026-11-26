@@ -41,6 +41,8 @@ export interface InputFile {
 
 export interface SceneParam {
   toolTitle?: string
+  /** 任务目录 featureCode（如 B4.4）；目录提交时由 compose 写入，供生图渠道按任务路由使用 */
+  featureCode?: string
   paramValues?: Record<string, string>
 }
 
@@ -97,6 +99,10 @@ export interface GenerateImageToolData {
   prompt: string
   imagePath: string
   referenceImagePath?: string
+  /** 实际出图的渠道名（多渠道降级链中命中的渠道） */
+  channelName?: string
+  /** 实际出图的模型名 */
+  model?: string
 }
 
 export interface RegulationChunk {
@@ -152,6 +158,30 @@ export interface ModelProviderProfile {
   maxOutputTokens?: number
 }
 
+/**
+ * 生图协议偏好：
+ * - auto：按模型名猜测（gemini/nano-banana 类走 /chat/completions 优先，其余走 /images/* 优先）
+ * - chat-first：强制 /chat/completions 优先
+ * - images-first：强制 /images/generations|edits 优先
+ */
+export type ImageChannelProtocol = 'auto' | 'chat-first' | 'images-first'
+
+/** 生图渠道擅长方向，供按任务路由排序（未声明时按配置顺序兜底） */
+export type ImageChannelRole = 'generate' | 'edit'
+
+export interface ImageGenChannel {
+  id: string
+  name: string
+  enabled: boolean
+  baseUrl: string
+  apiKey: string
+  model: string
+  editModel?: string
+  protocol: ImageChannelProtocol
+  defaultSize?: string
+  roles?: ImageChannelRole[]
+}
+
 export interface ImageGenConfig {
   enabled: boolean
   baseUrl: string
@@ -159,10 +189,97 @@ export interface ImageGenConfig {
   model: string
   editModel?: string
   defaultSize?: string
+  /**
+   * 多渠道列表（按顺序即降级链顺序）。channels[0] 与上方平铺字段互为镜像（主渠道），
+   * 旧版单槽配置在 store 加载时自动迁移为一条渠道，见 @shared/imageChannels。
+   */
+  channels?: ImageGenChannel[]
+}
+
+/** 生图渠道连通性测试级别：probe = 轻量探活（免费）；generate = 真实出图（消耗一次出图调用） */
+export type ImageChannelTestLevel = 'probe' | 'generate'
+
+export interface ImageChannelTestResult {
+  ok: boolean
+  level: ImageChannelTestLevel
+  latencyMs: number
+  /** 成功时的补充说明（如命中模型、返回图片大小） */
+  detail?: string
+  /** 硬失败原因（网络/DNS/超时/鉴权 401 等，可判定为渠道不可用） */
+  error?: string
+  /**
+   * 软提示：探活未能完成确认，但不代表出图不可用——典型如中转未开放 /models 接口，
+   * 或模型列表不完整未列出目标模型。与 error 互斥语义：有 warning 时不应直接判定渠道坏死。
+   */
+  warning?: string
 }
 
 export interface RegulationConfig {
   folderPath: string
+}
+
+/** 灵感/素材库配置：folderPath 指向含 inspiration-index.json 的本地目录（与 RegulationConfig 同构） */
+export interface InspirationConfig {
+  folderPath: string
+  /**
+   * 本地向量模型（Chinese-CLIP ViT-B/16 ONNX）目录：含 model_fp16.onnx 与 vocab.txt。
+   * 缺省为 userData/models/chinese-clip-vit-b16（store 填充）；模型缺失时灵感检索自动退化为纯关键词。
+   */
+  clipModelDir?: string
+}
+
+/** 本地向量模型文件清单中的一项（状态查询用） */
+export interface ClipModelFileStatus {
+  name: string
+  present: boolean
+  sizeBytes?: number
+}
+
+/** 本地向量模型状态（设置页「本地向量模型」区块） */
+export interface ClipModelStatus {
+  /** missing = 关键文件不全；downloading = 正在下载；ready = 可加载 */
+  state: 'missing' | 'downloading' | 'ready'
+  modelDir: string
+  files: ClipModelFileStatus[]
+  /** 已就绪/已下载文件的总字节数 */
+  sizeBytes: number
+  /** state=downloading 时的进度 */
+  download?: { file: string; downloadedBytes: number; totalBytes: number }
+}
+
+/** 向量模型下载进度事件（主进程 → 渲染进程） */
+export interface ClipModelDownloadProgress {
+  file: string
+  downloadedBytes: number
+  totalBytes: number
+  /** 全部文件合计进度 0~1 */
+  overallRatio: number
+}
+
+/** 应用内重建灵感索引的结果（设置页「重建索引」按钮） */
+export interface InspirationRebuildResult {
+  ok: boolean
+  folder: string
+  recordCount: number
+  recipeCount: number
+  assetCount: number
+  /** 成功算出文本/图像向量的记录数 */
+  textVectorCount: number
+  imageVectorCount: number
+  /** 是否算了向量（模型未下载时为 false，索引仅含关键词元数据） */
+  vectorsComputed: boolean
+  /** 逐文件错误（已截断，完整计数见 errorCount） */
+  errors: { path: string; error: string }[]
+  errorCount: number
+  elapsedMs: number
+  error?: string
+}
+
+/** 重建索引进度事件（主进程 → 渲染进程） */
+export interface InspirationRebuildProgress {
+  phase: 'scan' | 'text-vectors' | 'image-vectors' | 'write'
+  done: number
+  total: number
 }
 
 export interface WebSearchConfig {
@@ -182,6 +299,63 @@ export interface WebSearchToolData {
   query: string
   provider: string
   results: WebSearchResultItem[]
+}
+
+/**
+ * 灵感/素材库统一索引记录（inspiration-index.json 内 records 的元素）。
+ * localPath 相对索引文件所在目录，素材文件本体不搬动、只在索引里引用。
+ */
+export interface InspirationIndexRecord {
+  id: string
+  /** recipe = 建筑参考图 + 生图配方；asset = 3D 模型 / 贴图 / HDRI 素材 */
+  kind: 'recipe' | 'asset'
+  title: string
+  tags: string[]
+  /** 配方风格：photo / render 等（仅 recipe） */
+  style?: string
+  /** 建筑类型：villa_house / cityscape / highrise / traditional / futuristic / commercial / public / rural / other_arch（仅 recipe） */
+  buildingType?: string
+  /** 生图提示词原文（仅 recipe） */
+  prompt?: string
+  /** 相对灵感库目录的本地文件路径（参考图或素材文件，可为目录如贴图集） */
+  localPath?: string
+  /** 远程来源页 / 原图 URL */
+  sourceUrl?: string
+  /** 来源说明（如素材出处、配方库名称） */
+  source: string
+  /** 文本向量（base64 Float32Array，512 维，Chinese-CLIP）；索引 v2 起可选，缺失时该条只走关键词打分 */
+  textVector?: string
+  /** 图像向量（base64 Float32Array，512 维）；配方参考图/贴图预览图才有 */
+  imageVector?: string
+}
+
+export interface InspirationHit {
+  id: string
+  kind: 'recipe' | 'asset'
+  title: string
+  score: number
+  style?: string
+  buildingType?: string
+  prompt?: string
+  /** 解析后的本机绝对路径（文件不存在时不下发，改走 sourceUrl） */
+  filePath?: string
+  sourceUrl?: string
+  source: string
+  tags: string[]
+}
+
+export interface InspirationToolData {
+  kind: 'search_inspiration'
+  query: string
+  /** 本地命中总数（截断前） */
+  total: number
+  localHits: InspirationHit[]
+  /** 本次是否用上了向量（语义/以图搜图）混合打分；模型未下载或索引无向量时为 false */
+  vectorUsed?: boolean
+  /** 本地不足时是否走了联网兜底 */
+  webFallbackUsed: boolean
+  webProvider?: string
+  webResults?: WebSearchResultItem[]
 }
 
 export type PptReference =
@@ -313,6 +487,8 @@ export type RuntimeInbound =
       modelProfile: ModelProviderProfile
       imageGenConfig?: ImageGenConfig
       regulationFolder?: string
+      inspirationFolder?: string
+      clipModelDir?: string
       webSearchConfig?: WebSearchConfig
       profile?: 'ai-scheme-v1' | 'default'
     }
@@ -329,6 +505,8 @@ export type RuntimeInbound =
       modelProfile: ModelProviderProfile
       imageGenConfig?: ImageGenConfig
       regulationFolder?: string
+      inspirationFolder?: string
+      clipModelDir?: string
       webSearchConfig?: WebSearchConfig
       profile?: 'ai-scheme-v1' | 'default'
       resolution:
