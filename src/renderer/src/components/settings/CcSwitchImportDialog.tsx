@@ -47,7 +47,7 @@ export function CcSwitchImportDialog({
               从 CC Switch / Claude / Codex 选择导入节点
             </h3>
             <p className="text-[11px] text-zinc-500 mt-0.5">
-              仅读取本机配置（绝不修改原库）；可先「测活」筛掉失效中转，再勾选需要的节点导入。
+              会读取当前用户目录下的 ~/.cc-switch/cc-switch.db、~/.claude/settings.json 与 ~/.codex 配置（只读，不修改原文件；Key 只保留在本机主进程，导入后加密保存）。可先「测活」筛掉失效中转，再勾选需要的节点导入。
             </p>
           </div>
           <button

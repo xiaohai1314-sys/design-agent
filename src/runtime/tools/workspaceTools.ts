@@ -488,7 +488,7 @@ export function createWorkspaceTools(params: {
       note: z.string().min(1).describe('要持久记住的精炼条目（一行或一小段事实/决策）')
     }),
     func: async ({ note }, runManager, config) => {
-      // R16：写入的内容会进入后续每一轮的系统提示词，需经用户确认
+      // 是否需要审批由 runtime 的 gatedToolNames 决定（自用版本默认不审批）
       await requireApproval('remember', { note }, resolveToolCallId(runManager, config))
       const memFile = params.projectMemoryPath
         ? resolvePathWithinRoot(dirname(params.projectMemoryPath), params.projectMemoryPath)

@@ -1010,8 +1010,8 @@ async function executeTurn(
     'edit_file',
     'execute',
     'generate_image',
-    'edit_image_with_ref',
-    'remember'
+    'edit_image_with_ref'
+    // 自用：remember（写项目记忆）不再弹审批。如需恢复，把 'remember' 加回这里即可
   ])
 
   const requireApproval = async (

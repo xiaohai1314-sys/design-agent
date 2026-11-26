@@ -4,15 +4,16 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import type { Plugin } from 'vite'
 
-// S4：打包后的界面加上内容安全策略。connect-src 限定本地资源，即使出现注入也无法把数据发往外部；
+// S4：打包后的界面加上内容安全策略。自用版本允许从 https CDN 加载脚本、样式、字体和图片（HTML 预览常用）；
+// connect-src 仍限定本地资源，即使出现注入也无法把数据通过 fetch/XHR 发往外部；
 // 开发模式不注入（Vite 热更新需要内联脚本）。HTML 预览 iframe（srcdoc）会继承该策略。
 const RENDERER_CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "media-src 'self' data: blob:",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https:",
+  "style-src 'self' 'unsafe-inline' https:",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data: https:",
+  "media-src 'self' data: blob: https:",
   "worker-src 'self' blob:",
   "connect-src 'self' data: blob:",
   "frame-src 'self' blob: data:",

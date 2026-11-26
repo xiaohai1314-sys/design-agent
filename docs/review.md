@@ -593,3 +593,30 @@
 - 打包版启用了 CSP：HTML 预览里引用外部 CDN 的脚本、样式会被拦截。
 - 智能体写项目记忆（`remember`）现在会弹审批。
 - 用户带了附件时，客厅 / CAD 预设不会再自动套用。
+
+
+### 复查（2026-11-26 晚）
+
+上次未完成的项目已由开发者补做，复查结果：
+
+| 编号 | 状态 | 说明 |
+|---|---|---|
+| S6 | ✅ | Electron 升级到 45.5.0；`xlsx` 已替换为 `exceljs` 4.4.0（源码与测试中均无残留）；CLIP 模型下载增加 SHA-256 校验 |
+| S5 | ✅ | 扫描结果发往界面前清空 Key，只带 `hasKey` 与脱敏值；真实 Key 留在主进程缓存，保存与测活时由主进程补回。导入弹窗已注明会读取的文件 |
+| R17 | ✅ | `read_file` 返回的图片在不支持的协议下降级（`degradeToolImageBlocks`）；`AsyncLoopRunner` 改为引用 `runAgentLoop` 的类型 |
+| P10 | ✅ | 系统提示词精简（“严禁”3 处，已无 `scene.py` 补丁规则）；技能说明统一为中文 |
+| M5 | ✅ | `App.tsx` 2201 → 1007 行，`ModelSettingsModal.tsx` 1949 → 774 行，拆出 `chat/`、`layout/`、`modals/`、`settings/` |
+| C1 | ✅ | 新增运行资源打包 / 拉取 / 构建脚本，`gh-token.txt` 已在 `.gitignore` 中且未进入 Git 索引 |
+| C2 | ⚠️ 仍待决定 | 见下 |
+
+**C2 仍未解决**：
+- docx / pptx / xlsx / pdf 四个技能的 `LICENSE.txt` 仍是 Anthropic 的限制性许可，且这次被翻译成了中文。该许可明确禁止“制作衍生作品”和“分发”，翻译属于衍生作品；`electron-builder.yml` 仍会把它们打进安装包。
+- `resources/skills/cad/vendor/win64` 已放入 LibreDWG（GPL-3.0），分发时需履行 GPL 义务。
+- `zmo` 前缀与“知末”字样已清除，但源码中仍有 19 处“对齐原版”注释；改名不改变内容来源，授权问题仍需确认。
+- 项目仍没有 `LICENSE` 文件。
+
+
+### 自用调整（2026-11-26）
+
+- `remember` 不再需要审批（`src/runtime/index.ts` 的 `gatedToolNames`，加回 `'remember'` 即可恢复）。
+- 打包版 CSP 允许从 `https:` 加载脚本、样式、字体、图片和媒体；`connect-src` 仍只允许本地，页面里的 fetch / XHR 访问外部接口会被拦截。
