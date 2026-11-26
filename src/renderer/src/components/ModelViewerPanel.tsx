@@ -96,7 +96,7 @@ export const ModelViewerPanel: React.FC<ModelViewerPanelProps> = ({
     setAnnotations([])
     setPendingPin(null)
 
-    window.zmo.modelPreview
+    window.designAgent.modelPreview
       .prepare(filePath)
       .then((res) => {
         if (cancelled) return

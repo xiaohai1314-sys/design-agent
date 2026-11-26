@@ -94,7 +94,7 @@ export function WindowTitleBar({
 
       {/* 显式居中弹性拖拽区域（至少保留 64px 可拖动空白区，双击亦可最大化/还原） */}
       <div
-        onDoubleClick={() => window.zmo.window.toggleMaximize()}
+        onDoubleClick={() => window.designAgent.window.toggleMaximize()}
         title="按住拖动窗口位置（双击最大化/还原）"
         className="flex-1 h-full min-w-[64px] app-drag-region"
       />
@@ -119,7 +119,7 @@ export function WindowTitleBar({
         <div className="h-3.5 w-[1px] bg-zinc-300 mx-0.5" />
         <button
           type="button"
-          onClick={() => window.zmo.window.minimize()}
+          onClick={() => window.designAgent.window.minimize()}
           aria-label="最小化"
           className="p-1.5 rounded-md text-zinc-600 hover:bg-zinc-200/70 cursor-pointer"
         >
@@ -127,7 +127,7 @@ export function WindowTitleBar({
         </button>
         <button
           type="button"
-          onClick={() => window.zmo.window.toggleMaximize()}
+          onClick={() => window.designAgent.window.toggleMaximize()}
           aria-label={isMaximized ? '还原' : '最大化'}
           className="p-1.5 rounded-md text-zinc-600 hover:bg-zinc-200/70 cursor-pointer"
         >
@@ -135,7 +135,7 @@ export function WindowTitleBar({
         </button>
         <button
           type="button"
-          onClick={() => window.zmo.window.close()}
+          onClick={() => window.designAgent.window.close()}
           aria-label="关闭"
           className="p-1.5 rounded-md text-zinc-600 hover:bg-rose-500 hover:text-white cursor-pointer"
         >

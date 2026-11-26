@@ -369,7 +369,7 @@ export interface SendMessagePayload {
   profile?: 'ai-scheme-v1' | 'default'
 }
 
-export interface ZmoBridgeApi {
+export interface DesignAgentBridgeApi {
   app?: {
     getPathForFile: (file: File) => Promise<string>
   }

@@ -38,21 +38,21 @@ export class McpConnectorManager {
 
     // 1. 优先使用项目独立内置的 resources/mcp，回退 AppData
     const bundledMcp = join(bundledResourcesDir, 'mcp')
-    const appDataMcp = join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'mcp')
+    const appDataMcp = join(appData, '@design-agent', 'agent-desktop', 'agent-runtime', 'mcp')
     this.localMcpRoot = existsSync(bundledMcp) ? bundledMcp : existsSync(appDataMcp) ? appDataMcp : null
 
     // 2. 优先使用项目独立内置的 resources/runtime，回退 AppData 或系统环境
     const rtCandidatesPy = [
       join(bundledResourcesDir, 'runtime', 'python', 'python.exe'),
-      join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'python', 'python.exe'),
-      join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'runtime', 'python', 'python.exe')
+      join(appData, '@design-agent', 'agent-desktop', 'agent-runtime', 'python', 'python.exe'),
+      join(appData, '@design-agent', 'agent-desktop', 'agent-runtime', 'runtime', 'python', 'python.exe')
     ]
     this.pythonExe = rtCandidatesPy.find((p) => existsSync(p)) ?? 'python'
 
     const rtCandidatesNode = [
       join(bundledResourcesDir, 'runtime', 'node', 'node.exe'),
-      join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'node', 'node.exe'),
-      join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'runtime', 'node', 'node.exe')
+      join(appData, '@design-agent', 'agent-desktop', 'agent-runtime', 'node', 'node.exe'),
+      join(appData, '@design-agent', 'agent-desktop', 'agent-runtime', 'runtime', 'node', 'node.exe')
     ]
     this.nodeExe = rtCandidatesNode.find((p) => existsSync(p)) ?? process.execPath
   }

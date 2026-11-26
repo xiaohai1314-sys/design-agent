@@ -154,7 +154,7 @@ export function createPptWorkbenchTool(params: {
       }
 
       if (action === 'snapshot') {
-        const snapDir = join(params.rootDir, '.zmo', 'ppt-snapshots')
+        const snapDir = join(params.rootDir, '.design-agent', 'ppt-snapshots')
         mkdirSync(snapDir, { recursive: true })
         const snapPath = join(snapDir, `${Date.now()}_${basename(targetPpt)}`)
         copyFileSync(targetPpt, snapPath)

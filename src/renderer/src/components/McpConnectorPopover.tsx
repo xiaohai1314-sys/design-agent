@@ -32,7 +32,7 @@ export const McpConnectorPopover: React.FC<McpConnectorPopoverProps> = ({
   const handleCheck = async (name: string): Promise<void> => {
     setCheckingName(name)
     try {
-      const res = await window.zmo.mcp.checkConnection(name)
+      const res = await window.designAgent.mcp.checkConnection(name)
       setActionMsg((prev) => ({
         ...prev,
         [name]: res.ok
@@ -47,7 +47,7 @@ export const McpConnectorPopover: React.FC<McpConnectorPopoverProps> = ({
   const handleInstall = async (name: string): Promise<void> => {
     setInstallingName(name)
     try {
-      const res = await window.zmo.mcp.installPlugin(name)
+      const res = await window.designAgent.mcp.installPlugin(name)
       setActionMsg((prev) => ({
         ...prev,
         [name]: { ok: res.ok, text: res.message }

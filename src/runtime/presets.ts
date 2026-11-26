@@ -34,9 +34,9 @@ interface RawPresetManifest {
 }
 
 export function resolvePresetsRoot(explicitRoot?: string, skillsRoot?: string): string {
-  const direct = (explicitRoot || process.env.ZMO_PRESETS_ROOT || '').trim()
+  const direct = (explicitRoot || process.env.DESIGN_AGENT_PRESETS_ROOT || '').trim()
   if (direct && existsSync(direct)) return direct
-  const sk = (skillsRoot || process.env.ZMO_SKILLS_ROOT || '').trim()
+  const sk = (skillsRoot || process.env.DESIGN_AGENT_SKILLS_ROOT || '').trim()
   if (sk) {
     const sibling = join(dirname(sk), 'presets')
     if (existsSync(sibling)) return sibling

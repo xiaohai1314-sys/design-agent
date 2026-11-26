@@ -33,53 +33,53 @@ body,
 }
 
 /* Markdown 专业排版样式 */
-.zmo-markdown {
+.design-agent-markdown {
   font-size: 14px;
   line-height: 1.72;
   color: #1f2329;
   word-break: break-word;
 }
 
-.zmo-markdown > *:first-child {
+.design-agent-markdown > *:first-child {
   margin-top: 0;
 }
 
-.zmo-markdown > *:last-child {
+.design-agent-markdown > *:last-child {
   margin-bottom: 0;
 }
 
-.zmo-markdown h1,
-.zmo-markdown h2,
-.zmo-markdown h3,
-.zmo-markdown h4 {
+.design-agent-markdown h1,
+.design-agent-markdown h2,
+.design-agent-markdown h3,
+.design-agent-markdown h4 {
   font-weight: 600;
   color: #111827;
   margin: 1.1em 0 0.5em;
   line-height: 1.35;
 }
 
-.zmo-markdown h1 { font-size: 1.25rem; }
-.zmo-markdown h2 { font-size: 1.12rem; }
-.zmo-markdown h3 { font-size: 1.02rem; }
+.design-agent-markdown h1 { font-size: 1.25rem; }
+.design-agent-markdown h2 { font-size: 1.12rem; }
+.design-agent-markdown h3 { font-size: 1.02rem; }
 
-.zmo-markdown p {
+.design-agent-markdown p {
   margin: 0.6em 0;
 }
 
-.zmo-markdown ul,
-.zmo-markdown ol {
+.design-agent-markdown ul,
+.design-agent-markdown ol {
   margin: 0.55em 0;
   padding-left: 1.45em;
 }
 
-.zmo-markdown ul { list-style-type: disc; }
-.zmo-markdown ol { list-style-type: decimal; }
+.design-agent-markdown ul { list-style-type: disc; }
+.design-agent-markdown ol { list-style-type: decimal; }
 
-.zmo-markdown li {
+.design-agent-markdown li {
   margin: 0.25em 0;
 }
 
-.zmo-markdown code {
+.design-agent-markdown code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12.5px;
   background: #f1f3f6;
@@ -88,7 +88,7 @@ body,
   color: #be123c;
 }
 
-.zmo-markdown pre {
+.design-agent-markdown pre {
   margin: 0.75em 0;
   padding: 12px 14px;
   background: #18181b;
@@ -97,22 +97,22 @@ body,
   overflow-x: auto;
 }
 
-.zmo-markdown pre code {
+.design-agent-markdown pre code {
   background: transparent;
   padding: 0;
   color: inherit;
   font-size: 12.5px;
 }
 
-.zmo-markdown table {
+.design-agent-markdown table {
   width: 100%;
   border-collapse: collapse;
   margin: 0.8em 0;
   font-size: 13px;
 }
 
-.zmo-markdown th,
-.zmo-markdown td {
+.design-agent-markdown th,
+.design-agent-markdown td {
   border: 1px solid #e5e7eb;
   padding: 6px 10px;
   text-align: left;
@@ -129,12 +129,12 @@ body,
   app-region: no-drag;
 }
 
-.zmo-markdown th {
+.design-agent-markdown th {
   background: #f3f4f6;
   font-weight: 600;
 }
 
-.zmo-markdown blockquote {
+.design-agent-markdown blockquote {
   margin: 0.7em 0;
   padding: 4px 12px;
   border-left: 3px solid #d1d5db;

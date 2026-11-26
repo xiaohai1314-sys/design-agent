@@ -1,8 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { IPC_CHANNELS, type ZmoBridgeApi } from '@shared/ipc'
+import { IPC_CHANNELS, type DesignAgentBridgeApi } from '@shared/ipc'
 import type { RuntimeOutbound } from '@shared/protocol'
 
-const api: ZmoBridgeApi = {
+const api: DesignAgentBridgeApi = {
   app: {
     getPathForFile: async (file) => {
       const filePath = webUtils.getPathForFile(file)
@@ -158,4 +158,4 @@ const api: ZmoBridgeApi = {
   }
 }
 
-contextBridge.exposeInMainWorld('zmo', api)
+contextBridge.exposeInMainWorld('designAgent', api)

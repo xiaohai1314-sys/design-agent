@@ -5,7 +5,7 @@ namespace RegIndexerCs;
 
 internal static partial class NativeMethods
 {
-    private const string DllName = "zmo_native";
+    private const string DllName = "design_native";
 
     static NativeMethods()
     {
@@ -15,9 +15,9 @@ internal static partial class NativeMethods
             var baseDir = AppContext.BaseDirectory;
             var candidates = new[]
             {
-                Path.Combine(baseDir, "zmo_native.dll"),
-                Path.Combine(Directory.GetParent(baseDir.TrimEnd('\\', '/'))?.FullName ?? baseDir, "zmo_native.dll"),
-                Path.Combine(Environment.CurrentDirectory, "resources", "runtime", "zmo_native.dll")
+                Path.Combine(baseDir, "design_native.dll"),
+                Path.Combine(Directory.GetParent(baseDir.TrimEnd('\\', '/'))?.FullName ?? baseDir, "design_native.dll"),
+                Path.Combine(Environment.CurrentDirectory, "resources", "runtime", "design_native.dll")
             };
             foreach (var p in candidates)
             {
@@ -31,7 +31,7 @@ internal static partial class NativeMethods
     }
 
     [LibraryImport(DllName)]
-    internal static partial int zmo_tokenize_cjk_fts(
+    internal static partial int design_tokenize_cjk_fts(
         ReadOnlySpan<byte> utf8In,
         int inLen,
         Span<byte> utf8Out,
@@ -39,7 +39,7 @@ internal static partial class NativeMethods
     );
 
     [LibraryImport(DllName)]
-    internal static partial int zmo_clause_boundary_ok(
+    internal static partial int design_clause_boundary_ok(
         ReadOnlySpan<byte> utf8Text,
         int textLen,
         int matchPos,
@@ -47,7 +47,7 @@ internal static partial class NativeMethods
     );
 
     [LibraryImport(DllName)]
-    internal static partial float zmo_cosine_similarity_f32(
+    internal static partial float design_cosine_similarity_f32(
         ReadOnlySpan<float> a,
         ReadOnlySpan<float> b,
         int dim
@@ -59,7 +59,7 @@ internal static partial class NativeMethods
         var inBytes = Encoding.UTF8.GetBytes(input);
         int cap = Math.Max(inBytes.Length * 3 + 64, 1024);
         byte[] outBuf = new byte[cap];
-        int written = zmo_tokenize_cjk_fts(inBytes, inBytes.Length, outBuf, cap);
+        int written = design_tokenize_cjk_fts(inBytes, inBytes.Length, outBuf, cap);
         if (written <= 0) return string.Empty;
         return Encoding.UTF8.GetString(outBuf, 0, written);
     }
@@ -82,5 +82,5 @@ internal static partial class NativeMethods
 
     /// <summary>Verify C++ native boundary kernel directly with UTF-8 spans.</summary>
     internal static bool ClauseBoundaryOkUtf8(byte[] hayBytes, int bytePos, int byteLen)
-        => zmo_clause_boundary_ok(hayBytes, hayBytes.Length, bytePos, byteLen) == 1;
+        => design_clause_boundary_ok(hayBytes, hayBytes.Length, bytePos, byteLen) == 1;
 }

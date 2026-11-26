@@ -41,7 +41,7 @@ export const PptWorkbenchPanel: React.FC<PptWorkbenchPanelProps> = ({
     let cancelled = false
     setLoading(true)
     setError(null)
-    window.zmo.files
+    window.designAgent.files
       .readBytes(filePath)
       .then(async (res) => {
         if (cancelled) return

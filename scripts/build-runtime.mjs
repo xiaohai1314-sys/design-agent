@@ -34,10 +34,10 @@ if (!has('g++')) {
 
 mkdirSync(outDir, { recursive: true })
 
-const dllPath = join(outDir, 'zmo_native.dll')
+const dllPath = join(outDir, 'design_native.dll')
 run('g++', [
   '-shared', '-O2', '-static', '-static-libgcc', '-static-libstdc++',
-  '-o', dllPath, join(nativeDir, 'zmo_native.cpp')
+  '-o', dllPath, join(nativeDir, 'design_native.cpp')
 ])
 
 run('dotnet', ['publish', csDir, '-c', 'Release', '-r', 'win-x64', '-o', publishDir])
@@ -48,8 +48,8 @@ if (!existsSync(exePath)) {
   process.exit(1)
 }
 
-// reg-indexer 通过 P/Invoke 加载同目录的 zmo_native.dll
-copyFileSync(dllPath, join(publishDir, 'zmo_native.dll'))
+// reg-indexer 通过 P/Invoke 加载同目录的 design_native.dll
+copyFileSync(dllPath, join(publishDir, 'design_native.dll'))
 copyFileSync(exePath, join(outDir, 'reg-indexer.exe'))
 
 console.log(`runtime 产物已就绪：${outDir}`)

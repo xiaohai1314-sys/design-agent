@@ -51,7 +51,7 @@ function useBinaryBytes(filePath: string): {
   useEffect(() => {
     let cancelled = false
     setState({ bytes: null, loading: true, error: null })
-    window.zmo.files
+    window.designAgent.files
       .readBytes(filePath)
       .then((res) => {
         if (cancelled) return
@@ -444,7 +444,7 @@ export const DocxPreviewPanel: React.FC<{ filePath: string }> = ({ filePath }) =
   return (
     <div className="flex-1 min-h-0 overflow-auto rounded-xl border border-zinc-200 bg-white p-5">
       <div
-        className="zmo-markdown"
+        className="design-agent-markdown"
         // mammoth 已转换出安全 HTML 段落与表格
         dangerouslySetInnerHTML={{ __html: html }}
       />

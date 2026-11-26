@@ -281,7 +281,7 @@ export const ToolboxPanel: React.FC<ToolboxPanelProps> = ({
     }
 
     const pickFieldFiles = async (code: string): Promise<void> => {
-      const picked = await window.zmo.agent.pickFiles()
+      const picked = await window.designAgent.agent.pickFiles()
       if (picked.length === 0) return
       setDraft((prev) => {
         const curFiles = prev.fields[code]?.attachments ?? []

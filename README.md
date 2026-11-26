@@ -17,7 +17,7 @@
 ```
 src/
   main/       主进程：窗口、IPC（含路径授权校验）、本地存储、MCP 管理、预览转换
-  preload/    contextBridge 暴露的 window.zmo 接口
+  preload/    contextBridge 暴露的 window.designAgent 接口
   runtime/    智能体进程：主循环、工具、断点与压缩、子智能体、MCP 桥接
   renderer/   界面（React 19 + Zustand + Tailwind 4）
   shared/     IPC 协议类型、路径安全工具、PPT 解析等
@@ -26,7 +26,7 @@ resources/
   presets/    预设工程包
   mcp/        各连接器的配置与依赖
   regulations/ 示例规范库
-  runtime/    内置运行时（Python、reg-indexer.exe、zmo_native.dll 等，未纳入 Git）
+  runtime/    内置运行时（Python、reg-indexer.exe、design_native.dll 等，未纳入 Git）
 scripts/      verify-runtime.ts（端到端测试）、check-resources.mjs、mock-mcp-server.mjs
 tools/        RegIndexerCs（C# 规范索引器）、native-core（C++ 原生库）
 ```
@@ -70,7 +70,7 @@ API Key 保存在用户数据目录的 `model-settings.json` 中，系统支持�
 |---|---|---|
 | `resources/runtime/python/python.exe` | 内置 Python（技能脚本与 Python 类 MCP 连接器） | 回退到系统 `python`；连接器依赖可能不全 |
 | `resources/runtime/node/node.exe` | 内置 Node（Photoshop 连接器） | 回退到 Electron 自带的 Node |
-| `resources/runtime/reg-indexer.exe`、`zmo_native.dll` | 规范库 SQLite 全文索引 | 回退到较慢的逐文件扫描 |
+| `resources/runtime/reg-indexer.exe`、`design_native.dll` | 规范库 SQLite 全文索引 | 回退到较慢的逐文件扫描 |
 | `resources/skills/cad/vendor/win64/` | dwg2dxf / LibreDWG，DWG 转 DXF | 无法解析 DWG（DXF 不受影响） |
 | `resources/mcp/sketchup/lib/` | `sketchup_mcp` Python 包 | SketchUp 连接器不可用 |
 | `resources/mcp/blender/lib/` | `blender_mcp` Python 包 | Blender 连接器不可用 |

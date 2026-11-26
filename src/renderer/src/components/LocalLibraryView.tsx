@@ -62,7 +62,7 @@ const LibraryImageThumb: React.FC<{
     let cancelled = false
     setSrc(null)
     setFailed(false)
-    window.zmo.files
+    window.designAgent.files
       .readThumb(path)
       .then((res) => {
         if (cancelled) return
@@ -126,7 +126,7 @@ export const LocalLibraryView: React.FC<LocalLibraryViewProps> = ({
   const refreshLibrary = useCallback(async () => {
     setLoading(true)
     try {
-      const next = await window.zmo.files.listLibrary()
+      const next = await window.designAgent.files.listLibrary()
       setSnapshot(next)
     } catch {
       // ignore fallback to props
@@ -140,11 +140,11 @@ export const LocalLibraryView: React.FC<LocalLibraryViewProps> = ({
   }, [refreshLibrary, recentFiles])
 
   const handleAddFolder = async (): Promise<void> => {
-    const picked = await window.zmo.agent.pickFolder('library')
+    const picked = await window.designAgent.agent.pickFolder('library')
     if (!picked) return
     setLoading(true)
     try {
-      const next = await window.zmo.files.addLibraryFolder(picked)
+      const next = await window.designAgent.files.addLibraryFolder(picked)
       setSnapshot(next)
     } finally {
       setLoading(false)
@@ -154,7 +154,7 @@ export const LocalLibraryView: React.FC<LocalLibraryViewProps> = ({
   const handleRemoveFolder = async (folderPath: string): Promise<void> => {
     setLoading(true)
     try {
-      const next = await window.zmo.files.removeLibraryFolder(folderPath)
+      const next = await window.designAgent.files.removeLibraryFolder(folderPath)
       setSnapshot(next)
     } finally {
       setLoading(false)
@@ -432,7 +432,7 @@ export const LocalLibraryView: React.FC<LocalLibraryViewProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => void window.zmo.shell.showItemInFolder(item.path)}
+                      onClick={() => void window.designAgent.shell.showItemInFolder(item.path)}
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 whitespace-nowrap shrink-0 cursor-pointer"
                     >
                       <FolderOpen className="w-3 h-3 shrink-0" />

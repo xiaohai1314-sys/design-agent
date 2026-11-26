@@ -2,13 +2,13 @@
 #include <stdint.h>
 
 #ifdef _WIN32
-  #ifdef ZMO_NATIVE_EXPORTS
-    #define ZMO_API __declspec(dllexport)
+  #ifdef DESIGN_NATIVE_EXPORTS
+    #define DESIGN_API __declspec(dllexport)
   #else
-    #define ZMO_API __declspec(dllimport)
+    #define DESIGN_API __declspec(dllimport)
   #endif
 #else
-  #define ZMO_API
+  #define DESIGN_API
 #endif
 
 #ifdef __cplusplus
@@ -19,7 +19,7 @@ extern "C" {
  * High-speed UTF-8 CJK 2-gram + ASCII/unit tokenizer for SQLite FTS5.
  * Returns exact bytes written to utf8_out (null-terminated if out_cap > 0), or -1 on error.
  */
-ZMO_API int32_t zmo_tokenize_cjk_fts(
+DESIGN_API int32_t design_tokenize_cjk_fts(
     const char* utf8_in,
     int32_t in_len,
     char* utf8_out,
@@ -30,7 +30,7 @@ ZMO_API int32_t zmo_tokenize_cjk_fts(
  * Strict clause-number boundary check (prevents 5.1.2 matching 5.1.20 or 5.1.2.1).
  * Returns 1 if valid boundary, 0 otherwise.
  */
-ZMO_API int32_t zmo_clause_boundary_ok(
+DESIGN_API int32_t design_clause_boundary_ok(
     const char* utf8_text,
     int32_t text_len,
     int32_t match_pos,
@@ -40,7 +40,7 @@ ZMO_API int32_t zmo_clause_boundary_ok(
 /**
  * Fast vector cosine similarity for dense embeddings (normalized or unnormalized).
  */
-ZMO_API float zmo_cosine_similarity_f32(
+DESIGN_API float design_cosine_similarity_f32(
     const float* a,
     const float* b,
     int32_t dim
@@ -51,7 +51,7 @@ ZMO_API float zmo_cosine_similarity_f32(
  * xy_in has count * 2 doubles; out_indices holds kept point indices (max = count).
  * Returns count of kept points.
  */
-ZMO_API int32_t zmo_cad_simplify_polyline_rdp(
+DESIGN_API int32_t design_cad_simplify_polyline_rdp(
     const double* xy_in,
     int32_t point_count,
     double epsilon,

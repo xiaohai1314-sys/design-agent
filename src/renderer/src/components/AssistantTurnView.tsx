@@ -85,7 +85,7 @@ const ImageThumbPreview: React.FC<{ path: string; title: string }> = ({ path, ti
 
   useEffect(() => {
     let cancelled = false
-    window.zmo.files
+    window.designAgent.files
       .readPreview(path)
       .then((res) => {
         if (!cancelled && res.kind === 'image' && res.content) {
@@ -494,7 +494,7 @@ const DeliverableCard: React.FC<DeliverableCardProps> = ({ item, onPreview }) =>
                 type="button"
                 onClick={() => {
                   setMenuOpen(false)
-                  void window.zmo.shell.openPath(item.path)
+                  void window.designAgent.shell.openPath(item.path)
                 }}
                 className="w-full text-left px-2.5 py-1.5 rounded-lg text-zinc-700 hover:bg-zinc-100 cursor-pointer"
               >
@@ -504,7 +504,7 @@ const DeliverableCard: React.FC<DeliverableCardProps> = ({ item, onPreview }) =>
                 type="button"
                 onClick={() => {
                   setMenuOpen(false)
-                  void window.zmo.shell.showItemInFolder(item.path)
+                  void window.designAgent.shell.showItemInFolder(item.path)
                 }}
                 className="w-full text-left px-2.5 py-1.5 rounded-lg text-zinc-700 hover:bg-zinc-100 cursor-pointer"
               >
@@ -514,7 +514,7 @@ const DeliverableCard: React.FC<DeliverableCardProps> = ({ item, onPreview }) =>
                 <button
                   type="button"
                   onClick={async () => {
-                    const r = await window.zmo.clipboard.writeImage(item.path)
+                    const r = await window.designAgent.clipboard.writeImage(item.path)
                     if (r.ok) {
                       setCopiedImg(true)
                       setTimeout(() => setCopiedImg(false), 1500)
@@ -530,7 +530,7 @@ const DeliverableCard: React.FC<DeliverableCardProps> = ({ item, onPreview }) =>
                 type="button"
                 onClick={() => {
                   setMenuOpen(false)
-                  void window.zmo.files.saveAs(item.path)
+                  void window.designAgent.files.saveAs(item.path)
                 }}
                 className="w-full text-left px-2.5 py-1.5 rounded-lg text-zinc-700 hover:bg-zinc-100 cursor-pointer"
               >
@@ -612,7 +612,7 @@ export const AssistantTurnView: React.FC<AssistantTurnViewProps> = ({
 
   return (
     <div className="space-y-3 text-[15px] text-zinc-900">
-      {/* 折叠式单行执行态摘要（对齐知末原版 TaskStatusRow：默认折叠为「已处理 5m 48s >」 / 「失败 · 已中断 >」） */}
+      {/* 折叠式单行执行态摘要（TaskStatusRow：默认折叠为「已处理 5m 48s >」 / 「失败 · 已中断 >」） */}
       {hasProcess && (
         <div className="space-y-2.5">
           <button
@@ -678,7 +678,7 @@ export const AssistantTurnView: React.FC<AssistantTurnViewProps> = ({
 
       {/* 主回答内容（直接铺在白底，无边框/黑色头像框） */}
       {turn.content ? (
-        <div className="zmo-markdown text-[15px] leading-[1.7] text-zinc-900">
+        <div className="design-agent-markdown text-[15px] leading-[1.7] text-zinc-900">
           <MarkdownRenderer content={turn.content} />
         </div>
       ) : isStreaming && !hasProcess ? (
@@ -720,7 +720,7 @@ export const AssistantTurnView: React.FC<AssistantTurnViewProps> = ({
         </div>
       )}
 
-      {/* 错误横幅（对齐知末截图：红底/红字告警条 + 重试） */}
+      {/* 错误横幅（红底/红字告警条 + 重试） */}
       {turn.status === 'error' && (
         <div className="space-y-2">
           <div className="flex items-start gap-2 rounded-xl border border-rose-200/80 bg-rose-50/70 px-3.5 py-2.5 text-[13px] text-rose-600">

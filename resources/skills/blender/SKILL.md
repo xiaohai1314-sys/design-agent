@@ -58,7 +58,7 @@ description: 操作用户本机正在运行的 Blender——读场景与物体�
 
 `get_addon_status` 返回 `up_to_date: false`，或报错里提到协议版本（protocol）不一致。
 
-插件由知末客户端自动安装。**不要**照工具说明里的提示让用户运行 `uvx blender-mcp install-addon`
+插件由本应用自动安装。**不要**照工具说明里的提示让用户运行 `uvx blender-mcp install-addon`
 或 `pip install`——用户电脑上没有这些命令。让用户在连接器配置里把 Blender **关掉再打开一次**
 （会重新安装插件），然后重启 Blender。仍不行就把原始报错转达给用户。
 

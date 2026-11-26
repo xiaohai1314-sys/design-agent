@@ -177,8 +177,8 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     void init()
-    void window.zmo.window.isMaximized().then(setIsMaximized)
-    const offMax = window.zmo.window.onMaximizeChanged(setIsMaximized)
+    void window.designAgent.window.isMaximized().then(setIsMaximized)
+    const offMax = window.designAgent.window.onMaximizeChanged(setIsMaximized)
     return () => offMax()
   }, [init])
 
@@ -209,7 +209,7 @@ export const App: React.FC = () => {
   )
 
   const handlePickFiles = async (role?: 'project_material' | 'ppt_template'): Promise<void> => {
-    const picked = await window.zmo.agent.pickFiles()
+    const picked = await window.designAgent.agent.pickFiles()
     if (picked.length > 0) {
       const withRole = role ? picked.map((p) => ({ ...p, role })) : picked
       setAttachments((prev) => {
@@ -280,13 +280,13 @@ export const App: React.FC = () => {
   }
 
   const handleOpenProjectMeta = async (proj: ProjectSummary): Promise<void> => {
-    const meta = await window.zmo.projects.readMeta(proj.id)
+    const meta = await window.designAgent.projects.readMeta(proj.id)
     setProjectMetaDraft(meta)
     setProjectMetaTarget(proj)
   }
 
   const handleCreateProject = async (): Promise<void> => {
-    const folder = await window.zmo.agent.pickFolder('project')
+    const folder = await window.designAgent.agent.pickFolder('project')
     if (!folder) return
     const folderName = folder.split(/[\\/]/).filter(Boolean).pop() || '新建设计项目'
     await createProject(folderName, folder)
@@ -314,7 +314,7 @@ export const App: React.FC = () => {
     const imgExts = /\.(png|jpg|jpeg|webp|gif|bmp|svg)$/i
     const mapped: AgentAttachment[] = []
     for (const file of files) {
-      const filePath = (await window.zmo.app?.getPathForFile(file)) || ''
+      const filePath = (await window.designAgent.app?.getPathForFile(file)) || ''
       if (!filePath) continue
       mapped.push({
         path: filePath,
@@ -338,7 +338,7 @@ export const App: React.FC = () => {
       const dataUrl = String(reader.result ?? '')
       const b64 = dataUrl.replace(/^data:image\/[a-z0-9+.-]+;base64,/i, '')
       if (!b64) return
-      const att = await window.zmo.agent.writeTempImage({
+      const att = await window.designAgent.agent.writeTempImage({
         base64: b64,
         name: `clipboard_${Date.now()}.png`,
         rootDir: activeTask?.rootDir
@@ -350,7 +350,7 @@ export const App: React.FC = () => {
 
   const handleOpenCharter = async (): Promise<void> => {
     if (!activeTask?.rootDir) return
-    const text = await window.zmo.projects.readCharter(activeTask.rootDir)
+    const text = await window.designAgent.projects.readCharter(activeTask.rootDir)
     setCharterDraft(text)
     setCharterOpen(true)
   }
@@ -525,7 +525,7 @@ export const App: React.FC = () => {
             {activeTask?.rootDir && (
               <button
                 type="button"
-                onClick={() => void window.zmo.shell.openPath(activeTask.rootDir)}
+                onClick={() => void window.designAgent.shell.openPath(activeTask.rootDir)}
                 title={`点击打开工作目录：${activeTask.rootDir}`}
                 className="hidden sm:inline-block max-w-64 truncate px-2 py-0.5 rounded-md bg-zinc-100 text-[11px] font-mono text-zinc-500 hover:text-zinc-800 cursor-pointer"
               >
@@ -547,7 +547,7 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 onClick={() => void handleOpenCharter()}
-                title="编辑工作区项目宪章 (ZNZMO.md)"
+                title="编辑工作区项目宪章 (DESIGN-AGENT.md)"
                 className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer"
               >
                 <FileText className="w-3.5 h-3.5 text-zinc-500" />
@@ -959,7 +959,7 @@ export const App: React.FC = () => {
           onChange={setProjectMetaDraft}
           onClose={() => setProjectMetaTarget(null)}
           onSave={async (id, draft) => {
-            await window.zmo.projects.updateMeta(id, draft)
+            await window.designAgent.projects.updateMeta(id, draft)
             setProjectMetaTarget(null)
           }}
         />
@@ -971,7 +971,7 @@ export const App: React.FC = () => {
           onChange={setCharterDraft}
           onClose={() => setCharterOpen(false)}
           onSave={async () => {
-            await window.zmo.projects.saveCharter(activeTask.rootDir, charterDraft)
+            await window.designAgent.projects.saveCharter(activeTask.rootDir, charterDraft)
             setCharterOpen(false)
           }}
         />

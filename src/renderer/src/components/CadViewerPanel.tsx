@@ -126,7 +126,7 @@ export const CadViewerPanel: React.FC<CadViewerPanelProps> = ({
     setMeasurePts([])
     setPendingBox(null)
 
-    window.zmo.cadPreview
+    window.designAgent.cadPreview
       .prepare(filePath)
       .then((res) => {
         if (cancelled) return

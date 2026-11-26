@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
-import type { ZmoBridgeApi } from '@shared/ipc'
+import type { DesignAgentBridgeApi } from '@shared/ipc'
 
 declare global {
   interface Window {
-    zmo: ZmoBridgeApi
+    designAgent: DesignAgentBridgeApi
   }
 }
 

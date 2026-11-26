@@ -126,7 +126,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
       setEntries([])
       return
     }
-    const list = await window.zmo.files.listWorkspace(dir, rootDir)
+    const list = await window.designAgent.files.listWorkspace(dir, rootDir)
     setEntries(list)
   }
 
@@ -138,7 +138,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
 
   useEffect(() => {
     if (activeTab === 'memory' && projectId) {
-      void window.zmo.projects.readMemory(projectId).then(setMemoryState)
+      void window.designAgent.projects.readMemory(projectId).then(setMemoryState)
     }
   }, [activeTab, projectId])
 
@@ -158,7 +158,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
     }
     setDiffMode(Boolean(previewTarget.compareMode))
     let cancelled = false
-    window.zmo.files
+    window.designAgent.files
       .listSnapshots(previewTarget.path, rootDir)
       .then((list) => {
         if (!cancelled) setSnapshots(list)
@@ -186,7 +186,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
     let cancelled = false
     setEditingTextMode(false)
     setPreviewState({ loading: true })
-    window.zmo.files
+    window.designAgent.files
       .readPreview(previewTarget.path)
       .then((res) => {
         if (!cancelled) {
@@ -327,7 +327,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => void window.zmo.shell.openPath(currentDir)}
+                    onClick={() => void window.designAgent.shell.openPath(currentDir)}
                     title="在资源管理器中打开"
                     className="p-1 rounded hover:bg-zinc-200/70 cursor-pointer"
                   >
@@ -468,7 +468,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                     )}
                     <button
                       type="button"
-                      onClick={() => void window.zmo.shell.openPath(previewTarget.path)}
+                      onClick={() => void window.designAgent.shell.openPath(previewTarget.path)}
                       title="使用系统默认软件打开"
                       className="p-1.5 rounded-lg text-zinc-600 hover:bg-zinc-200/70 cursor-pointer"
                     >
@@ -476,7 +476,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => void window.zmo.shell.showItemInFolder(previewTarget.path)}
+                      onClick={() => void window.designAgent.shell.showItemInFolder(previewTarget.path)}
                       title="在文件夹中定位"
                       className="p-1.5 rounded-lg text-zinc-600 hover:bg-zinc-200/70 cursor-pointer"
                     >
@@ -550,7 +550,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                             <button
                               type="button"
                               onClick={async () => {
-                                const res = await window.zmo.files.saveText(
+                                const res = await window.designAgent.files.saveText(
                                   previewTarget.path,
                                   editedTextDraft,
                                   rootDir
@@ -582,7 +582,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                           className="w-full h-full min-h-[380px] rounded-lg border border-zinc-200 bg-white"
                         />
                       ) : targetExt === 'md' || targetExt === 'markdown' ? (
-                        <div className="bg-white rounded-lg p-4 border border-zinc-200/70 zmo-markdown">
+                        <div className="bg-white rounded-lg p-4 border border-zinc-200/70 design-agent-markdown">
                           <MarkdownRenderer content={previewState.content} />
                         </div>
                       ) : targetExt === 'csv' || targetExt === 'tsv' ? (
@@ -623,7 +623,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
                         </p>
                         <button
                           type="button"
-                          onClick={() => void window.zmo.shell.openPath(previewTarget.path)}
+                          onClick={() => void window.designAgent.shell.openPath(previewTarget.path)}
                           className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-900 text-white text-xs font-medium hover:bg-zinc-800 cursor-pointer"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
@@ -678,7 +678,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
               </span>
               <button
                 type="button"
-                onClick={() => void window.zmo.projects.readMemory(projectId).then(setMemoryState)}
+                onClick={() => void window.designAgent.projects.readMemory(projectId).then(setMemoryState)}
                 className="p-1 rounded hover:bg-indigo-100 cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -688,7 +688,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
             <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
               <div className="text-xs font-semibold text-zinc-900">关键决策记录 (project_decisions.md)</div>
               {memoryState.decisions ? (
-                <div className="zmo-markdown text-xs">
+                <div className="design-agent-markdown text-xs">
                   <MarkdownRenderer content={memoryState.decisions} />
                 </div>
               ) : (
@@ -699,7 +699,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
             {memoryState.memory && (
               <div className="rounded-xl border border-zinc-200 bg-white p-3 space-y-2">
                 <div className="text-xs font-semibold text-zinc-900">长期记忆索引 (memory.md)</div>
-                <div className="zmo-markdown text-xs">
+                <div className="design-agent-markdown text-xs">
                   <MarkdownRenderer content={memoryState.memory} />
                 </div>
               </div>

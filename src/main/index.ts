@@ -484,12 +484,12 @@ function registerIpcHandlers(): void {
   )
   ipcMain.handle(IPC_CHANNELS.ProjectsReadCharter, (_e, rootDir: string) => {
     const root = assertWorkspaceRoot(rootDir)
-    assertWorkspacePath(join(root, 'ZNZMO.md'), root)
+    assertWorkspacePath(join(root, 'DESIGN-AGENT.md'), root)
     return store.readCharter(root)
   })
   ipcMain.handle(IPC_CHANNELS.ProjectsSaveCharter, (_e, payload: { rootDir: string; content: string }) => {
     const root = assertWorkspaceRoot(payload.rootDir)
-    assertWorkspacePath(join(root, 'ZNZMO.md'), root)
+    assertWorkspacePath(join(root, 'DESIGN-AGENT.md'), root)
     store.saveCharter(root, payload.content)
   })
   ipcMain.handle(IPC_CHANNELS.ProjectsRename, (_e, payload: { projectId: string; name: string }) =>

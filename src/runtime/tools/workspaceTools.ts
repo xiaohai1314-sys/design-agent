@@ -119,7 +119,7 @@ export function createWorkspaceTools(params: {
   }
 
   const isProtectedCharter = (targetPath: string): boolean =>
-    resolve(targetPath).toLowerCase() === resolve(rootDir, 'ZNZMO.md').toLowerCase()
+    resolve(targetPath).toLowerCase() === resolve(rootDir, 'DESIGN-AGENT.md').toLowerCase()
 
   const lsTool = new DynamicStructuredTool({
     name: 'ls',
@@ -292,7 +292,7 @@ export function createWorkspaceTools(params: {
       const target = resolveTarget(rootDir, file_path)
       if (isProtectedCharter(target)) {
         throw new Error(
-          'ZNZMO.md 为项目宪章配置文件（只读受保护），禁止自主改写；如需修改请由用户在工作区宪章面板编辑，或使用 remember 工具追加项目记忆。'
+          'DESIGN-AGENT.md 为项目宪章配置文件（只读受保护），禁止自主改写；如需修改请由用户在工作区宪章面板编辑，或使用 remember 工具追加项目记忆。'
         )
       }
       if (isProtectedPpt(target)) {
@@ -328,7 +328,7 @@ export function createWorkspaceTools(params: {
       const target = resolveTarget(rootDir, file_path)
       if (isProtectedCharter(target)) {
         throw new Error(
-          'ZNZMO.md 为项目宪章配置文件（只读受保护），禁止自主改写；如需修改请由用户在工作区宪章面板编辑，或使用 remember 工具追加项目记忆。'
+          'DESIGN-AGENT.md 为项目宪章配置文件（只读受保护），禁止自主改写；如需修改请由用户在工作区宪章面板编辑，或使用 remember 工具追加项目记忆。'
         )
       }
       if (isProtectedPpt(target)) {
@@ -492,7 +492,7 @@ export function createWorkspaceTools(params: {
       await requireApproval('remember', { note }, resolveToolCallId(runManager, config))
       const memFile = params.projectMemoryPath
         ? resolvePathWithinRoot(dirname(params.projectMemoryPath), params.projectMemoryPath)
-        : resolvePathWithinRoot(rootDir, join(rootDir, '.zmo', 'memory.md'))
+        : resolvePathWithinRoot(rootDir, join(rootDir, '.design-agent', 'memory.md'))
       mkdirSync(dirname(memFile), { recursive: true })
       const stamp = new Date().toISOString().slice(0, 10)
       await appendFile(memFile, `- [${stamp}] ${note.trim()}\n`, 'utf8')

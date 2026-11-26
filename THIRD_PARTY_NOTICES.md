@@ -19,7 +19,7 @@ CAD 技能会调用 `resources/skills/cad/vendor/win64/` 下的 dwg2dxf / LibreD
 
 ### 3. 代码与内容来源
 
-代码注释中多处出现“对齐原版”及原始函数名（如 `ARr`、`YKs`、`U1s`、`QAr`、`npt`），`resources/skills/_profiles/ai-scheme/SKILL.md` 中出现“知末空间设计方案统一入口”，目录与环境变量使用 `zmo` 前缀，`ensure_sketchup.py` 引用了本仓库中不存在的 `windowsUtf8Shell.ts`。这些迹象表明部分实现、提示词、技能或预设内容可能参照或来源于其他产品。商用或公开发布前，请确认相关内容的授权。
+代码注释中多处出现“对齐原版”及原始函数名（如 `ARr`、`YKs`、`U1s`、`QAr`、`npt`），`resources/skills/_profiles/ai-scheme/SKILL.md` 曾出现某第三方产品的方案入口描述，`ensure_sketchup.py` 引用了本仓库中不存在的 `windowsUtf8Shell.ts`。这些迹象表明部分实现、提示词、技能或预设内容可能参照或来源于其他产品。商用或公开发布前，请确认相关内容的授权。
 
 ## 其他随附组件
 

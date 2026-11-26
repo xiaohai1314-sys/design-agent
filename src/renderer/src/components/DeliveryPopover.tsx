@@ -102,7 +102,7 @@ export const DeliveryPopover: React.FC<DeliveryPopoverProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => void window.zmo.shell.showItemInFolder(item.path)}
+                          onClick={() => void window.designAgent.shell.showItemInFolder(item.path)}
                           title="定位文件夹"
                           className="p-1 rounded text-zinc-500 hover:text-zinc-900 cursor-pointer"
                         >

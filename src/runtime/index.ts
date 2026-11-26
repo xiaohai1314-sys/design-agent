@@ -164,23 +164,23 @@ class PermissionRejectedError extends Error {
 
 function detectExtraRuntimePaths(): string[] {
   const candidates: string[] = []
-  const envRt = process.env.ZMO_RT_DIR
+  const envRt = process.env.DESIGN_AGENT_RT_DIR
   if (envRt) {
     candidates.push(envRt, join(envRt, 'python'), join(envRt, 'python', 'Scripts'), join(envRt, 'node'))
   }
   const appData = process.env.APPDATA
   if (appData) {
-    const existingZmoRt = join(appData, '@zmo', 'agent-desktop', 'agent-runtime')
-    if (existsSync(existingZmoRt)) {
+    const existingRuntime = join(appData, '@design-agent', 'agent-desktop', 'agent-runtime')
+    if (existsSync(existingRuntime)) {
       candidates.push(
-        existingZmoRt,
-        join(existingZmoRt, 'python'),
-        join(existingZmoRt, 'python', 'Scripts'),
-        join(existingZmoRt, 'node')
+        existingRuntime,
+        join(existingRuntime, 'python'),
+        join(existingRuntime, 'python', 'Scripts'),
+        join(existingRuntime, 'node')
       )
     }
   }
-  const cadVendor = join(process.env.ZMO_SKILLS_ROOT ?? '', 'cad', 'vendor', 'win64')
+  const cadVendor = join(process.env.DESIGN_AGENT_SKILLS_ROOT ?? '', 'cad', 'vendor', 'win64')
   if (existsSync(cadVendor)) candidates.push(cadVendor)
   return candidates.filter((p) => existsSync(p))
 }
@@ -619,15 +619,15 @@ function buildProjectContext(
 ): { projectMemoryFile: string; systemPrompt: string } {
   const skills = discoverSkills(skillsRoot)
   const resolvedPresets = presets ?? discoverModelingPresets(undefined, skillsRoot)
-  const workspacesBase = process.env.ZMO_WORKSPACES_DIR || join(rootDir, '.zmo-workspaces')
+  const workspacesBase = process.env.DESIGN_AGENT_WORKSPACES_DIR || join(rootDir, '.design-agent-workspaces')
   const projectMemoryFile = projectId
     ? join(workspacesBase, projectId, 'memory.md')
-    : join(rootDir, '.zmo', 'memory.md')
+    : join(rootDir, '.design-agent', 'memory.md')
   const projectDecisionsFile = projectId
     ? join(workspacesBase, projectId, 'project_decisions.md')
-    : join(rootDir, '.zmo', 'project_decisions.md')
+    : join(rootDir, '.design-agent', 'project_decisions.md')
   const projectMetaFile = projectId ? join(workspacesBase, projectId, 'project-meta.json') : ''
-  const charterFile = join(rootDir, 'ZNZMO.md')
+  const charterFile = join(rootDir, 'DESIGN-AGENT.md')
 
   const charterParts: string[] = []
   if (projectMetaFile && existsSync(projectMetaFile)) {
@@ -1139,7 +1139,7 @@ async function executeTurn(
     return answer
   })
 
-  const skillsRoot = process.env.ZMO_SKILLS_ROOT || ''
+  const skillsRoot = process.env.DESIGN_AGENT_SKILLS_ROOT || ''
   const availablePresets = discoverModelingPresets(undefined, skillsRoot)
   let mcpBundle: Awaited<ReturnType<typeof connectMcpServers>> | null = null
   let extraMcpBundle: Awaited<ReturnType<typeof connectMcpServers>> | null = null
@@ -1163,7 +1163,7 @@ async function executeTurn(
     post({ type: 'usage', requestId, threadId, usage: { ...turnUsage } })
   }
 
-  const mcpImageDir = join(rootDir, '.zmo', 'mcp-images')
+  const mcpImageDir = join(rootDir, '.design-agent', 'mcp-images')
   activeTurns.set(threadId, turnState)
   try {
     mcpBundle =
@@ -1551,7 +1551,7 @@ async function executeTurn(
             type: 'reasoning',
             requestId,
             threadId,
-            delta: '\n[系统：早期长对话上下文已自动压缩并归档至 .zmo/history-archive/]\n'
+            delta: '\n[系统：早期长对话上下文已自动压缩并归档至 .design-agent/history-archive/]\n'
           })
         }
       },
@@ -1620,7 +1620,7 @@ async function executeTurn(
     })
 
     // 异步旁路生成「下一步建议」（不阻塞 done，对齐原版 YKs scheduleNextSuggestions）
-    if (process.env.ZMO_NEXT_SUGGESTIONS !== '0') {
+    if (process.env.DESIGN_AGENT_NEXT_SUGGESTIONS !== '0') {
       void generateNextSuggestions({
         profile: modelProfile,
         history,
@@ -1758,7 +1758,7 @@ onInbound((msg) => {
       break
     case 'distill_project':
       void distillProjectMemory({
-        workspacesBase: process.env.ZMO_WORKSPACES_DIR || join(process.cwd(), '.zmo-workspaces'),
+        workspacesBase: process.env.DESIGN_AGENT_WORKSPACES_DIR || join(process.cwd(), '.design-agent-workspaces'),
         projectId: msg.projectId,
         conversationId: msg.conversationId,
         transcriptPath: msg.transcriptPath,

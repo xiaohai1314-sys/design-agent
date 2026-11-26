@@ -162,7 +162,7 @@ export const ModelingMcpStrip: React.FC<{
 
   return (
     <div className="relative flex items-center gap-1.5 shrink-0 flex-nowrap">
-      {/* 重叠横排圆标栈（对齐 znzmo 单行视觉，悬停微展便于直点切换） */}
+      {/* 重叠横排圆标栈（单行视觉，悬停微展便于直点切换） */}
       <div className="group/mcp flex items-center -space-x-1.5 hover:space-x-1 transition-all duration-150 shrink-0 flex-nowrap py-0.5">
         {modelingConns.map((conn) => {
           const theme = MCP_BADGE_THEME[conn.name] ?? {
@@ -788,7 +788,7 @@ export const ModeEcosystemPanel: React.FC<{
             {regulationStats?.folderPath && (
               <button
                 type="button"
-                onClick={() => void window.zmo.shell.openPath(regulationStats.folderPath)}
+                onClick={() => void window.designAgent.shell.openPath(regulationStats.folderPath)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 bg-white text-[11px] text-zinc-700 hover:bg-zinc-50 cursor-pointer"
               >
                 <FolderOpen className="w-3 h-3" />

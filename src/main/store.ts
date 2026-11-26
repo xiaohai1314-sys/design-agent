@@ -384,7 +384,7 @@ export class LocalAppStore {
     }
     walk(folderPath)
 
-    const dbPath = join(folderPath, '.zmo-reg-index.db')
+    const dbPath = join(folderPath, '.design-agent-reg-index.db')
     if (existsSync(dbPath) && existsSync(this.regIndexerExe)) {
       try {
         const raw = execFileSync(this.regIndexerExe, ['stats', '--db', dbPath], {
@@ -452,7 +452,7 @@ export class LocalAppStore {
     const id = assertSafeStorageId(projectId, '项目标识')
     const file = join(this.workspacesDir, id, 'project-meta.json')
     writeJsonAtomic(file, meta)
-    // 同步项目结构化摘要到 ZNZMO.md 开头（或保持单独文件并在下方汇总）
+    // 同步项目结构化摘要到 DESIGN-AGENT.md 开头（或保持单独文件并在下方汇总）
     return meta
   }
 
@@ -628,7 +628,7 @@ export class LocalAppStore {
       scanRoots.set(resolved.toLowerCase(), resolved)
     }
 
-    const skipDirs = new Set(['.git', 'node_modules', '.zmo', '__pycache__', '.venv', 'dist'])
+    const skipDirs = new Set(['.git', 'node_modules', '.design-agent', '__pycache__', '.venv', 'dist'])
     let scannedCount = 0
     const MAX_FILES = 400
 
@@ -679,14 +679,14 @@ export class LocalAppStore {
 
   readCharter(rootDir: string): string {
     if (!rootDir) return ''
-    const file = join(rootDir, 'ZNZMO.md')
+    const file = join(rootDir, 'DESIGN-AGENT.md')
     return existsSync(file) ? readFileSync(file, 'utf8') : ''
   }
 
   saveCharter(rootDir: string, content: string): void {
     if (!rootDir) return
     mkdirSync(rootDir, { recursive: true })
-    writeFileSync(join(rootDir, 'ZNZMO.md'), content, 'utf8')
+    writeFileSync(join(rootDir, 'DESIGN-AGENT.md'), content, 'utf8')
   }
 
   private tasksPath(): string {

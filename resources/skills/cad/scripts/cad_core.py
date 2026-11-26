@@ -236,8 +236,8 @@ def convert_dwg(src: Path, target: Path) -> None:
 
 
 def cache_root() -> Path:
-    override = os.environ.get("ZMO_CAD_CACHE_DIR")
-    root = Path(override) if override else Path(tempfile.gettempdir()) / "zmo-cad-cache"
+    override = os.environ.get("DESIGN_AGENT_CAD_CACHE_DIR")
+    root = Path(override) if override else Path(tempfile.gettempdir()) / "design-agent-cad-cache"
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -1376,8 +1376,8 @@ def unique_texts(texts):
 # 绘制：每个 Layout 只画一次，坏实体逐个隔离
 # ---------------------------------------------------------------------------
 
-VIEW_FILE_PREFIX = "zmo-cad-"
-# read_file 对 `zmo-cad-` 前缀的图原像素内联，但单张仍受网关字节上限约束，超了会被压到宽 1000、细线小字全糊。
+VIEW_FILE_PREFIX = "design-agent-cad-"
+# read_file 对 `design-agent-cad-` 前缀的图原像素内联，但单张仍受网关字节上限约束，超了会被压到宽 1000、细线小字全糊。
 # 与 agent-runtime src/agent/visualProfiles.ts 的 VISUAL_TRANSPORT_PROFILE.maxBytes 配对，改一处须同步另一处。
 PASSTHROUGH_MAX_BYTES = 1_500_000
 # 固定 DPI：ezdxf 按 72/dpi 定最细线宽，视图尺寸只改画布英寸数，线宽在所有视图里都是约 1 像素。

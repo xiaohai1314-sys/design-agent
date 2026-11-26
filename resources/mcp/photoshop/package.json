@@ -1,5 +1,5 @@
 {
-  "name": "zmo-mcp-alisaitteke-photoshop-mcp",
+  "name": "design-agent-mcp-alisaitteke-photoshop-mcp",
   "private": true,
   "description": "预装容器：@alisaitteke/photoshop-mcp。由 build-mcp-bundle.cjs 生成，勿手改。",
   "dependencies": {

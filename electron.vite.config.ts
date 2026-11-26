@@ -23,7 +23,7 @@ const RENDERER_CSP = [
 
 function injectRendererCsp(): Plugin {
   return {
-    name: 'zmo-inject-csp',
+    name: 'design-agent-inject-csp',
     apply: 'build',
     transformIndexHtml(html) {
       return html.replace(

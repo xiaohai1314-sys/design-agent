@@ -7,7 +7,7 @@ export interface CharterModalProps {
   onSave: () => void | Promise<void>
 }
 
-/** 项目宪章（ZNZMO.md）编辑弹窗 */
+/** 项目宪章（DESIGN-AGENT.md）编辑弹窗 */
 export function CharterModal({
   draft,
   onChange,
@@ -19,7 +19,7 @@ export function CharterModal({
       <div className="w-full max-w-xl rounded-2xl bg-white border border-zinc-200 shadow-2xl overflow-hidden flex flex-col">
         <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200">
           <div className="text-xs font-semibold text-zinc-900">
-            项目宪章 (ZNZMO.md) · 自动注入到本工作区所有智能体对话
+            项目宪章 (DESIGN-AGENT.md) · 自动注入到本工作区所有智能体对话
           </div>
           <button
             type="button"
@@ -51,7 +51,7 @@ export function CharterModal({
             onClick={() => void onSave()}
             className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer"
           >
-            保存 ZNZMO.md
+            保存 DESIGN-AGENT.md
           </button>
         </div>
       </div>

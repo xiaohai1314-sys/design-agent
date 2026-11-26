@@ -156,7 +156,7 @@ export const BeforeAfterDiffView: React.FC<BeforeAfterDiffViewProps> = ({
     }
     let cancelled = false
     setBeforeState({ loading: true })
-    window.zmo.files
+    window.designAgent.files
       .readPreview(beforePath)
       .then((res) => {
         if (!cancelled) {
@@ -194,7 +194,7 @@ export const BeforeAfterDiffView: React.FC<BeforeAfterDiffViewProps> = ({
     if (!selectedSnapshot || restoring) return
     setRestoring(true)
     try {
-      const res = await window.zmo.files.restoreSnapshot(filePath, selectedSnapshot.id, rootDir)
+      const res = await window.designAgent.files.restoreSnapshot(filePath, selectedSnapshot.id, rootDir)
       if (res.ok) {
         setRestoredNotice('已回滚至所选版本（当前版已自动另存备份）')
         onRestored()

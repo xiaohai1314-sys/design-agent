@@ -823,7 +823,7 @@ def cmd_render(args):
         raise CadError(f"{ctx.spec.name}（{ctx.spec.id}）没有可渲染的内容")
     loaded_at = time.monotonic()
 
-    output_dir = Path(args.out) if args.out else Path.cwd() / ".zmo" / "cad" / ctx.source.stem
+    output_dir = Path(args.out) if args.out else Path.cwd() / ".design-agent" / "cad" / ctx.source.stem
     output_dir.mkdir(parents=True, exist_ok=True)
 
     import matplotlib
@@ -976,7 +976,7 @@ def cmd_export(args):
             if (region is None or cad_core.point_in_bbox(text["anchor"], region)) and (not layer_match or layer_match(text["layer"]))
         ]
 
-    target = Path(args.out) if args.out else Path.cwd() / ".zmo" / "cad" / ctx.source.stem / f"{ctx.source.stem}-{ctx.spec.id}-export.dxf"
+    target = Path(args.out) if args.out else Path.cwd() / ".design-agent" / "cad" / ctx.source.stem / f"{ctx.source.stem}-{ctx.spec.id}-export.dxf"
     target.parent.mkdir(parents=True, exist_ok=True)
     code, unit = cad_core.drawing_units(ctx.document)
     if target.suffix.lower() == ".json":
@@ -1140,7 +1140,7 @@ def build_parser():
     render.add_argument("--monochrome", action="store_true", help="所有线和字画成黑色；浅色（黄、青）标注看不清时用")
     render.add_argument("--max-edge", type=int, default=cad_core.DEFAULT_MAX_LONG_EDGE, help=f"单张图长边像素上限，默认 {cad_core.DEFAULT_MAX_LONG_EDGE}；实际按字高自动取能看清的尺寸")
     render.add_argument("--time-budget", type=float, default=RENDER_TIME_BUDGET, help=f"本次调用的时间预算（秒），默认 {RENDER_TIME_BUDGET}")
-    render.add_argument("--out", help="图片目录；默认 <当前目录>/.zmo/cad/<图纸名>/")
+    render.add_argument("--out", help="图片目录；默认 <当前目录>/.design-agent/cad/<图纸名>/")
     render.add_argument("--format", choices=("text", "json"), help="stdout 视图清单的格式，默认 text")
     render.set_defaults(handler=cmd_render)
 
@@ -1149,7 +1149,7 @@ def build_parser():
     add_query_options(export, inside_help="只导出全部顶点都在范围内的图元（默认与范围相交即导出）")
     add_geometry_filters(export)
     export.add_argument("--with-text", action="store_true", help="同时导出范围内的文字")
-    export.add_argument("--out", help="输出文件，.dxf（默认）或 .json；默认 <当前目录>/.zmo/cad/<图纸名>/<图纸名>-<layout>-export.dxf")
+    export.add_argument("--out", help="输出文件，.dxf（默认）或 .json；默认 <当前目录>/.design-agent/cad/<图纸名>/<图纸名>-<layout>-export.dxf")
     export.set_defaults(handler=cmd_export)
     return parser
 

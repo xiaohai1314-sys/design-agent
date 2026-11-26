@@ -37,10 +37,10 @@ export class AgentRuntimeHost extends EventEmitter {
         LC_ALL: 'C.UTF-8',
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
-        ZMO_SKILLS_ROOT: this.options.skillsRoot,
-        ZMO_PRESETS_ROOT: this.options.presetsRoot,
-        ZMO_WORKSPACES_DIR: this.options.workspacesDir,
-        ZMO_RT_DIR: this.options.runtimeDir
+        DESIGN_AGENT_SKILLS_ROOT: this.options.skillsRoot,
+        DESIGN_AGENT_PRESETS_ROOT: this.options.presetsRoot,
+        DESIGN_AGENT_WORKSPACES_DIR: this.options.workspacesDir,
+        DESIGN_AGENT_RT_DIR: this.options.runtimeDir
       }
     })
 

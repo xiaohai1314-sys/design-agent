@@ -15,7 +15,7 @@ const vendorRoot = resolve(scriptDir, '..', 'vendor', 'web')
 const modulePath = join(vendorRoot, 'dist', 'libredwg-web.js')
 const wasmDir = join(vendorRoot, 'wasm')
 if (!existsSync(modulePath)) {
-  throw new Error('缺少 LibreDWG WASM 运行时，请先执行 pnpm -F @zmo/agent-runtime cad:setup')
+  throw new Error('缺少 LibreDWG WASM 运行时，请先执行 pnpm -F @design-agent/agent-runtime cad:setup')
 }
 
 const { LibreDwg } = await import(pathToFileURL(modulePath).href)

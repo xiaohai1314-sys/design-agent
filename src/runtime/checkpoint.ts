@@ -240,7 +240,7 @@ export function loadRuntimeCheckpoint(
 export const LARGE_TOOL_OUTPUT_CHARS = 7500
 
 /**
- * 大工具结果自动外置到 `<rootDir>/.zmo/tool-results/`，仅向模型返回预览与路径，避免长输出撑爆上下文。
+ * 大工具结果自动外置到 `<rootDir>/.design-agent/tool-results/`，仅向模型返回预览与路径，避免长输出撑爆上下文。
  */
 export function offloadLargeToolOutput(params: {
   rootDir: string
@@ -251,11 +251,11 @@ export function offloadLargeToolOutput(params: {
   if (typeof params.output !== 'string') return params.output
   const raw = params.output
   if (raw.length <= LARGE_TOOL_OUTPUT_CHARS) return raw
-  if (params.toolName === 'read_file' && raw.includes('.zmo/tool-results/')) {
+  if (params.toolName === 'read_file' && raw.includes('.design-agent/tool-results/')) {
     return raw
   }
 
-  const dir = join(params.rootDir, '.zmo', 'tool-results')
+  const dir = join(params.rootDir, '.design-agent', 'tool-results')
   mkdirSync(dir, { recursive: true })
   const safeName = params.toolName.replace(/[^a-zA-Z0-9_-]/g, '_') || 'tool'
   const safeId = params.toolCallId.replace(/[^a-zA-Z0-9_-]/g, '_') || `${Date.now()}`
@@ -347,7 +347,7 @@ function findSafeSplitIndex(history: BaseMessage[], keepHumanTurns: number, maxK
 
 /**
  * 长对话上下文自动压缩（对齐原版 SummarizationMiddleware）：
- * 将早期消息归档到 `.zmo/history-archive/` 并用大模型（失败则启发式）浓缩为摘要 SystemMessage。
+ * 将早期消息归档到 `.design-agent/history-archive/` 并用大模型（失败则启发式）浓缩为摘要 SystemMessage。
  * 只按 Token 触发（上下文窗口的 65%），至少保留最近 3 轮完整对话；上一次的摘要会完整带入新摘要，避免层层截断丢失约束。
  */
 export async function compactHistoryIfNeeded(params: {
@@ -375,7 +375,7 @@ export async function compactHistoryIfNeeded(params: {
   const kept = params.history.slice(splitIdx)
 
   // 1. 完整归档早期消息到工作区，模型如有需要仍可通过 read_file 找回
-  const archiveDir = join(params.rootDir, '.zmo', 'history-archive')
+  const archiveDir = join(params.rootDir, '.design-agent', 'history-archive')
   mkdirSync(archiveDir, { recursive: true })
   const archivePath = join(archiveDir, `compact_${Date.now()}.md`)
   const archiveBody = older

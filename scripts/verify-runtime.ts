@@ -49,7 +49,7 @@ const TINY_PNG_BASE64 =
 
 async function verifyCadAnd3dServices(tempRoot: string, skillsRoot: string): Promise<void> {
   const cadService = new CadPreviewService(join(tempRoot, 'cad-cache'), skillsRoot)
-  const sampleDwg = 'D:\\Program Files\\znzmo\\app_extracted\\build\\campaigns\\cad-modeling-v1\\seed\\plan.dwg'
+  const sampleDwg = process.env.VERIFY_SAMPLE_DWG || join(tempRoot, 'sample-plan.dwg')
 
   if (existsSync(sampleDwg)) {
     const dwgRes = await cadService.prepare(sampleDwg)
@@ -122,8 +122,8 @@ async function verifyStandaloneMcpManager(tempRoot: string, resourcesRoot: strin
   const appData = process.env.APPDATA ?? ''
   const pythonCandidates = [
     join(resourcesRoot, 'runtime', 'python', 'python.exe'),
-    join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'python', 'python.exe'),
-    join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'runtime', 'python', 'python.exe')
+    join(appData, '@design-agent', 'agent-desktop', 'agent-runtime', 'python', 'python.exe'),
+    join(appData, '@design-agent', 'agent-desktop', 'agent-runtime', 'runtime', 'python', 'python.exe')
   ]
   const expectedPython = pythonCandidates.find((candidate) => existsSync(candidate)) ?? 'python'
   if (
@@ -384,8 +384,8 @@ async function verifyLocalLibraryBoundary(tempRoot: string): Promise<void> {
 }
 
 async function verifyHardeningChecks(tempRoot: string): Promise<void> {
-  // 1. ZNZMO.md 宪章防覆写保护
-  const charterPath = join(tempRoot, 'ZNZMO.md')
+  // 1. DESIGN-AGENT.md 宪章防覆写保护
+  const charterPath = join(tempRoot, 'DESIGN-AGENT.md')
   writeFileSync(charterPath, '# 项目宪章\n禁止修改层高限制\n', 'utf8')
   const tools = createWorkspaceTools({
     rootDir: tempRoot,
@@ -399,17 +399,17 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
   let writeBlocked = false
   let editBlocked = false
   try {
-    await writeTool.invoke({ file_path: 'ZNZMO.md', content: 'hacked' })
+    await writeTool.invoke({ file_path: 'DESIGN-AGENT.md', content: 'hacked' })
   } catch (err) {
-    writeBlocked = String(err).includes('ZNZMO.md')
+    writeBlocked = String(err).includes('DESIGN-AGENT.md')
   }
   try {
-    await editTool.invoke({ file_path: 'ZNZMO.md', old_string: '禁止修改层高限制', new_string: '允许修改' })
+    await editTool.invoke({ file_path: 'DESIGN-AGENT.md', old_string: '禁止修改层高限制', new_string: '允许修改' })
   } catch (err) {
-    editBlocked = String(err).includes('ZNZMO.md')
+    editBlocked = String(err).includes('DESIGN-AGENT.md')
   }
   if (!writeBlocked || !editBlocked) {
-    throw new Error(`ZNZMO.md protection failed: writeBlocked=${writeBlocked}, editBlocked=${editBlocked}`)
+    throw new Error(`DESIGN-AGENT.md protection failed: writeBlocked=${writeBlocked}, editBlocked=${editBlocked}`)
   }
 
   // 1b. 技能目录作为只读根：read_file 能读到工作区外的 SKILL.md，write_file 仍然被拦截
@@ -442,7 +442,7 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
 
   await verifyWorkspacePathBoundary(tempRoot)
 
-  // 2. 大工具结果自动外置 (.zmo/tool-results/)
+  // 2. 大工具结果自动外置 (.design-agent/tool-results/)
   const hugeOutput = 'A'.repeat(24000)
   const offloaded = offloadLargeToolOutput({
     rootDir: tempRoot,
@@ -450,10 +450,10 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
     toolName: 'glob',
     output: hugeOutput
   })
-  if (typeof offloaded !== 'string' || offloaded.length >= 6000 || !offloaded.includes('.zmo/tool-results/')) {
+  if (typeof offloaded !== 'string' || offloaded.length >= 6000 || !offloaded.includes('.design-agent/tool-results/')) {
     throw new Error('offloadLargeToolOutput did not compact huge tool output!')
   }
-  const savedOffloadFile = join(tempRoot, '.zmo', 'tool-results', 'glob_tc_huge_1.txt')
+  const savedOffloadFile = join(tempRoot, '.design-agent', 'tool-results', 'glob_tc_huge_1.txt')
   if (!existsSync(savedOffloadFile) || readFileSync(savedOffloadFile, 'utf8').length !== 24000) {
     throw new Error('Offloaded tool result file missing or truncated!')
   }
@@ -1199,7 +1199,7 @@ experimental_bearer_token = "sk-test-token"
   const nativeFts5Available = unitJson.engine === 'sqlite-fts5'
   if (nativeFts5Available) {
     if (
-      !existsSync(join(regSandbox, '.zmo-reg-index.db')) ||
+      !existsSync(join(regSandbox, '.design-agent-reg-index.db')) ||
       unitJson.chunks.length < 2 ||
       !unitJson.chunks.some((c) => c.standardNo.includes('55037')) ||
       !unitJson.chunks.some((c) => c.supersededBy?.includes('GB 55037-2022')) ||
@@ -1271,7 +1271,7 @@ experimental_bearer_token = "sk-test-token"
   if (imgSnaps.length !== 1 || !imgSnaps[0].beforeRefPath?.endsWith('before_render.png')) {
     throw new Error(`Image lineage snapshot failed: ${JSON.stringify(imgSnaps)}`)
   }
-  console.log('✅ [Hardening] ZNZMO.md protection + Tool Output Offload + Anthropic Cache + MCP hostState + Subagent Role Scoping + CC Switch Multi-Model / Unified Image + Empty Preset Stripping + Todo Settlement + 43-Task Forms + P1 SU Preset & Drag Fix + Regulation Search (native FTS5 when available) + P2 Before/After Diff & Rollback PASSED!')
+  console.log('✅ [Hardening] DESIGN-AGENT.md protection + Tool Output Offload + Anthropic Cache + MCP hostState + Subagent Role Scoping + CC Switch Multi-Model / Unified Image + Empty Preset Stripping + Todo Settlement + 43-Task Forms + P1 SU Preset & Drag Fix + Regulation Search (native FTS5 when available) + P2 Before/After Diff & Rollback PASSED!')
 }
 
 async function main(): Promise<void> {
@@ -1636,8 +1636,8 @@ async function main(): Promise<void> {
   const child = fork(runtimeJs, [], {
     env: {
       ...process.env,
-      ZMO_SKILLS_ROOT: skillsRoot,
-      ZMO_WORKSPACES_DIR: workspacesBase
+      DESIGN_AGENT_SKILLS_ROOT: skillsRoot,
+      DESIGN_AGENT_WORKSPACES_DIR: workspacesBase
     }
   })
 
@@ -1825,8 +1825,8 @@ async function main(): Promise<void> {
     const fastChild = fork(runtimeJs, [], {
       env: {
         ...process.env,
-        ZMO_SKILLS_ROOT: skillsRoot,
-        ZMO_WORKSPACES_DIR: workspacesBase
+        DESIGN_AGENT_SKILLS_ROOT: skillsRoot,
+        DESIGN_AGENT_WORKSPACES_DIR: workspacesBase
       }
     })
     const llmTurnsBefore = llmTurn
@@ -2071,8 +2071,8 @@ async function main(): Promise<void> {
   const child2 = fork(runtimeJs, [], {
     env: {
       ...process.env,
-      ZMO_SKILLS_ROOT: skillsRoot,
-      ZMO_WORKSPACES_DIR: workspacesBase
+      DESIGN_AGENT_SKILLS_ROOT: skillsRoot,
+      DESIGN_AGENT_WORKSPACES_DIR: workspacesBase
     }
   })
 
@@ -2141,7 +2141,7 @@ async function main(): Promise<void> {
   server2.close()
 
   if (!sawCompactedSummary) throw new Error('Auto context compaction (<context-summary>) did NOT trigger!')
-  const archiveDir = join(tempRoot, '.zmo', 'history-archive')
+  const archiveDir = join(tempRoot, '.design-agent', 'history-archive')
   const archiveFiles = existsSync(archiveDir) ? (await import('node:fs')).readdirSync(archiveDir) : []
   const archiveJoined = archiveFiles.map((f) => readFileSync(join(archiveDir, f), 'utf8')).join('\n')
   if (!sawRestoredHistory && !archiveJoined.includes('核对无障碍规范并参考历史茶室参数做局部改图')) {
@@ -2268,7 +2268,7 @@ async function main(): Promise<void> {
   writeFileSync(abortTranscriptPath, '[]', 'utf8')
 
   const child3a = fork(runtimeJs, [], {
-    env: { ...process.env, ZMO_SKILLS_ROOT: skillsRoot, ZMO_WORKSPACES_DIR: workspacesBase }
+    env: { ...process.env, DESIGN_AGENT_SKILLS_ROOT: skillsRoot, DESIGN_AGENT_WORKSPACES_DIR: workspacesBase }
   })
   await new Promise<void>((resolveP3a, rejectP3a) => {
     const t = setTimeout(() => rejectP3a(new Error('Phase 3a abort timed out')), 20000)
@@ -2301,7 +2301,7 @@ async function main(): Promise<void> {
 
   // 在新进程中点击「从中断处继续」发送续跑请求
   const child3b = fork(runtimeJs, [], {
-    env: { ...process.env, ZMO_SKILLS_ROOT: skillsRoot, ZMO_WORKSPACES_DIR: workspacesBase }
+    env: { ...process.env, DESIGN_AGENT_SKILLS_ROOT: skillsRoot, DESIGN_AGENT_WORKSPACES_DIR: workspacesBase }
   })
   await new Promise<void>((resolveP3b, rejectP3b) => {
     const t = setTimeout(() => rejectP3b(new Error('Phase 3b continue timed out')), 20000)
@@ -2438,7 +2438,7 @@ async function main(): Promise<void> {
   writeFileSync(suspendTranscriptPath, '[]', 'utf8')
 
   const child4a = fork(runtimeJs, [], {
-    env: { ...process.env, ZMO_SKILLS_ROOT: skillsRoot, ZMO_WORKSPACES_DIR: workspacesBase }
+    env: { ...process.env, DESIGN_AGENT_SKILLS_ROOT: skillsRoot, DESIGN_AGENT_WORKSPACES_DIR: workspacesBase }
   })
   await new Promise<void>((resolveP4a, rejectP4a) => {
     const t = setTimeout(() => rejectP4a(new Error('Phase 4a suspend timed out')), 20000)
@@ -2472,7 +2472,7 @@ async function main(): Promise<void> {
   let sawResumedToolResult = false
   let doneUsage: { totalTokens: number; cacheReadTokens: number } | null = null
   const child4b = fork(runtimeJs, [], {
-    env: { ...process.env, ZMO_SKILLS_ROOT: skillsRoot, ZMO_WORKSPACES_DIR: workspacesBase }
+    env: { ...process.env, DESIGN_AGENT_SKILLS_ROOT: skillsRoot, DESIGN_AGENT_WORKSPACES_DIR: workspacesBase }
   })
   await new Promise<void>((resolveP4b, rejectP4b) => {
     const t = setTimeout(() => rejectP4b(new Error('Phase 4b resume_suspended_turn timed out')), 20000)

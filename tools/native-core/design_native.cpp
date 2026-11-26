@@ -1,5 +1,5 @@
-#define ZMO_NATIVE_EXPORTS
-#include "zmo_native.h"
+#define DESIGN_NATIVE_EXPORTS
+#include "design_native.h"
 
 #include <cmath>
 #include <cstring>
@@ -118,7 +118,7 @@ void rdp_recurse(const double* xy, int32_t start, int32_t end, double eps_sq, st
 
 extern "C" {
 
-ZMO_API int32_t zmo_tokenize_cjk_fts(
+DESIGN_API int32_t design_tokenize_cjk_fts(
     const char* utf8_in,
     int32_t in_len,
     char* utf8_out,
@@ -169,7 +169,7 @@ ZMO_API int32_t zmo_tokenize_cjk_fts(
     return written;
 }
 
-ZMO_API int32_t zmo_clause_boundary_ok(
+DESIGN_API int32_t design_clause_boundary_ok(
     const char* utf8_text,
     int32_t text_len,
     int32_t match_pos,
@@ -190,7 +190,7 @@ ZMO_API int32_t zmo_clause_boundary_ok(
     return 1;
 }
 
-ZMO_API float zmo_cosine_similarity_f32(
+DESIGN_API float design_cosine_similarity_f32(
     const float* a,
     const float* b,
     int32_t dim
@@ -211,7 +211,7 @@ ZMO_API float zmo_cosine_similarity_f32(
     return static_cast<float>(dot / denom);
 }
 
-ZMO_API int32_t zmo_cad_simplify_polyline_rdp(
+DESIGN_API int32_t design_cad_simplify_polyline_rdp(
     const double* xy_in,
     int32_t point_count,
     double epsilon,

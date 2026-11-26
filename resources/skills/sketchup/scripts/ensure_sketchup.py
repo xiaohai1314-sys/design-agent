@@ -41,7 +41,7 @@ HOST = os.environ.get("SU_HOST", "127.0.0.1")
 # 上游默认的 9876 别家 SketchUp MCP 扩展也在用：被占时我们的服务起不来，占着的那个还能通过探针。
 PORT = int(os.environ.get("SU_PORT", "9877"))
 # 不要再探 9876：过渡期已结束，插件和载荷都只用 PORT。9876 现在是 Blender 插件的端口，探它只会把
-# Blender 当成「连得上但不应答」的 SketchUp（见 docs/mcp/patches/README.md「ZMO 显示名与专用端口 9877」）。
+# Blender 当成「连得上但不应答」的 SketchUp（9877 是本服务专用端口，两者显示名也不同）。
 # 与 mcpHostPlugins.ts 的 MIN_SKETCHUP_YEAR 同一个数：su_mcp 插件只铺到 2022+ 的 Plugins 目录。
 MIN_YEAR = 2022
 LAUNCH_TIMEOUT = 60.0  # mac 11.8s、Windows 18.519s 完整就绪；冷盘 / 杀毒扫描另留余量
@@ -571,7 +571,7 @@ def _blank_copy(src):
     每次都用新文件名：上一轮拉起的 SketchUp 正开着上一份副本，用户 Ctrl+S 会静默存回那个临时
     文件，覆盖它就是抹掉用户的模型。临时副本交给系统清理临时目录，这里不删。
     """
-    fd, dst = tempfile.mkstemp(prefix="zmo-sketchup-blank-", suffix=".skp")
+    fd, dst = tempfile.mkstemp(prefix="design-agent-sketchup-blank-", suffix=".skp")
     os.close(fd)
     shutil.copyfile(src, dst)
     return dst
@@ -666,16 +666,16 @@ def launch(target, doc=None):
         # 否则即使脚本已打印 READY，执行器也可能一直等不到 EOF（真机已复现）。
         # 路径通过环境变量单次展开，配合关闭延迟展开，保留空格、&、% 和 ! 的字面含义。
         env = os.environ.copy()
-        env["ZMO_SU_EXE"] = target
-        env["ZMO_SU_DIR"] = os.path.dirname(target)
+        env["DESIGN_AGENT_SU_EXE"] = target
+        env["DESIGN_AGENT_SU_DIR"] = os.path.dirname(target)
         doc_arg = ""
         if doc:
-            env["ZMO_SU_DOC"] = doc
+            env["DESIGN_AGENT_SU_DOC"] = doc
             # 该片段作为 % 格式化参数后插入，不参与模板自身的 %% 转义。
-            doc_arg = ' "%ZMO_SU_DOC%"'
+            doc_arg = ' "%DESIGN_AGENT_SU_DOC%"'
         # /D 只使用动态发现出的 exe 所在目录，不依赖快捷方式的“起始位置”，也不写死盘符。
-        command = ('"%s" /d /v:off /s /c start "" /D "%%ZMO_SU_DIR%%" '
-                   '"%%ZMO_SU_EXE%%"%s' % (env.get("COMSPEC", "cmd.exe"), doc_arg))
+        command = ('"%s" /d /v:off /s /c start "" /D "%%DESIGN_AGENT_SU_DIR%%" '
+                   '"%%DESIGN_AGENT_SU_EXE%%"%s' % (env.get("COMSPEC", "cmd.exe"), doc_arg))
         subprocess.run(command, env=env, check=True, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                        creationflags=CREATE_NO_WINDOW, close_fds=True)

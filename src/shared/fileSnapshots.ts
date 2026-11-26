@@ -59,19 +59,19 @@ function fileSha256(filePath: string): string {
 
 function findSnapshotsBaseDir(targetPath: string, explicitRootDir?: string): string {
   if (explicitRootDir?.trim()) {
-    return join(explicitRootDir.trim(), '.zmo', 'snapshots')
+    return join(explicitRootDir.trim(), '.design-agent', 'snapshots')
   }
   let cur = dirname(resolve(targetPath))
   for (let i = 0; i < 6; i++) {
-    const candidateZmo = join(cur, '.zmo')
-    if (existsSync(candidateZmo)) {
-      return join(candidateZmo, 'snapshots')
+    const candidateDir = join(cur, '.design-agent')
+    if (existsSync(candidateDir)) {
+      return join(candidateDir, 'snapshots')
     }
     const parent = dirname(cur)
     if (parent === cur) break
     cur = parent
   }
-  return join(dirname(resolve(targetPath)), '.zmo', 'snapshots')
+  return join(dirname(resolve(targetPath)), '.design-agent', 'snapshots')
 }
 
 function metaFilePath(baseDir: string, targetPath: string): string {

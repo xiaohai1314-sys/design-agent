@@ -34,7 +34,7 @@ export const ImageEditModal: React.FC<ImageEditModalProps> = ({
 
   useEffect(() => {
     let cancelled = false
-    window.zmo.files
+    window.designAgent.files
       .readPreview(imagePath)
       .then((res) => {
         if (!cancelled) {
@@ -148,7 +148,7 @@ export const ImageEditModal: React.FC<ImageEditModalProps> = ({
       mCtx.drawImage(bCanvas, 0, 0)
       mCtx.drawImage(dCanvas, 0, 0)
       const dataUrl = merged.toDataURL('image/png')
-      const savedPath = await window.zmo.agent.saveAnnotatedImage({
+      const savedPath = await window.designAgent.agent.saveAnnotatedImage({
         sourcePath: imagePath,
         dataUrl,
         rootDir

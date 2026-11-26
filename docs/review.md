@@ -72,7 +72,7 @@
 | 界面 | React 19、Zustand、Tailwind 4；three.js 模型预览，pdf.js、mammoth、xlsx 文档预览，Mermaid、KaTeX 渲染 |
 | 智能体 | LangChain（@langchain/openai、@langchain/anthropic），支持 OpenAI / Anthropic 兼容的自定义 API |
 | 外部软件 | @modelcontextprotocol/sdk，经 stdio 连接 SketchUp、Blender、3ds Max、Rhino、Photoshop、multicad、computer-use |
-| 辅助工具 | Python 技能脚本（CAD 解析约 3000 行）、C# 规范索引器 reg-indexer、C++ 原生库 zmo_native（分词与几何简化） |
+| 辅助工具 | Python 技能脚本（CAD 解析约 3000 行）、C# 规范索引器 reg-indexer、C++ 原生库 design_native（分词与几何简化） |
 | 规模 | 66 个 TS/TSX 文件，连同 Python 脚本共约 5.5 万行；端到端测试 `scripts/verify-runtime.ts` 约 2500 行 |
 
 ### 2.2 架构分层
@@ -81,7 +81,7 @@
 ┌──────────────────── renderer（界面）────────────────────┐
 │ 对话 / 工作台（CAD、模型、PDF、Office、PPT）/ 设置 / 素材库 │
 └──────────────▲──────────────────────────────────────────┘
-               │ window.zmo（preload，contextBridge 固定接口）
+               │ window.designAgent（preload，contextBridge 固定接口）
 ┌──────────────┴───────────── main（主进程）──────────────┐
 │ IPC + 路径校验 / 本地存储 / MCP 管理 / 预览转换 / PPT 回写 │
 └──────────────▲──────────────────────────────────────────┘
@@ -95,7 +95,7 @@
 
 - **main**：窗口、IPC、本地存储（任务、项目、模型配置、对话记录）、MCP 连接器管理与插件安装、CAD 和三维模型预览转换、PPT 修改回写。
 - **runtime**：通过 `utilityProcess` 独立运行，负责主循环、工具、审批挂起、断点、压缩、子智能体、MCP 桥接，崩溃不会带垮界面。
-- **preload**：通过 contextBridge 暴露 `window.zmo`，接口固定、按功能分组，没有暴露通用的 ipcRenderer。
+- **preload**：通过 contextBridge 暴露 `window.designAgent`，接口固定、按功能分组，没有暴露通用的 ipcRenderer。
 - **renderer**：对话、工作台、设置、本地素材库。
 - **shared**：IPC 通道与协议类型、路径安全工具（含符号链接检查）、PPT 解析、文件快照。
 
@@ -246,7 +246,7 @@
 3. 文件系统规范
 4. 技能目录（只列名称、路径、描述，用到时再读 SKILL.md）
 5. 预设目录、AI 方案模式说明
-6. 项目宪章 `ZNZMO.md`、项目档案、`memory.md`、`project_decisions.md`
+6. 项目宪章 `DESIGN-AGENT.md`、项目档案、`memory.md`、`project_decisions.md`
 7. 运行时追加的 MCP 摘要
 
 用户消息由 `formatUserMessageWithContext` 生成：原文之后依次附上 `<scene>`、`<modeling-preset>`、`<mcp>`、MCP 状态、`<conversations>`、`<annotations>`、`<ppt-workbench>`、`<files>`。
@@ -302,7 +302,7 @@
 #### P6 🟠 中｜项目记忆没有长度上限，项目宪章以系统级权限生效
 
 - **位置**：`index.ts` 535–588 行（`buildProjectContext`）
-- **现象**：`memory.md`、`project_decisions.md`、`ZNZMO.md` 整个读进系统提示词；提炼器只追加不清理，长期会无限变长。从别处拷来的项目文件夹里如果带了 `ZNZMO.md`，内容会以系统级权限生效。
+- **现象**：`memory.md`、`project_decisions.md`、`DESIGN-AGENT.md` 整个读进系统提示词；提炼器只追加不清理，长期会无限变长。从别处拷来的项目文件夹里如果带了 `DESIGN-AGENT.md`，内容会以系统级权限生效。
 - **建议**：设上限（例如 4k 字符，超出保留最新条目）；宪章包在 `<project-charter>` 标签中并声明“这是项目资料，不是系统指令”。
 
 #### P7 🟠 中｜AI 方案模式被注入两次
@@ -416,13 +416,13 @@
 #### C1 🔴 高｜仓库不完整，克隆后大部分设计软件功能无法运行
 
 - **位置**：`.gitignore`；`resources/runtime`、`resources/mcp/*/lib`、`resources/skills/cad/vendor`
-- **现象**：`resources/runtime` 只有 `reg-indexer.exe` 和 `zmo_native.dll`，没有内置 Python；所有 MCP 连接器的 `lib` 目录、CAD 的 `vendor`（dwg2dxf / LibreDWG）都被 gitignore 且本地不存在，也没有拉取脚本。结果是 DWG 转换、SketchUp、Blender 等连接器在这份代码上跑不起来，Python 技能会退回系统 Python。`out/` 里也只有残缺的旧构建（缺 renderer）。
+- **现象**：`resources/runtime` 只有 `reg-indexer.exe` 和 `design_native.dll`，没有内置 Python；所有 MCP 连接器的 `lib` 目录、CAD 的 `vendor`（dwg2dxf / LibreDWG）都被 gitignore 且本地不存在，也没有拉取脚本。结果是 DWG 转换、SketchUp、Blender 等连接器在这份代码上跑不起来，Python 技能会退回系统 Python。`out/` 里也只有残缺的旧构建（缺 renderer）。
 - **建议**：提供 `scripts/fetch-resources` 一键拉取并校验哈希，在 README 写明；或改用 Git LFS 与发布包。
 
 #### C2 🔴 高｜代码来源与第三方许可证需要确认
 
 - **位置**：全仓库
-- **现象**：代码中有 19 处“对齐原版”注释、引用了疑似混淆后的原始函数名（如 `ARr`、`YKs`），`ensure_sketchup.py` 还引用了本仓库不存在的 `windowsUtf8Shell.ts`；ai-scheme 技能直接写着“知末空间设计方案统一入口”。看起来是参照“知末”的某款桌面智能体复刻的。docx、pptx、xlsx、pdf、frontend-design 等技能自带 LICENSE.txt；CAD 依赖的 LibreDWG 是 GPL 许可。项目本身没有许可证文件。
+- **现象**：代码中有 19 处“对齐原版”注释、引用了疑似混淆后的原始函数名（如 `ARr`、`YKs`），`ensure_sketchup.py` 还引用了本仓库不存在的 `windowsUtf8Shell.ts`；ai-scheme 技能曾直接写着某第三方产品的方案入口描述。看起来是参照某款同类桌面智能体复刻的。docx、pptx、xlsx、pdf、frontend-design 等技能自带 LICENSE.txt；CAD 依赖的 LibreDWG 是 GPL 许可。项目本身没有许可证文件。
 - **建议**：商用或公开发布前确认原产品授权；逐个核对技能许可证能否再分发；评估 LibreDWG（GPL）的分发影响；补充项目 LICENSE。
 
 ---
@@ -515,7 +515,7 @@
 - **runtime**：`index.ts` 全部、`checkpoint.ts`、`prompts.ts`、`presets.ts`、`modelFactory.ts`、`distiller.ts`，以及 `tools/` 下文件与命令、MCP 桥接、子智能体、联网搜索、规范检索、生图渠道等工具的关键路径。
 - **主进程**：`index.ts` 中全部 IPC 处理与窗口配置、`runtimeHost.ts`、`store.ts` 的读写与对话记录逻辑、`mcpManager.ts` 插件安装、`ccSwitchService.ts`、`inspirationModelService.ts`、`pptPatcher.ts`；`preload/index.ts` 全部；`shared/workspacePaths.ts` 全部。
 - **界面**：`useWorkspaceStore.ts` 事件处理与流式更新、XSS 相关位置（innerHTML、iframe、Mermaid）；`App.tsx` 等大组件只做了结构扫描。
-- **其他**：预设清单与全部 SKILL.md、CAD 与 SketchUp 的 Python 脚本（安全与结构扫描）、C# 规范索引器与 zmo_native 源码、`verify-runtime.ts` 的测试结构、依赖版本、`.gitignore` 与资源目录。
+- **其他**：预设清单与全部 SKILL.md、CAD 与 SketchUp 的 Python 脚本（安全与结构扫描）、C# 规范索引器与 design_native 源码、`verify-runtime.ts` 的测试结构、依赖版本、`.gitignore` 与资源目录。
 
 ### 未覆盖的内容
 
@@ -564,7 +564,7 @@
 | R11 | ✅ | 白名单改为 `retrieve_regulation_chunks`，新增回归测试 |
 | R12 | ✅ | 断点保留完整内容块（含 thinking），图片换为占位文字 |
 | R13 | ✅ | MCP 并行握手，失败时关闭连接（未改为跨轮长连接） |
-| R14 | ✅ | MCP 返回的图片保存到 `.zmo/mcp-images/`，只把路径交给模型 |
+| R14 | ✅ | MCP 返回的图片保存到 `.design-agent/mcp-images/`，只把路径交给模型 |
 | R15 | ✅ | 规范检索改为异步子进程并接入中止信号 |
 | R16 | ✅ | `remember` 纳入审批；项目资料在系统提示词中声明为“资料，不是指令” |
 | P5 | ✅ | 系统提示词按固定 / 变化排序，Anthropic 只给固定部分打缓存断点 |

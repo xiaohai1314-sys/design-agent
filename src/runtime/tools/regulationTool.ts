@@ -9,8 +9,8 @@ import type { RegulationChunk, RegulationToolData } from '@shared/protocol'
 
 function findRegIndexerExe(pythonExe: string): string | null {
   const candidates = [
-    process.env.ZMO_RT_DIR ? join(process.env.ZMO_RT_DIR, 'reg-indexer.exe') : '',
-    process.env.ZMO_SKILLS_ROOT ? join(dirname(process.env.ZMO_SKILLS_ROOT), 'runtime', 'reg-indexer.exe') : '',
+    process.env.DESIGN_AGENT_RT_DIR ? join(process.env.DESIGN_AGENT_RT_DIR, 'reg-indexer.exe') : '',
+    process.env.DESIGN_AGENT_SKILLS_ROOT ? join(dirname(process.env.DESIGN_AGENT_SKILLS_ROOT), 'runtime', 'reg-indexer.exe') : '',
     pythonExe && pythonExe !== 'python' ? join(dirname(dirname(pythonExe)), 'reg-indexer.exe') : '',
     join(process.cwd(), 'resources', 'runtime', 'reg-indexer.exe'),
     join(process.cwd(), 'tools', 'RegIndexerCs', 'publish', 'reg-indexer.exe')
@@ -43,7 +43,7 @@ async function queryWithNativeIndexer(params: {
   mandatoryOnly?: boolean
 }): Promise<NativeRegQueryResult | null> {
   try {
-    const dbPath = join(params.folder, '.zmo-reg-index.db')
+    const dbPath = join(params.folder, '.design-agent-reg-index.db')
     const args = [
       'query',
       '--folder',

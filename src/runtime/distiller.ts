@@ -170,7 +170,7 @@ export async function distillProjectMemory(params: {
     const today = new Date().toISOString().slice(0, 10)
     const shortConv = params.conversationId.slice(0, 8)
 
-    // 更新 project_decisions.md（对齐原版 @zmo/agent-shared/src/memory.ts 结构）
+    // 更新 project_decisions.md（对齐原版 @design-agent/agent-shared/src/memory.ts 结构）
     const existingDec = existsSync(decisionsPath) ? readFileSync(decisionsPath, 'utf8') : ''
     const existingLines = new Set(existingDec.split(/\r?\n/).map((l) => l.trim()))
 

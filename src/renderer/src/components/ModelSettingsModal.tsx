@@ -119,7 +119,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       return
     }
     let cancelled = false
-    void window.zmo.models
+    void window.designAgent.models
       .getClipModelStatus(clipDirForStatus)
       .then((s) => {
         if (!cancelled) setClipStatus(s)
@@ -141,7 +141,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     setCcProbes({})
     setCcSearch('')
     try {
-      const res = await window.zmo.models.discoverCcSwitch()
+      const res = await window.designAgent.models.discoverCcSwitch()
       setCcCandidates(res.candidates)
       if (res.error) setCcError(res.error)
       // 默认只预勾选「当前正在使用且无已知故障」的配置，避免把失效中转全倒进来
@@ -161,7 +161,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
 
   const probeCandidate = async (c: CcSwitchCandidate): Promise<void> => {
     setCcProbes((prev) => ({ ...prev, [c.uid]: { status: 'testing' } }))
-    const res = await window.zmo.models.testConnection(candidateToProfile(c))
+    const res = await window.designAgent.models.testConnection(candidateToProfile(c))
     if (
       res.ok &&
       (res.resolvedBaseUrl !== undefined ||
@@ -237,7 +237,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   const testCurrentProfile = async (): Promise<void> => {
     if (!current) return
     setProfileProbe({ status: 'testing' })
-    const res = await window.zmo.models.testConnection(current)
+    const res = await window.designAgent.models.testConnection(current)
     if (
       res.ok &&
       (res.resolvedBaseUrl !== undefined ||
@@ -319,7 +319,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   ): Promise<void> => {
     setImageProbes((prev) => ({ ...prev, [channel.id]: { status: 'testing', level } }))
     try {
-      const res = await window.zmo.models.testImageChannel(channel, level)
+      const res = await window.designAgent.models.testImageChannel(channel, level)
       setImageProbes((prev) => ({ ...prev, [channel.id]: toImageProbeState(res) }))
     } catch (err) {
       setImageProbes((prev) => ({
@@ -472,21 +472,21 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   }
 
   const handlePickRegulationFolder = async (): Promise<void> => {
-    const folder = await window.zmo.agent.pickFolder('model-settings')
+    const folder = await window.designAgent.agent.pickFolder('model-settings')
     if (folder) {
       setDraft({ ...draft, regulation: { folderPath: folder } })
     }
   }
 
   const handlePickInspirationFolder = async (): Promise<void> => {
-    const folder = await window.zmo.agent.pickFolder('model-settings')
+    const folder = await window.designAgent.agent.pickFolder('model-settings')
     if (folder) {
       setDraft({ ...draft, inspiration: { ...draft.inspiration, folderPath: folder } })
     }
   }
 
   const handlePickClipModelDir = async (): Promise<void> => {
-    const folder = await window.zmo.agent.pickFolder('model-settings')
+    const folder = await window.designAgent.agent.pickFolder('model-settings')
     if (folder) {
       setDraft({ ...draft, inspiration: { ...draft.inspiration, clipModelDir: folder } })
     }
@@ -498,11 +498,11 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     setClipDownloading(true)
     setClipDownloadPct(0)
     setClipError(null)
-    const off = window.zmo.models.onClipModelDownloadProgress((p) =>
+    const off = window.designAgent.models.onClipModelDownloadProgress((p) =>
       setClipDownloadPct(Math.round(p.overallRatio * 100))
     )
     try {
-      const status = await window.zmo.models.downloadClipModel(dir)
+      const status = await window.designAgent.models.downloadClipModel(dir)
       setClipStatus(status)
     } catch (err) {
       setClipError(err instanceof Error ? err.message : String(err))
@@ -524,13 +524,13 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       'image-vectors': '计算图像向量',
       write: '写入索引'
     }
-    const off = window.zmo.models.onInspirationRebuildProgress((p) =>
+    const off = window.designAgent.models.onInspirationRebuildProgress((p) =>
       setRebuildProgress(
         p.total > 0 ? `${phaseZh[p.phase] ?? p.phase} ${p.done}/${p.total}` : (phaseZh[p.phase] ?? p.phase)
       )
     )
     try {
-      const res = await window.zmo.models.rebuildInspirationIndex({
+      const res = await window.designAgent.models.rebuildInspirationIndex({
         folder,
         clipModelDir: draft?.inspiration?.clipModelDir
       })
@@ -572,7 +572,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     await Promise.all(
       targets.map(async (channel) => {
         try {
-          const res = await window.zmo.models.testImageChannel(channel, 'probe')
+          const res = await window.designAgent.models.testImageChannel(channel, 'probe')
           setImageProbes((prev) => ({ ...prev, [channel.id]: toImageProbeState(res) }))
           if (!res.ok) {
             warnings.push(`${channel.name}：${res.warning ?? res.error ?? '探活未通过'}`)

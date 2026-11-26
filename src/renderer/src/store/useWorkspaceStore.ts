@@ -48,7 +48,7 @@ function subscribeAgentEventsBatched(handle: (ev: RuntimeOutbound) => void): () 
     pending = []
     for (const ev of batch) handle(ev)
   }
-  const off = window.zmo.agent.onEvent((ev) => {
+  const off = window.designAgent.agent.onEvent((ev) => {
     if (ev.type === 'token' || ev.type === 'reasoning') {
       const last = pending[pending.length - 1]
       if (
@@ -382,15 +382,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     initInFlight = (async () => {
       const [tasks, projects, modelSettings, permissionMode, skills, mcpConnectors, recentFiles, generalSettings, regulationStats] =
         await Promise.all([
-          window.zmo.tasks.list(),
-          window.zmo.projects.list(),
-          window.zmo.models.getSettings(),
-          window.zmo.agent.getPermissionMode(),
-          window.zmo.skills.list(),
-          window.zmo.mcp.listConnectors(),
-          window.zmo.recentFiles.list(),
-          window.zmo.settings.getGeneral(),
-          window.zmo.regulations.stats()
+          window.designAgent.tasks.list(),
+          window.designAgent.projects.list(),
+          window.designAgent.models.getSettings(),
+          window.designAgent.agent.getPermissionMode(),
+          window.designAgent.skills.list(),
+          window.designAgent.mcp.listConnectors(),
+          window.designAgent.recentFiles.list(),
+          window.designAgent.settings.getGeneral(),
+          window.designAgent.regulations.stats()
         ])
 
       offAgentEvents?.()
@@ -398,7 +398,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         get().handleRuntimeEvent(ev)
       })
       offNotificationOpen?.()
-      offNotificationOpen = window.zmo.taskNotifications.onOpenRequested((tid) => {
+      offNotificationOpen = window.designAgent.taskNotifications.onOpenRequested((tid) => {
         void get().selectTask(tid)
       })
 
@@ -432,7 +432,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       set({ activeTaskId: null })
       return
     }
-    const transcript = await window.zmo.tasks.readTranscript(taskId)
+    const transcript = await window.designAgent.tasks.readTranscript(taskId)
     set((state) => {
       const prev = state.slices[taskId] ?? emptySlice()
       const restoredPending = prev.running ? null : extractPendingFromTurns(transcript)
@@ -468,12 +468,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   createNewTask: async (options) => {
     const projectId = options?.projectId !== undefined ? options.projectId : get().activeProjectId
-    const created = await window.zmo.tasks.create({
+    const created = await window.designAgent.tasks.create({
       title: options?.title?.trim() || '新建设计对话',
       projectId,
       rootDir: options?.rootDir
     })
-    const tasks = await window.zmo.tasks.list()
+    const tasks = await window.designAgent.tasks.list()
     set((state) => ({
       tasks,
       activeTaskId: created.id,
@@ -492,13 +492,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   renameTask: async (taskId, title) => {
     const cleaned = title.trim()
     if (!cleaned) return
-    const tasks = await window.zmo.tasks.rename(taskId, cleaned)
+    const tasks = await window.designAgent.tasks.rename(taskId, cleaned)
     set({ tasks })
   },
 
   deleteTask: async (taskId) => {
-    await window.zmo.tasks.delete(taskId)
-    const tasks = await window.zmo.tasks.list()
+    await window.designAgent.tasks.delete(taskId)
+    const tasks = await window.designAgent.tasks.list()
     const currentActive = get().activeTaskId
     set((state) => {
       const nextSlices = { ...state.slices }
@@ -519,8 +519,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
 
   createProject: async (name, folderPath) => {
-    const created = await window.zmo.projects.create({ name, folderPath })
-    const projects = await window.zmo.projects.list()
+    const created = await window.designAgent.projects.create({ name, folderPath })
+    const projects = await window.designAgent.projects.list()
     set({ projects, activeProjectId: created.id })
     await get().createNewTask({ projectId: created.id, rootDir: created.folderPath })
     return created
@@ -529,13 +529,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   renameProject: async (projectId, name) => {
     const cleaned = name.trim()
     if (!cleaned) return
-    const projects = await window.zmo.projects.rename(projectId, cleaned)
+    const projects = await window.designAgent.projects.rename(projectId, cleaned)
     set({ projects })
   },
 
   deleteProject: async (projectId) => {
-    await window.zmo.projects.delete(projectId)
-    const projects = await window.zmo.projects.list()
+    await window.designAgent.projects.delete(projectId)
+    const projects = await window.designAgent.projects.list()
     set((state) => ({
       projects,
       activeProjectId: state.activeProjectId === projectId ? null : state.activeProjectId
@@ -557,27 +557,27 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setComposerMode: (mode) => set({ composerMode: mode }),
 
   refreshRecentFiles: async () => {
-    const recentFiles = await window.zmo.recentFiles.list()
+    const recentFiles = await window.designAgent.recentFiles.list()
     set({ recentFiles })
   },
 
   refreshRegulationStats: async () => {
-    const regulationStats = await window.zmo.regulations.stats()
+    const regulationStats = await window.designAgent.regulations.stats()
     set({ regulationStats })
   },
 
   saveGeneralSettings: async (next) => {
-    const saved = await window.zmo.settings.saveGeneral(next)
+    const saved = await window.designAgent.settings.saveGeneral(next)
     set({ generalSettings: saved })
   },
 
   refreshMcpConnectors: async () => {
-    const mcpConnectors = await window.zmo.mcp.listConnectors()
+    const mcpConnectors = await window.designAgent.mcp.listConnectors()
     set({ mcpConnectors })
   },
 
   toggleMcpConnector: async (name, enabled) => {
-    const mcpConnectors = await window.zmo.mcp.setEnabled({ name, enabled })
+    const mcpConnectors = await window.designAgent.mcp.setEnabled({ name, enabled })
     set({ mcpConnectors })
   },
 
@@ -618,7 +618,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const prop = get().pendingPptProposals[key]
     if (!prop) return
     if (accept) {
-      const res = await window.zmo.pptWorkbench.applyProposal(prop)
+      const res = await window.designAgent.pptWorkbench.applyProposal(prop)
       if (!res.ok) {
         console.error('Failed to apply PPT proposal:', res.error)
         return
@@ -643,7 +643,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       .mcpConnectors.filter((c) => c.enabled)
       .map((c) => ({ name: c.name, label: c.label }))
 
-    const res = await window.zmo.agent.send({
+    const res = await window.designAgent.agent.send({
       threadId: taskId,
       text,
       rootDir: activeTask?.rootDir,
@@ -731,7 +731,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         }
       }
     })
-    await window.zmo.agent.resume({ threadId, decision })
+    await window.designAgent.agent.resume({ threadId, decision })
   },
 
   submitUserAnswer: async (threadId, answers) => {
@@ -745,7 +745,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         }
       }
     })
-    await window.zmo.agent.userAnswer({ threadId, answers })
+    await window.designAgent.agent.userAnswer({ threadId, answers })
   },
 
   submitImageEditAnswer: async (threadId, id, answer) => {
@@ -759,15 +759,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         }
       }
     })
-    await window.zmo.agent.imageEditAnswer({ threadId, id, answer })
+    await window.designAgent.agent.imageEditAnswer({ threadId, id, answer })
   },
 
   stopTask: async (threadId) => {
-    await window.zmo.agent.stop(threadId)
+    await window.designAgent.agent.stop(threadId)
   },
 
   setPermissionMode: async (mode) => {
-    const saved = await window.zmo.agent.setPermissionMode(mode)
+    const saved = await window.designAgent.agent.setPermissionMode(mode)
     set({ permissionMode: saved })
   },
 
@@ -776,7 +776,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   setSettingsModalOpen: (open) => set({ settingsModalOpen: open }),
 
   saveModelSettings: async (next) => {
-    const saved = await window.zmo.models.saveSettings(next)
+    const saved = await window.designAgent.models.saveSettings(next)
     set({ modelSettings: saved })
   },
 
@@ -784,7 +784,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const cur = get().modelSettings
     if (!cur) return
     const next: ModelSettingsState = { ...cur, activeProfileId: profileId }
-    const saved = await window.zmo.models.saveSettings(next)
+    const saved = await window.designAgent.models.saveSettings(next)
     set({ modelSettings: saved })
   },
 
@@ -792,7 +792,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     if (get().ccSwitchLoading) return
     set({ ccSwitchLoading: true })
     try {
-      const res = await window.zmo.models.discoverCcSwitch()
+      const res = await window.designAgent.models.discoverCcSwitch()
       const valid = (res.candidates ?? []).filter(
         (c) => Boolean(c.hasKey) && Boolean(c.baseUrl?.trim()) && Boolean(c.model?.trim())
       )
@@ -829,7 +829,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       targetId = created.id
       nextProfiles.push(created)
     }
-    const saved = await window.zmo.models.saveSettings({
+    const saved = await window.designAgent.models.saveSettings({
       ...cur,
       activeProfileId: targetId,
       profiles: nextProfiles
@@ -857,7 +857,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     const { threadId } = event
 
     if (event.type === 'newchat') {
-      void window.zmo.tasks.list().then((tasks) => set({ tasks }))
+      void window.designAgent.tasks.list().then((tasks) => set({ tasks }))
       return
     }
 
@@ -1010,7 +1010,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
               nextTodos = settleCompletedTodos(nextTodos)
             }
           }
-          void window.zmo.recentFiles.list().then((rf) => set({ recentFiles: rf }))
+          void window.designAgent.recentFiles.list().then((rf) => set({ recentFiles: rf }))
           nextRunning = false
           nextInterrupt = null
           nextAskUser = null
