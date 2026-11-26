@@ -104,16 +104,24 @@ export function matchModelingPreset(
     if (hostPref && !hostPref.includes(preset.targetHost) && !(preset.targetHost === 'sketchup' && hostPref === 'su')) {
       continue
     }
-    if (mcpNames.size > 0 && !mcpNames.has(preset.targetHost)) {
+    // multicad 连接器在 MCP 里名为 multicad，对应预置宿主 cad
+    const hostMcpNames =
+      preset.targetHost === 'cad' ? ['cad', 'multicad'] : [preset.targetHost]
+    if (mcpNames.size > 0 && !hostMcpNames.some((n) => mcpNames.has(n))) {
       continue
     }
 
     const inSceneTool = Boolean(toolTitle && preset.sceneTools.includes(toolTitle))
-    const hasSketchupSignal =
-      mcpNames.has('sketchup') ||
-      inSceneTool ||
-      /(sketchup|\bsu\b|草图大师|三维建模|建模型|白模|参数化建模)/i.test(params.text)
-    if (!hasSketchupSignal) continue
+    const hasHostSignal =
+      preset.targetHost === 'cad'
+        ? mcpNames.has('multicad') ||
+          mcpNames.has('cad') ||
+          inSceneTool ||
+          /(autocad|\bcad\b|dwg|dxf|平面图|户型|转绘|描图|图纸检查)/i.test(params.text)
+        : mcpNames.has('sketchup') ||
+          inSceneTool ||
+          /(sketchup|\bsu\b|草图大师|三维建模|建模型|白模|参数化建模)/i.test(params.text)
+    if (!hasHostSignal) continue
 
     const keywordHit =
       preset.keywords.some((kw) => lowerText.includes(kw.toLowerCase())) ||
@@ -184,6 +192,35 @@ export function extractPresetOptions(
   return result
 }
 
+function buildCadPresetDirective(preset: ModelingPresetInfo): string {
+  const dp = preset.defaultParams ?? {}
+  const runSpecPath = join(preset.presetDir, preset.entryScript).replace(/\\/g, '/')
+  const seedDxfPath = join(preset.presetDir, String(dp.seed_dxf ?? 'seed/plan.dxf')).replace(
+    /\\/g,
+    '/'
+  )
+  const auditPath = join(
+    preset.presetDir,
+    String(dp.audit_notes ?? 'notes/dimension-audit.md')
+  ).replace(/\\/g, '/')
+  const layers = Array.isArray(dp.required_layers)
+    ? dp.required_layers.join('、')
+    : 'A-WALL、A-DOOR、A-WIND、A-ROOM、A-DIMS'
+
+  return [
+    `<modeling-preset id="${preset.id}" host="${preset.targetHost}">`,
+    `本轮请求已匹配本机 CAD 预置工程包「${preset.title}」（${preset.description}）。`,
+    `**硬性执行规则（务必遵守）：**`,
+    `1. **不要从零重绘整套平面几何**，也不要改动预置包内任何文件；先用 \`read_file\` 通读入口规范 \`${runSpecPath}\`，全程按其中的 operations（操作序列）、validation（校验基线）与 protection（保护规则）执行。`,
+    `2. 编辑图纸只能用 multicad 连接器（AutoCAD / 中望 / 浩辰 / BricsCAD）：先 \`tool_search\` 加载 multicad 的文档管理与导出数据工具，连接器不可用时按原始错误如实告知；\`cad\` 解析技能只读，严禁用它冒充编辑能力。`,
+    `3. 种子原件只读：把 \`${seedDxfPath}\` 复制到本轮唯一输出目录后打开副本，用户已打开的文档只记录、不关闭、不重置、不修改。`,
+    `4. 动手前先按 validation 复核种子副本：图层齐全（${layers}）、DIMENSION 数量 = ${Number(dp.expected_dimensions ?? 30)}、总尺寸 ${Number(dp.overall_x_mm ?? 11400)}×${Number(dp.overall_y_mm ?? 9000)}mm（对账细节见 \`${auditPath}\`）；复核不符先报告差异，不要带病继续。`,
+    `5. 在副本上另存 DWG 后再进行本轮绘制/修改；新图元放对应 A-* 图层，标注使用实测值、禁止手工改写标注文字。`,
+    `6. 完成后再次导出数据复核（图层 / 标注计数 / 尺寸链闭合 / 房间面积），成果只另存到输出目录、不覆盖已有文件，复核通过后用 \`deliver\` 交付 DWG 与复核结论。`,
+    `</modeling-preset>`
+  ].join('\n')
+}
+
 export function buildModelingPresetDirective(
   preset: ModelingPresetInfo,
   params: {
@@ -192,6 +229,9 @@ export function buildModelingPresetDirective(
     skillsRoot?: string
   }
 ): string {
+  if (preset.targetHost === 'cad') {
+    return buildCadPresetDirective(preset)
+  }
   const opts = extractPresetOptions(preset, params.text, params.sceneParam)
   const ensureScript = params.skillsRoot
     ? join(params.skillsRoot, 'sketchup', 'scripts', 'ensure_sketchup.py').replace(/\\/g, '/')

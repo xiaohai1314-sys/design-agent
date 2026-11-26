@@ -38,6 +38,7 @@ import { createAskUserTool, formatAnswersForModel } from './tools/askUser'
 import { createWorkspaceTools } from './tools/workspaceTools'
 import { createImageTools, hasImageGenCapability } from './tools/imageTools'
 import { createLocalRegulationTool } from './tools/regulationTool'
+import { createSearchInspirationTool } from './tools/inspirationTool'
 import { createWebSearchTool } from './tools/webSearchTool'
 import { createPptWorkbenchTool } from './tools/pptWorkbenchTool'
 import {
@@ -824,6 +825,8 @@ async function executeTurn(
     modelProfile,
     imageGenConfig,
     regulationFolder,
+    inspirationFolder,
+    clipModelDir,
     webSearchConfig,
     profile
   } = msg
@@ -843,6 +846,9 @@ async function executeTurn(
   if (msg.permissionMode) {
     globalPermissionMode = msg.permissionMode
   }
+  // 任务上下文仅 chat 消息携带（恢复轮次无此字段）：提升到此处供生图渠道按任务路由使用
+  const turnSceneParam: SceneParam | undefined =
+    msg.type === 'chat' ? msg.sceneParam : undefined
   if (
     isResumeTurn &&
     msg.resolution.kind === 'interrupt' &&
@@ -1204,6 +1210,7 @@ async function executeTurn(
       rootDir,
       modelProfile,
       imageGenConfig,
+      sceneParam: turnSceneParam,
       signal: abortController.signal,
       requireApproval,
       waitForImageEdit,
@@ -1218,6 +1225,14 @@ async function executeTurn(
 
     const webSearchTool = createWebSearchTool({
       config: webSearchConfig,
+      signal: abortController.signal,
+      recordToolData
+    })
+
+    const inspirationTool = createSearchInspirationTool({
+      inspirationFolder,
+      clipModelDir,
+      webSearchConfig,
       signal: abortController.signal,
       recordToolData
     })
@@ -1257,6 +1272,7 @@ async function executeTurn(
     const subagentAllTools: DynamicStructuredTool[] = [
       ...subWorkspaceTools,
       regulationTool,
+      inspirationTool,
       ...(webSearchTool ? [webSearchTool] : []),
       ...(mcpBundle?.tools ?? [])
     ]
@@ -1354,6 +1370,7 @@ async function executeTurn(
       askUserTool,
       ...imageTools,
       regulationTool,
+      inspirationTool,
       ...(webSearchTool ? [webSearchTool] : []),
       ...(pptWorkbenchTool ? [pptWorkbenchTool] : []),
       deliverTool,

@@ -13,6 +13,7 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   generate_image: '生成图片',
   edit_image_with_ref: '图生图/参考改图',
   retrieve_regulation_chunks: '规范检索',
+  search_inspiration: '灵感/素材搜索',
   web_search: '联网检索',
   ppt_workbench: 'PPT 工作台',
   deliver: '交付成品',
@@ -76,6 +77,8 @@ export function toolDelta(name: string, args?: Record<string, unknown>): string 
     case 'edit_image_with_ref':
       return singleLine(a.image_name) || singleLine(a.prompt).slice(0, 30) || undefined
     case 'retrieve_regulation_chunks':
+      return singleLine(a.query) || undefined
+    case 'search_inspiration':
       return singleLine(a.query) || undefined
     case 'web_search':
       return singleLine(a.query) || undefined
