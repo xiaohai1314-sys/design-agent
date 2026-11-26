@@ -4,7 +4,12 @@ import type { RuntimeOutbound } from '@shared/protocol'
 
 const api: ZmoBridgeApi = {
   app: {
-    getPathForFile: (file) => webUtils.getPathForFile(file)
+    getPathForFile: async (file) => {
+      const filePath = webUtils.getPathForFile(file)
+      return filePath
+        ? ipcRenderer.invoke(IPC_CHANNELS.AgentAuthorizeDroppedFile, filePath)
+        : ''
+    }
   },
   window: {
     minimize: () => ipcRenderer.send(IPC_CHANNELS.WindowMinimize),
@@ -43,7 +48,7 @@ const api: ZmoBridgeApi = {
     getPermissionMode: () => ipcRenderer.invoke(IPC_CHANNELS.AgentGetPermissionMode),
     setPermissionMode: (mode) => ipcRenderer.invoke(IPC_CHANNELS.AgentSetPermissionMode, mode),
     pickFiles: () => ipcRenderer.invoke(IPC_CHANNELS.AgentPickFiles),
-    pickFolder: () => ipcRenderer.invoke(IPC_CHANNELS.AgentPickFolder),
+    pickFolder: (purpose) => ipcRenderer.invoke(IPC_CHANNELS.AgentPickFolder, purpose),
     onEvent: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, data: RuntimeOutbound): void => {
         listener(data)
@@ -119,7 +124,8 @@ const api: ZmoBridgeApi = {
     prepare: (filePath) => ipcRenderer.invoke(IPC_CHANNELS.ModelPreviewPrepare, filePath)
   },
   files: {
-    listWorkspace: (dirPath) => ipcRenderer.invoke(IPC_CHANNELS.FilesListWorkspace, dirPath),
+    listWorkspace: (dirPath, rootDir) =>
+      ipcRenderer.invoke(IPC_CHANNELS.FilesListWorkspace, { dirPath, rootDir }),
     listLibrary: () => ipcRenderer.invoke(IPC_CHANNELS.FilesListLibrary),
     addLibraryFolder: (folderPath) => ipcRenderer.invoke(IPC_CHANNELS.FilesAddLibraryFolder, folderPath),
     removeLibraryFolder: (folderPath) => ipcRenderer.invoke(IPC_CHANNELS.FilesRemoveLibraryFolder, folderPath),

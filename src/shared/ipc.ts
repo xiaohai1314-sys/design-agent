@@ -42,6 +42,7 @@ export const IPC_CHANNELS = {
   AgentSetPermissionMode: 'agent:set-permission-mode',
   AgentPickFiles: 'agent:pick-files',
   AgentPickFolder: 'agent:pick-folder',
+  AgentAuthorizeDroppedFile: 'agent:authorize-dropped-file',
   AgentSaveAnnotatedImage: 'agent:save-annotated-image',
   AgentWriteTempImage: 'agent:write-temp-image',
   AgentEvent: 'agent:event',
@@ -368,7 +369,7 @@ export interface SendMessagePayload {
 
 export interface ZmoBridgeApi {
   app?: {
-    getPathForFile: (file: File) => string
+    getPathForFile: (file: File) => Promise<string>
   }
   window: {
     minimize: () => void
@@ -393,13 +394,13 @@ export interface ZmoBridgeApi {
     resume: (payload: { threadId: string; decision: AgentDecision }) => Promise<void>
     userAnswer: (payload: { threadId: string; answers: AskAnswer[] }) => Promise<void>
     imageEditAnswer: (payload: { threadId: string; id: string; answer: ImageEditAnswer }) => Promise<void>
-    saveAnnotatedImage: (payload: { sourcePath: string; dataUrl: string }) => Promise<string>
+    saveAnnotatedImage: (payload: { sourcePath: string; dataUrl: string; rootDir?: string }) => Promise<string>
     writeTempImage: (payload: { base64: string; name?: string; rootDir?: string }) => Promise<AgentAttachment>
     stop: (threadId: string) => Promise<void>
     getPermissionMode: () => Promise<PermissionMode>
     setPermissionMode: (mode: PermissionMode) => Promise<PermissionMode>
     pickFiles: () => Promise<AgentAttachment[]>
-    pickFolder: () => Promise<string | null>
+    pickFolder: (purpose?: 'project' | 'library' | 'model-settings') => Promise<string | null>
     onEvent: (listener: (event: RuntimeOutbound) => void) => () => void
   }
   tasks: {
@@ -464,7 +465,7 @@ export interface ZmoBridgeApi {
     prepare: (filePath: string) => Promise<ModelPreviewResult>
   }
   files: {
-    listWorkspace: (dirPath: string) => Promise<WorkspaceEntry[]>
+    listWorkspace: (dirPath: string, rootDir: string) => Promise<WorkspaceEntry[]>
     listLibrary: () => Promise<LocalLibrarySnapshot>
     addLibraryFolder: (folderPath: string) => Promise<LocalLibrarySnapshot>
     removeLibraryFolder: (folderPath: string) => Promise<LocalLibrarySnapshot>

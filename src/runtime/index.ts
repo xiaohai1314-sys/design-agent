@@ -1189,12 +1189,23 @@ async function executeTurn(
 
     const pptSelection = isResumeTurn ? undefined : msg.pptSelection
     const protectedPptPaths = pptSelection?.documentPath ? [pptSelection.documentPath] : []
+    const allowedReadPaths = [
+      ...('filelist' in msg
+        ? (msg.filelist ?? []).flatMap((file) => (file.path ? [file.path] : []))
+        : []),
+      ...('conversationRefs' in msg
+        ? (msg.conversationRefs ?? []).flatMap((reference) =>
+            reference.path ? [reference.path] : []
+          )
+        : [])
+    ]
 
     const baseTools = createWorkspaceTools({
       rootDir,
       projectMemoryPath: projectMemoryFile,
       extraEnvPaths,
       protectedPptPaths,
+      allowedReadPaths,
       signal: abortController.signal,
       requireApproval,
       recordToolData,
@@ -1262,6 +1273,7 @@ async function executeTurn(
       projectMemoryPath: projectMemoryFile,
       extraEnvPaths,
       protectedPptPaths,
+      allowedReadPaths,
       signal: abortController.signal,
       requireApproval,
       recordToolData: () => {},

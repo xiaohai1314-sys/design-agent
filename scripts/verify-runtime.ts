@@ -1,8 +1,8 @@
 import { fork } from 'node:child_process'
 import { createServer } from 'node:http'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import JSZip from 'jszip'
 import * as mammoth from 'mammoth'
 import * as XLSX from 'xlsx'
@@ -107,16 +107,34 @@ async function verifyStandaloneMcpManager(tempRoot: string, resourcesRoot: strin
   }
 
   const cuaSpec = mgr.resolveServerSpec('computer-use')
-  if (!cuaSpec || !cuaSpec.command.toLowerCase().endsWith('cua-driver.exe') || cuaSpec.args[0] !== 'mcp') {
-    throw new Error(`Unexpected computer-use MCP spec: ${JSON.stringify(cuaSpec)}`)
+  const cuaConnector = list.find((connector) => connector.name === 'computer-use')
+  if (cuaSpec) {
+    if (!cuaSpec.command.toLowerCase().endsWith('cua-driver.exe') || cuaSpec.args[0] !== 'mcp') {
+      throw new Error(`Unexpected computer-use MCP spec: ${JSON.stringify(cuaSpec)}`)
+    }
+  } else if (!cuaConnector || cuaConnector.available || cuaConnector.enabled) {
+    throw new Error('computer-use is missing its driver but was not reported unavailable')
+  } else {
+    console.warn('⚠️ [Standalone MCP] computer-use runtime driver is not present; connector is correctly unavailable')
   }
 
   const suSpec = mgr.resolveServerSpec('sketchup')
-  if (!suSpec || !suSpec.command.toLowerCase().includes('resources')) {
-    throw new Error(`SketchUp MCP did not resolve from bundled resources/: ${JSON.stringify(suSpec)}`)
+  const appData = process.env.APPDATA ?? ''
+  const pythonCandidates = [
+    join(resourcesRoot, 'runtime', 'python', 'python.exe'),
+    join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'python', 'python.exe'),
+    join(appData, '@zmo', 'agent-desktop', 'agent-runtime', 'runtime', 'python', 'python.exe')
+  ]
+  const expectedPython = pythonCandidates.find((candidate) => existsSync(candidate)) ?? 'python'
+  if (
+    !suSpec ||
+    suSpec.command !== expectedPython ||
+    !suSpec.args.includes('sketchup_mcp')
+  ) {
+    throw new Error(`SketchUp MCP did not resolve using the configured Python fallback: ${JSON.stringify(suSpec)}`)
   }
   console.log(
-    `✅ [Standalone MCP] Discovered ${list.length} connectors; computer-use & sketchup resolved under bundled resources`
+    `✅ [Standalone MCP] Discovered ${list.length} connectors; SketchUp resolver valid; computer-use ${cuaSpec ? 'driver resolved' : 'unavailable without runtime binary'}`
   )
 }
 
@@ -179,6 +197,187 @@ async function verifyOfficeLibs(): Promise<void> {
   console.log('✅ [Deferred MCP] mcp_tools + tool_search promotion passed')
 }
 
+async function verifyWorkspacePathBoundary(tempRoot: string): Promise<void> {
+  // 文件工具只能访问工作区，明确附件仅授予单文件只读权限
+  const boundaryRoot = join(tempRoot, 'workspace-boundary')
+  const outsideFile = join(tempRoot, 'outside-secret.txt')
+  mkdirSync(boundaryRoot, { recursive: true })
+  writeFileSync(outsideFile, 'OUTSIDE_SECRET', 'utf8')
+  const boundaryTools = createWorkspaceTools({
+    rootDir: boundaryRoot,
+    signal: new AbortController().signal,
+    requireApproval: async () => {},
+    recordToolData: () => {},
+    onTodosChange: () => {}
+  })
+  const boundaryLs = boundaryTools.find((tool) => tool.name === 'ls')!
+  const boundaryGlob = boundaryTools.find((tool) => tool.name === 'glob')!
+  const boundaryGrep = boundaryTools.find((tool) => tool.name === 'grep')!
+  const boundaryRead = boundaryTools.find((tool) => tool.name === 'read_file')!
+  const boundaryWrite = boundaryTools.find((tool) => tool.name === 'write_file')!
+  const boundaryEdit = boundaryTools.find((tool) => tool.name === 'edit_file')!
+  for (const outsidePath of ['../outside-secret.txt', outsideFile]) {
+    for (const [label, operation] of [
+      ['ls', () => boundaryLs.invoke({ path: outsidePath })],
+      ['glob', () => boundaryGlob.invoke({ pattern: '*', path: outsidePath })],
+      ['grep', () => boundaryGrep.invoke({ pattern: 'OUTSIDE_SECRET', path: outsidePath })],
+      ['read_file', () => boundaryRead.invoke({ file_path: outsidePath })],
+      [
+        'edit_file',
+        () =>
+          boundaryEdit.invoke({
+            file_path: outsidePath,
+            old_string: 'OUTSIDE_SECRET',
+            new_string: 'OVERWRITTEN'
+          })
+      ]
+    ] as const) {
+      let blocked = false
+      try {
+        await operation()
+      } catch {
+        blocked = true
+      }
+      if (!blocked) throw new Error(`${label} escaped the workspace using ${outsidePath}`)
+    }
+  }
+  let outsideWriteBlocked = false
+  try {
+    await boundaryWrite.invoke({ file_path: outsideFile, content: 'OVERWRITTEN' })
+  } catch {
+    outsideWriteBlocked = true
+  }
+  if (!outsideWriteBlocked || readFileSync(outsideFile, 'utf8') !== 'OUTSIDE_SECRET') {
+    throw new Error('write_file escaped the workspace')
+  }
+
+  const externalLink = join(boundaryRoot, 'external-link.txt')
+  try {
+    symlinkSync(outsideFile, externalLink)
+    let symlinkReadBlocked = false
+    try {
+      await boundaryRead.invoke({ file_path: 'external-link.txt' })
+    } catch {
+      symlinkReadBlocked = true
+    }
+    if (!symlinkReadBlocked) throw new Error('read_file followed a symlink outside the workspace')
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code !== 'EPERM' && code !== 'EACCES' && code !== 'ENOSYS') throw err
+    console.log('⚠️ [Workspace Boundary] symlink test skipped: platform does not permit creating symlinks')
+  } finally {
+    rmSync(externalLink, { force: true })
+  }
+
+  const attachmentTools = createWorkspaceTools({
+    rootDir: boundaryRoot,
+    allowedReadPaths: [outsideFile],
+    signal: new AbortController().signal,
+    requireApproval: async () => {},
+    recordToolData: () => {},
+    onTodosChange: () => {}
+  })
+  const attachmentRead = attachmentTools.find((tool) => tool.name === 'read_file')!
+  const attachmentGrep = attachmentTools.find((tool) => tool.name === 'grep')!
+  const attachmentWrite = attachmentTools.find((tool) => tool.name === 'write_file')!
+  const attachedText = await attachmentRead.invoke({ file_path: outsideFile })
+  if (typeof attachedText !== 'string' || !attachedText.includes('OUTSIDE_SECRET')) {
+    throw new Error('Explicitly attached file could not be read')
+  }
+  const attachedGrep = await attachmentGrep.invoke({ pattern: 'OUTSIDE_SECRET', path: outsideFile })
+  if (typeof attachedGrep !== 'string' || !attachedGrep.includes('OUTSIDE_SECRET')) {
+    throw new Error('Explicitly attached file could not be searched as a single read-only file')
+  }
+  let attachedWriteBlocked = false
+  try {
+    await attachmentWrite.invoke({ file_path: outsideFile, content: 'OVERWRITTEN' })
+  } catch {
+    attachedWriteBlocked = true
+  }
+  if (!attachedWriteBlocked) throw new Error('write_file modified an explicitly attached external file')
+
+  const projectMemoryPath = join(tempRoot, 'managed-project-memory', 'memory.md')
+  const memoryTools = createWorkspaceTools({
+    rootDir: boundaryRoot,
+    projectMemoryPath,
+    signal: new AbortController().signal,
+    requireApproval: async () => {},
+    recordToolData: () => {},
+    onTodosChange: () => {}
+  })
+  await memoryTools.find((tool) => tool.name === 'remember')!.invoke({ note: '安全记忆写入测试' })
+  if (!readFileSync(projectMemoryPath, 'utf8').includes('安全记忆写入测试')) {
+    throw new Error('remember could not write its runtime-designated project memory file')
+  }
+  console.log('✅ [Workspace Boundary] traversal/symlink escapes blocked; exact attachments are single-file read-only')
+}
+
+async function verifyLocalLibraryBoundary(tempRoot: string): Promise<void> {
+  const store = new LocalAppStore(
+    join(tempRoot, 'library-user-data'),
+    join(tempRoot, 'library-projects-home'),
+    join(tempRoot, 'library-resources')
+  )
+  const defaultRoot = store.getDefaultWorkspaceRoot()
+  const siblingRoot = join(dirname(defaultRoot), 'unregistered-sibling')
+  const projectRoot = join(tempRoot, 'registered-project')
+  const libraryRoot = join(tempRoot, 'explicit-library')
+  mkdirSync(siblingRoot, { recursive: true })
+  mkdirSync(projectRoot, { recursive: true })
+  mkdirSync(libraryRoot, { recursive: true })
+  const defaultFile = join(defaultRoot, 'default-visible.md')
+  const siblingFile = join(siblingRoot, 'sibling-secret.md')
+  const projectFile = join(projectRoot, 'project-visible.md')
+  const libraryFile = join(libraryRoot, 'library-visible.md')
+  writeFileSync(defaultFile, 'default workspace', 'utf8')
+  writeFileSync(siblingFile, 'unregistered sibling', 'utf8')
+  writeFileSync(projectFile, 'registered project', 'utf8')
+  writeFileSync(libraryFile, 'explicit library', 'utf8')
+  store.createProject('Registered project', projectRoot)
+  const task = store.createTask({ id: 'task-boundary-check' })
+  const transcriptPath = store.getTranscriptPath(task.id)
+  mkdirSync(dirname(transcriptPath), { recursive: true })
+  writeFileSync(
+    transcriptPath,
+    JSON.stringify([
+      {
+        role: 'assistant',
+        deliverables: [
+          { path: defaultFile, title: 'Allowed deliverable', kind: 'doc' },
+          { path: siblingFile, title: 'Unregistered sibling leak', kind: 'doc' }
+        ]
+      }
+    ]),
+    'utf8'
+  )
+  store.addLibraryFolder(libraryRoot)
+
+  let traversalIdRejected = false
+  try {
+    store.getTranscriptPath('../outside-task')
+  } catch {
+    traversalIdRejected = true
+  }
+  let traversalProjectRejected = false
+  try {
+    store.readProjectMemory('../outside-project')
+  } catch {
+    traversalProjectRejected = true
+  }
+  if (!traversalIdRejected || !traversalProjectRejected) {
+    throw new Error('Store accepted a traversal-like project/task identifier')
+  }
+
+  const paths = new Set(store.scanLocalLibrary().items.map((item) => item.path))
+  for (const allowed of [defaultFile, projectFile, libraryFile]) {
+    if (!paths.has(resolve(allowed))) throw new Error(`Authorized library path missing: ${allowed}`)
+  }
+  if (paths.has(resolve(siblingFile))) {
+    throw new Error('Local library exposed an unregistered sibling directory')
+  }
+  console.log('✅ [Workspace Boundary] local library limited to default, registered, and explicitly added roots')
+}
+
 async function verifyHardeningChecks(tempRoot: string): Promise<void> {
   // 1. ZNZMO.md 宪章防覆写保护
   const charterPath = join(tempRoot, 'ZNZMO.md')
@@ -207,6 +406,8 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
   if (!writeBlocked || !editBlocked) {
     throw new Error(`ZNZMO.md protection failed: writeBlocked=${writeBlocked}, editBlocked=${editBlocked}`)
   }
+
+  await verifyWorkspacePathBoundary(tempRoot)
 
   // 2. 大工具结果自动外置 (.zmo/tool-results/)
   const hugeOutput = 'A'.repeat(24000)
@@ -943,22 +1144,35 @@ experimental_bearer_token = "sk-test-token"
     engine?: string
     chunks: Array<{ standardNo: string; pageNo?: number; supersededBy?: string; clauseId: string }>
   }
-  if (
-    unitJson.engine !== 'sqlite-fts5' ||
-    !existsSync(join(regSandbox, '.zmo-reg-index.db')) ||
-    unitJson.chunks.length < 2 ||
+  const nativeFts5Available = unitJson.engine === 'sqlite-fts5'
+  if (nativeFts5Available) {
+    if (
+      !existsSync(join(regSandbox, '.zmo-reg-index.db')) ||
+      unitJson.chunks.length < 2 ||
+      !unitJson.chunks.some((c) => c.standardNo.includes('55037')) ||
+      !unitJson.chunks.some((c) => c.supersededBy?.includes('GB 55037-2022')) ||
+      !capturedRegData?.retrievedChunks?.every((c) => typeof c.pageNo === 'number' && c.pageNo >= 1)
+    ) {
+      throw new Error(`Native FTS5 regulation search failed: ${unitOut}`)
+    }
+  } else if (
+    unitJson.chunks.length === 0 ||
     !unitJson.chunks.some((c) => c.standardNo.includes('55037')) ||
-    !unitJson.chunks.some((c) => c.supersededBy?.includes('GB 55037-2022')) ||
-    !capturedRegData?.retrievedChunks?.every((c) => typeof c.pageNo === 'number' && c.pageNo >= 1)
+    !capturedRegData?.retrievedChunks?.length
   ) {
-    throw new Error(`Native FTS5 regulation search failed: ${unitOut}`)
+    throw new Error(`Portable regulation search fallback failed: ${unitOut}`)
+  } else {
+    console.warn('⚠️ [Hardening] Native SQLite FTS5 indexer unavailable; portable regulation search fallback smoke-check passed')
   }
   // 测试排除词 -55037 过滤
   const excludeOut = JSON.parse(String(await regTool.invoke({ query: '疏散门 -55037' }))) as {
     chunks: Array<{ standardNo: string }>
   }
-  if (excludeOut.chunks.some((c) => c.standardNo.includes('55037'))) {
+  if (nativeFts5Available && excludeOut.chunks.some((c) => c.standardNo.includes('55037'))) {
     throw new Error('Negative term exclusion (-55037) failed!')
+  }
+  if (!nativeFts5Available) {
+    console.warn('⚠️ [Hardening] Native-only negative-term and page/supersession assertions skipped without the native indexer')
   }
 
   // 12. P2 Before/After 文件级快照、图生图血缘记录与可逆一键回滚校验
@@ -1005,7 +1219,7 @@ experimental_bearer_token = "sk-test-token"
   if (imgSnaps.length !== 1 || !imgSnaps[0].beforeRefPath?.endsWith('before_render.png')) {
     throw new Error(`Image lineage snapshot failed: ${JSON.stringify(imgSnaps)}`)
   }
-  console.log('✅ [Hardening] ZNZMO.md protection + Tool Output Offload + Anthropic Cache + MCP hostState + Subagent Role Scoping + CC Switch Multi-Model / Unified Image + Empty Preset Stripping + Todo Settlement + 43-Task Forms + P1 SU Preset & Drag Fix + P2 FTS5 Regulation Engine + P2 Before/After Diff & Rollback PASSED!')
+  console.log('✅ [Hardening] ZNZMO.md protection + Tool Output Offload + Anthropic Cache + MCP hostState + Subagent Role Scoping + CC Switch Multi-Model / Unified Image + Empty Preset Stripping + Todo Settlement + 43-Task Forms + P1 SU Preset & Drag Fix + Regulation Search (native FTS5 when available) + P2 Before/After Diff & Rollback PASSED!')
 }
 
 async function main(): Promise<void> {
@@ -2266,7 +2480,28 @@ async function main(): Promise<void> {
   console.log('   - Event trace:', events.join(' -> '))
 }
 
-main().catch((err) => {
-  console.error('❌ Full verification failed:', err)
+const run = process.argv.includes('--workspace-boundary-only')
+  ? (async () => {
+      const tempRoot = mkdtempSync(join(tmpdir(), 'design-agent-boundary-verify-'))
+      try {
+        await verifyWorkspacePathBoundary(tempRoot)
+        await verifyLocalLibraryBoundary(tempRoot)
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true })
+      }
+    })()
+  : process.argv.includes('--hardening-only')
+  ? (async () => {
+      const tempRoot = mkdtempSync(join(tmpdir(), 'design-agent-hardening-verify-'))
+      try {
+        await verifyHardeningChecks(tempRoot)
+      } finally {
+        rmSync(tempRoot, { recursive: true, force: true })
+      }
+    })()
+  : main()
+
+run.catch((err) => {
+  console.error('❌ Verification failed:', err)
   process.exit(1)
 })

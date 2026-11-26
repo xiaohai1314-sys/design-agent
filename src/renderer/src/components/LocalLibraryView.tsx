@@ -140,7 +140,7 @@ export const LocalLibraryView: React.FC<LocalLibraryViewProps> = ({
   }, [refreshLibrary, recentFiles])
 
   const handleAddFolder = async (): Promise<void> => {
-    const picked = await window.zmo.agent.pickFolder()
+    const picked = await window.zmo.agent.pickFolder('library')
     if (!picked) return
     setLoading(true)
     try {

@@ -31,6 +31,16 @@ import type {
 import type { SelectedMcpConnector } from '@shared/mcp'
 import { inheritInterruptedTodos, settleCompletedTodos } from '@shared/todoUtils'
 import { normalizeImageGenConfig } from '@shared/imageChannels'
+import { isPathWithinRoot } from '@shared/workspacePaths'
+
+function isSafeStorageId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(value)
+}
+
+function assertSafeStorageId(value: string, label: string): string {
+  if (!isSafeStorageId(value)) throw new Error(`${label}不合法`)
+  return value
+}
 
 function readJsonSafe<T>(filePath: string, fallback: T): T {
   try {
@@ -356,11 +366,13 @@ export class LocalAppStore {
   }
 
   readProjectMeta(projectId: string): ProjectMeta {
-    return readJsonSafe<ProjectMeta>(join(this.workspacesDir, projectId, 'project-meta.json'), {})
+    const id = assertSafeStorageId(projectId, '项目标识')
+    return readJsonSafe<ProjectMeta>(join(this.workspacesDir, id, 'project-meta.json'), {})
   }
 
   updateProjectMeta(projectId: string, meta: ProjectMeta): ProjectMeta {
-    const file = join(this.workspacesDir, projectId, 'project-meta.json')
+    const id = assertSafeStorageId(projectId, '项目标识')
+    const file = join(this.workspacesDir, id, 'project-meta.json')
     writeJsonAtomic(file, meta)
     // 同步项目结构化摘要到 ZNZMO.md 开头（或保持单独文件并在下方汇总）
     return meta
@@ -455,6 +467,17 @@ export class LocalAppStore {
     }
 
     const byPath = new Map<string, LocalLibraryEntry>()
+    const folders = this.getLibraryFolders()
+    const projects = this.listProjects()
+    const tasks = this.listTasks()
+    const authorizedRoots = [
+      this.defaultWorkspaceRoot,
+      ...projects.map((project) => project.folderPath),
+      ...tasks.map((task) => task.rootDir),
+      ...folders
+    ].filter(Boolean)
+    const isAuthorizedLibraryPath = (filePath: string): boolean =>
+      authorizedRoots.some((root) => isPathWithinRoot(root, filePath))
     const sourceRank: Record<LocalLibraryEntry['sourceLabel'], number> = {
       'AI 交付成果': 3,
       '近期使用文件': 2,
@@ -497,31 +520,19 @@ export class LocalAppStore {
       }
     }
 
-    // 1) 从磁盘历史会话记录提取 AI 交付成果（即使未在内存中点开对话）
-    try {
-      const buckets = readdirSync(this.workspacesDir, { withFileTypes: true })
-      for (const bucket of buckets) {
-        if (!bucket.isDirectory()) continue
-        const convDir = join(this.workspacesDir, bucket.name, 'conversations')
-        if (!existsSync(convDir)) continue
-        const threads = readdirSync(convDir, { withFileTypes: true })
-        for (const th of threads) {
-          if (!th.isDirectory()) continue
-          const tPath = join(convDir, th.name, 'transcript.json')
-          const turns = readJsonSafe<PersistedTurnItem[]>(tPath, [])
-          for (const turn of turns) {
-            if (turn.role !== 'assistant' || !Array.isArray(turn.deliverables)) continue
-            for (const d of turn.deliverables) {
-              if (!d?.path) continue
-              const group = classifyExt(d.path, d.kind)
-              if (!group) continue
-              upsert(d.path, d.title || basename(d.path), group, 'AI 交付成果', d.size)
-            }
-          }
+    // 1) 从已登记任务的历史会话中提取工作区内的 AI 交付成果
+    for (const task of tasks) {
+      const tPath = this.transcriptPath(task.id, task.projectId ?? null)
+      const turns = readJsonSafe<PersistedTurnItem[]>(tPath, [])
+      for (const turn of turns) {
+        if (turn.role !== 'assistant' || !Array.isArray(turn.deliverables)) continue
+        for (const d of turn.deliverables) {
+          if (!d?.path || !isAuthorizedLibraryPath(d.path)) continue
+          const group = classifyExt(d.path, d.kind)
+          if (!group) continue
+          upsert(d.path, d.title || basename(d.path), group, 'AI 交付成果', d.size)
         }
       }
-    } catch {
-      // ignore transcript scan failures
     }
 
     // 2) 合并近期使用文件
@@ -531,16 +542,9 @@ export class LocalAppStore {
       upsert(rf.path, rf.name, group, '近期使用文件', rf.size, rf.lastUsedAt)
     }
 
-    // 3) 扫描默认工作区根目录、已配置项目目录及用户添加的本地资料目录
-    const folders = this.getLibraryFolders()
+    // 3) 仅扫描默认/已登记任务和项目工作区，以及用户明确添加的资料目录
     const scanRoots = new Map<string, string>()
-    const projectsRoot = dirname(this.defaultWorkspaceRoot)
-    const candidateRoots = [
-      existsSync(projectsRoot) ? projectsRoot : this.defaultWorkspaceRoot,
-      ...this.listProjects().map((p) => p.folderPath),
-      ...folders
-    ]
-    for (const r of candidateRoots) {
+    for (const r of authorizedRoots) {
       if (!r || !existsSync(r)) continue
       const resolved = resolve(r)
       scanRoots.set(resolved.toLowerCase(), resolved)
@@ -586,7 +590,7 @@ export class LocalAppStore {
   }
 
   readProjectMemory(projectId: string): { memory: string; decisions: string } {
-    const projDir = join(this.workspacesDir, projectId)
+    const projDir = join(this.workspacesDir, assertSafeStorageId(projectId, '项目标识'))
     const memPath = join(projDir, 'memory.md')
     const decPath = join(projDir, 'project_decisions.md')
     return {
@@ -614,9 +618,10 @@ export class LocalAppStore {
   listTasks(): TaskSummary[] {
     const raw = readJsonSafe<TaskSummary[]>(this.tasksPath(), [])
     return raw
+      .filter((t) => isSafeStorageId(t.id) && (t.projectId == null || isSafeStorageId(t.projectId)))
       .map((t) => ({
         ...t,
-        transcriptPath: t.transcriptPath ?? this.transcriptPath(t.id, t.projectId ?? null)
+        transcriptPath: this.transcriptPath(t.id, t.projectId ?? null)
       }))
       .sort((a, b) => b.updatedAt - a.updatedAt)
   }
@@ -693,8 +698,9 @@ export class LocalAppStore {
   }
 
   private transcriptPath(threadId: string, projectId: string | null): string {
-    const bucket = projectId ? projectId : '_default'
-    return join(this.workspacesDir, bucket, 'conversations', threadId, 'transcript.json')
+    const bucket = projectId ? assertSafeStorageId(projectId, '项目标识') : '_default'
+    const taskId = assertSafeStorageId(threadId, '任务标识')
+    return join(this.workspacesDir, bucket, 'conversations', taskId, 'transcript.json')
   }
 
   readTranscript(threadId: string): PersistedTurnItem[] {

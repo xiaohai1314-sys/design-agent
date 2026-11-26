@@ -479,21 +479,21 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   }
 
   const handlePickRegulationFolder = async (): Promise<void> => {
-    const folder = await window.zmo.agent.pickFolder()
+    const folder = await window.zmo.agent.pickFolder('model-settings')
     if (folder) {
       setDraft({ ...draft, regulation: { folderPath: folder } })
     }
   }
 
   const handlePickInspirationFolder = async (): Promise<void> => {
-    const folder = await window.zmo.agent.pickFolder()
+    const folder = await window.zmo.agent.pickFolder('model-settings')
     if (folder) {
       setDraft({ ...draft, inspiration: { ...draft.inspiration, folderPath: folder } })
     }
   }
 
   const handlePickClipModelDir = async (): Promise<void> => {
-    const folder = await window.zmo.agent.pickFolder()
+    const folder = await window.zmo.agent.pickFolder('model-settings')
     if (folder) {
       setDraft({ ...draft, inspiration: { ...draft.inspiration, clipModelDir: folder } })
     }

@@ -5,13 +5,25 @@ import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { capturePreEditSnapshot } from '@shared/fileSnapshots'
+import { resolvePathWithinRoot, samePath } from '@shared/workspacePaths'
 import type { TodoItem, WriteTodosToolData } from '@shared/protocol'
 
-function resolveTarget(rootDir: string, inputPath?: string): string {
-  if (!inputPath || !inputPath.trim()) return rootDir
-  let cleaned = inputPath.trim()
+function resolveTarget(rootDir: string, inputPath?: string, allowedReadPaths: string[] = []): string {
+  let cleaned = inputPath?.trim() ?? ''
   if (/^\/[a-zA-Z]:[\\/]/.test(cleaned)) cleaned = cleaned.slice(1)
-  return isAbsolute(cleaned) ? resolve(cleaned) : resolve(rootDir, cleaned)
+  try {
+    return resolvePathWithinRoot(rootDir, cleaned)
+  } catch (error) {
+    const candidate = cleaned ? (isAbsolute(cleaned) ? resolve(cleaned) : resolve(rootDir, cleaned)) : resolve(rootDir)
+    if (
+      allowedReadPaths.some((allowedPath) => samePath(allowedPath, candidate)) &&
+      existsSync(candidate) &&
+      statSync(candidate).isFile()
+    ) {
+      return candidate
+    }
+    throw error
+  }
 }
 
 function globToRegExp(pattern: string): RegExp {
@@ -76,12 +88,14 @@ export function createWorkspaceTools(params: {
   projectMemoryPath?: string
   extraEnvPaths?: string[]
   protectedPptPaths?: string[]
+  allowedReadPaths?: string[]
   signal: AbortSignal
   requireApproval: ApprovalGate
   recordToolData: (toolCallId: string, data: unknown) => void
   onTodosChange: (todos: TodoItem[]) => void
 }): DynamicStructuredTool[] {
   const { rootDir, signal, requireApproval, recordToolData, onTodosChange } = params
+  const allowedReadPaths = params.allowedReadPaths ?? []
 
   const isProtectedPpt = (targetPath: string): boolean => {
     const lower = targetPath.replace(/\\/g, '/').toLowerCase()
@@ -107,7 +121,8 @@ export function createWorkspaceTools(params: {
       if (!st.isDirectory()) return `${target} 是文件（大小 ${st.size} 字节），请使用 read_file 读取。`
       const entries = readdirSync(target, { withFileTypes: true })
       if (entries.length === 0) return `目录为空：${target}`
-      const lines = entries.slice(0, 300).map((e) => {
+      const visibleEntries = entries.filter((entry) => !entry.isSymbolicLink())
+      const lines = visibleEntries.slice(0, 300).map((e) => {
         if (e.isDirectory()) return `[DIR]  ${e.name}/`
         try {
           const s = statSync(join(target, e.name))
@@ -116,7 +131,7 @@ export function createWorkspaceTools(params: {
           return `[FILE] ${e.name}`
         }
       })
-      if (entries.length > 300) lines.push(`... 共 ${entries.length} 项，仅展示前 300 项`)
+      if (visibleEntries.length > 300) lines.push(`... 共 ${visibleEntries.length} 项，仅展示前 300 项`)
       return `目录 ${target.replace(/\\/g, '/')}：\n${lines.join('\n')}`
     }
   })
@@ -153,7 +168,7 @@ export function createWorkspaceTools(params: {
       path: z.string().optional().describe('要搜索的文件或目录路径（缺省为工作区根目录）')
     }),
     func: async ({ pattern, path }) => {
-      const target = resolveTarget(rootDir, path)
+      const target = resolveTarget(rootDir, path, allowedReadPaths)
       if (!existsSync(target)) return `路径不存在：${target}`
       let re: RegExp
       try {
@@ -198,7 +213,7 @@ export function createWorkspaceTools(params: {
       end_line: z.number().int().positive().optional().describe('结束行号（包含，可选）')
     }),
     func: async ({ file_path, start_line, end_line }) => {
-      const target = resolveTarget(rootDir, file_path)
+      const target = resolveTarget(rootDir, file_path, allowedReadPaths)
       if (!existsSync(target)) return `错误：文件不存在 -> ${target}`
       const st = statSync(target)
       if (st.isDirectory()) return `错误：${target} 是目录，请改用 ls 工具浏览。`
@@ -435,7 +450,9 @@ export function createWorkspaceTools(params: {
       note: z.string().min(1).describe('要持久记住的精炼条目（一行或一小段事实/决策）')
     }),
     func: async ({ note }) => {
-      const memFile = params.projectMemoryPath ?? join(rootDir, '.zmo', 'memory.md')
+      const memFile = params.projectMemoryPath
+        ? resolvePathWithinRoot(dirname(params.projectMemoryPath), params.projectMemoryPath)
+        : resolvePathWithinRoot(rootDir, join(rootDir, '.zmo', 'memory.md'))
       mkdirSync(dirname(memFile), { recursive: true })
       const stamp = new Date().toISOString().slice(0, 10)
       await appendFile(memFile, `- [${stamp}] ${note.trim()}\n`, 'utf8')

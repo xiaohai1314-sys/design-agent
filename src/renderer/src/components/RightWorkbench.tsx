@@ -122,11 +122,11 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
   }, [rootDir])
 
   const refreshFiles = async (dir: string): Promise<void> => {
-    if (!dir) {
+    if (!dir || !rootDir) {
       setEntries([])
       return
     }
-    const list = await window.zmo.files.listWorkspace(dir)
+    const list = await window.zmo.files.listWorkspace(dir, rootDir)
     setEntries(list)
   }
 
@@ -134,7 +134,7 @@ export const RightWorkbench: React.FC<RightWorkbenchProps> = ({
     if (activeTab === 'files' && currentDir) {
       void refreshFiles(currentDir)
     }
-  }, [activeTab, currentDir])
+  }, [activeTab, currentDir, rootDir])
 
   useEffect(() => {
     if (activeTab === 'memory' && projectId) {

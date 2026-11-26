@@ -320,7 +320,7 @@ export const App: React.FC = () => {
   }
 
   const handleCreateProject = async (): Promise<void> => {
-    const folder = await window.zmo.agent.pickFolder()
+    const folder = await window.zmo.agent.pickFolder('project')
     if (!folder) return
     const folderName = folder.split(/[\\/]/).filter(Boolean).pop() || '新建设计项目'
     await createProject(folderName, folder)
@@ -340,7 +340,7 @@ export const App: React.FC = () => {
     }
   }
 
-  const handleDropFiles = (e: React.DragEvent): void => {
+  const handleDropFiles = async (e: React.DragEvent): Promise<void> => {
     e.preventDefault()
     setDragOver(false)
     const files = Array.from(e.dataTransfer.files)
@@ -348,10 +348,7 @@ export const App: React.FC = () => {
     const imgExts = /\.(png|jpg|jpeg|webp|gif|bmp|svg)$/i
     const mapped: AgentAttachment[] = []
     for (const file of files) {
-      const filePath =
-        window.zmo.app?.getPathForFile(file) ||
-        (file as File & { path?: string }).path ||
-        ''
+      const filePath = (await window.zmo.app?.getPathForFile(file)) || ''
       if (!filePath) continue
       mapped.push({
         path: filePath,
@@ -2178,6 +2175,7 @@ export const App: React.FC = () => {
         <ImageEditModal
           hint={pendingImageEdit.hint}
           imagePath={pendingImageEdit.imagePath}
+          rootDir={activeTask?.rootDir}
           onConfirm={(annotatedPath) =>
             submitImageEditAnswer(activeTaskId, pendingImageEdit.id, {
               action: 'confirm',

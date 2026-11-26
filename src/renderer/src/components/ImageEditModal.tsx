@@ -5,6 +5,7 @@ import clsx from 'clsx'
 interface ImageEditModalProps {
   hint: string
   imagePath: string
+  rootDir?: string
   onConfirm: (annotatedPath: string) => Promise<void>
   onCancel: () => Promise<void>
 }
@@ -12,6 +13,7 @@ interface ImageEditModalProps {
 export const ImageEditModal: React.FC<ImageEditModalProps> = ({
   hint,
   imagePath,
+  rootDir,
   onConfirm,
   onCancel
 }) => {
@@ -148,7 +150,8 @@ export const ImageEditModal: React.FC<ImageEditModalProps> = ({
       const dataUrl = merged.toDataURL('image/png')
       const savedPath = await window.zmo.agent.saveAnnotatedImage({
         sourcePath: imagePath,
-        dataUrl
+        dataUrl,
+        rootDir
       })
       await onConfirm(savedPath)
     } catch (err) {
