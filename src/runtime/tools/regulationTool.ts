@@ -251,7 +251,7 @@ export function createLocalRegulationTool(params: {
         return '本地规范库目录尚未配置或为空。可在「设置 → 本地规范库目录」指定存放国标/地标 PDF 或 Markdown 文档的文件夹。'
       }
 
-      // 优先使用内置 Rust + SQLite FTS5 持久化规范搜索引擎（一次抽文本落库，毫秒级命中+单位等价+效力分级+页码定位）
+      // 优先使用内置 C# + SQLite FTS5 持久化规范搜索引擎（一次抽文本落库，毫秒级命中+单位等价+效力分级+页码定位）
       const nativeExe = findRegIndexerExe(params.pythonExe)
       if (nativeExe) {
         const nativeRes = queryWithNativeIndexer({
