@@ -39,6 +39,50 @@
         "include_decor": true
       },
       "description": "包含架构墙体/吊顶灯槽/阳台推拉门、模块化沙发茶几电视墙、软装挂画绿植、材质贴图、图层归类与双机位场景的完整 SketchUp Ruby 工程包。"
+    },
+    {
+      "id": "cad-plan-modeling-v1",
+      "title": "住宅平面 CAD 种子图包",
+      "targetHost": "cad",
+      "entryScript": "scripts/run.json",
+      "invokeMethod": "CadPlanPreset.run",
+      "sceneTools": [
+        "图转CAD",
+        "平立剖深化",
+        "图纸检查整理",
+        "二维构件绘制",
+        "图纸转三维模型"
+      ],
+      "keywords": [
+        "CAD",
+        "AutoCAD",
+        "DWG",
+        "DXF",
+        "平面图",
+        "户型",
+        "转绘",
+        "描图",
+        "图纸检查",
+        "种子图"
+      ],
+      "styles": {},
+      "defaultParams": {
+        "seed_dxf": "seed/plan.dxf",
+        "run_spec": "scripts/run.json",
+        "audit_notes": "notes/dimension-audit.md",
+        "units": "mm",
+        "overall_x_mm": 11400,
+        "overall_y_mm": 9000,
+        "expected_dimensions": 30,
+        "required_layers": [
+          "A-WALL",
+          "A-DOOR",
+          "A-WIND",
+          "A-ROOM",
+          "A-DIMS"
+        ]
+      },
+      "description": "面向 AutoCAD（multicad 连接器）的住宅两室两厅户型平面种子图工程包：含 1:1 实测种子 DXF（11400×9000mm，8 个房间，30 条标注、双轴尺寸链闭合）、操作规范 run.json（打开副本→复核→另存 DWG→绘制→再复核→交付，附保护规则）与尺寸链对账笔记。种子原件只读，成果另存唯一输出目录。"
     }
   ]
 }
