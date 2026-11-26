@@ -29,6 +29,10 @@ export default defineConfig({
     }
   },
   renderer: {
+    server: {
+      // 本机 IPv6 回环不可用，固定 IPv4 否则 Electron 连不上 5173
+      host: '127.0.0.1'
+    },
     build: {
       rollupOptions: {
         output: {
