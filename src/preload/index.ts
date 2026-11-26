@@ -78,7 +78,33 @@ const api: ZmoBridgeApi = {
     getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.ModelsGetSettings),
     saveSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.ModelsSaveSettings, settings),
     discoverCcSwitch: () => ipcRenderer.invoke(IPC_CHANNELS.ModelsDiscoverCcSwitch),
-    testConnection: (profile) => ipcRenderer.invoke(IPC_CHANNELS.ModelsTestConnection, profile)
+    testConnection: (profile) => ipcRenderer.invoke(IPC_CHANNELS.ModelsTestConnection, profile),
+    testImageChannel: (channel, level) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ModelsTestImageChannel, channel, level),
+    getClipModelStatus: (modelDir) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ModelsGetClipModelStatus, modelDir),
+    downloadClipModel: (modelDir) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ModelsDownloadClipModel, modelDir),
+    onClipModelDownloadProgress: (listener) => {
+      const wrapped = (
+        _e: Electron.IpcRendererEvent,
+        p: import('@shared/protocol').ClipModelDownloadProgress
+      ): void => listener(p)
+      ipcRenderer.on(IPC_CHANNELS.ModelsClipModelDownloadProgress, wrapped)
+      return () =>
+        ipcRenderer.removeListener(IPC_CHANNELS.ModelsClipModelDownloadProgress, wrapped)
+    },
+    rebuildInspirationIndex: (payload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.ModelsRebuildInspirationIndex, payload),
+    onInspirationRebuildProgress: (listener) => {
+      const wrapped = (
+        _e: Electron.IpcRendererEvent,
+        p: import('@shared/protocol').InspirationRebuildProgress
+      ): void => listener(p)
+      ipcRenderer.on(IPC_CHANNELS.ModelsInspirationRebuildProgress, wrapped)
+      return () =>
+        ipcRenderer.removeListener(IPC_CHANNELS.ModelsInspirationRebuildProgress, wrapped)
+    }
   },
   mcp: {
     listConnectors: () => ipcRenderer.invoke(IPC_CHANNELS.McpListConnectors),
