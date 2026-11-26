@@ -23,6 +23,3 @@ tools/*/obj/
 .DS_Store
 Thumbs.db
 .design-agent-reg-index.db*
-
-# 评审修复前的原始文件备份（确认无误后可删除）
-.fix-backup/
