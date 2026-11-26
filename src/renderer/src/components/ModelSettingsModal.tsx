@@ -19,7 +19,17 @@ import {
 } from 'lucide-react'
 import clsx from 'clsx'
 import type { AppGeneralSettings, CcSwitchCandidate, ModelSettingsState } from '@shared/ipc'
-import type { ModelProviderProfile } from '@shared/protocol'
+import type {
+  ClipModelStatus,
+  ImageChannelProtocol,
+  ImageChannelRole,
+  ImageChannelTestLevel,
+  ImageChannelTestResult,
+  ImageGenChannel,
+  InspirationRebuildResult,
+  ModelProviderProfile
+} from '@shared/protocol'
+import { normalizeImageGenConfig } from '@shared/imageChannels'
 import {
   candidateToProfile,
   ccCandidateProfileId,
@@ -29,6 +39,14 @@ import {
 
 interface ProbeResultState {
   status: 'testing' | 'ok' | 'fail'
+  latencyMs?: number
+  message?: string
+}
+
+/** 生图渠道测试结果（比聊天渠道多一档 warn：探活未完全确认、但不代表出图不可用） */
+interface ImageProbeState {
+  status: 'testing' | 'ok' | 'warn' | 'fail'
+  level?: ImageChannelTestLevel
   latencyMs?: number
   message?: string
 }
@@ -63,6 +81,15 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   const [showImgKey, setShowImgKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [profileProbe, setProfileProbe] = useState<ProbeResultState | null>(null)
+  const [imageProbes, setImageProbes] = useState<Record<string, ImageProbeState>>({})
+  const [saveProbeWarnings, setSaveProbeWarnings] = useState<string[]>([])
+  const [clipStatus, setClipStatus] = useState<ClipModelStatus | null>(null)
+  const [clipDownloading, setClipDownloading] = useState(false)
+  const [clipDownloadPct, setClipDownloadPct] = useState(0)
+  const [clipError, setClipError] = useState<string | null>(null)
+  const [rebuilding, setRebuilding] = useState(false)
+  const [rebuildProgress, setRebuildProgress] = useState('')
+  const [rebuildResult, setRebuildResult] = useState<InspirationRebuildResult | null>(null)
 
   // CC Switch / Claude / Codex 选择导入弹窗状态
   const [ccPickerOpen, setCcPickerOpen] = useState(false)
@@ -78,6 +105,8 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       setDraft(structuredClone(settings))
       setSelectedId(settings.activeProfileId || settings.profiles[0]?.id || '')
       setProfileProbe(null)
+      setImageProbes({})
+      setSaveProbeWarnings([])
       void refreshRecognizedCandidates()
     }
     if (open && generalSettings) {
@@ -88,6 +117,25 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   useEffect(() => {
     setProfileProbe(null)
   }, [selectedId])
+
+  // 向量模型状态：打开设置或模型目录变化时刷新（下载中状态由主进程如实回传）
+  const clipDirForStatus = draft?.inspiration?.clipModelDir?.trim() ?? ''
+  useEffect(() => {
+    if (!open || tab !== 'regulation' || !clipDirForStatus) {
+      if (!clipDirForStatus) setClipStatus(null)
+      return
+    }
+    let cancelled = false
+    void window.zmo.models
+      .getClipModelStatus(clipDirForStatus)
+      .then((s) => {
+        if (!cancelled) setClipStatus(s)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open, tab, clipDirForStatus])
 
   if (!open || !draft) return null
 
@@ -226,13 +274,173 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     })
   }
 
+  const clearImageProbe = (channelId: string): void => {
+    setImageProbes((prev) => {
+      if (!(channelId in prev)) return prev
+      const next = { ...prev }
+      delete next[channelId]
+      return next
+    })
+  }
+
   const updateImageGen = (patch: Partial<ModelSettingsState['imageGen']>): void => {
+    // 平铺字段即主渠道字段：改动后清掉主渠道的旧测试结果，避免误导
+    const primaryId = imageChannelsOf(draft.imageGen)[0]?.id
+    if (primaryId) clearImageProbe(primaryId)
+    // 平铺字段与 channels[0]（主渠道）互为镜像，统一经 normalize 保持一致
     setDraft({
       ...draft,
-      imageGen: {
-        ...draft.imageGen,
-        ...patch
+      imageGen: normalizeImageGenConfig({ ...draft.imageGen, ...patch })
+    })
+  }
+
+  const imageChannelsOf = (img: ModelSettingsState['imageGen']): ImageGenChannel[] =>
+    normalizeImageGenConfig(img).channels ?? []
+
+  const updateChannels = (channels: ImageGenChannel[]): void => {
+    setDraft({
+      ...draft,
+      imageGen: normalizeImageGenConfig({ ...draft.imageGen, channels })
+    })
+  }
+
+  const updateChannel = (id: string, patch: Partial<ImageGenChannel>): void => {
+    clearImageProbe(id)
+    updateChannels(
+      imageChannelsOf(draft.imageGen).map((c) => (c.id === id ? { ...c, ...patch } : c))
+    )
+  }
+
+  const toImageProbeState = (res: ImageChannelTestResult): ImageProbeState => ({
+    status: res.ok ? (res.warning ? 'warn' : 'ok') : res.warning ? 'warn' : 'fail',
+    level: res.level,
+    latencyMs: res.latencyMs,
+    message: res.ok
+      ? [res.detail, res.warning].filter(Boolean).join('；')
+      : (res.warning ?? res.error)
+  })
+
+  const probeImageChannel = async (
+    channel: ImageGenChannel,
+    level: ImageChannelTestLevel
+  ): Promise<void> => {
+    setImageProbes((prev) => ({ ...prev, [channel.id]: { status: 'testing', level } }))
+    try {
+      const res = await window.zmo.models.testImageChannel(channel, level)
+      setImageProbes((prev) => ({ ...prev, [channel.id]: toImageProbeState(res) }))
+    } catch (err) {
+      setImageProbes((prev) => ({
+        ...prev,
+        [channel.id]: {
+          status: 'fail',
+          level,
+          message: err instanceof Error ? err.message : String(err)
+        }
+      }))
+    }
+  }
+
+  const renderImageTestButtons = (channel: ImageGenChannel): React.ReactNode => {
+    const probe = imageProbes[channel.id]
+    const testing = probe?.status === 'testing'
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          disabled={testing}
+          onClick={() => void probeImageChannel(channel, 'probe')}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 cursor-pointer"
+        >
+          {testing && probe.level === 'probe' ? (
+            <LoaderCircle className="w-3.5 h-3.5 animate-spin text-blue-600" />
+          ) : (
+            <Activity className="w-3.5 h-3.5 text-blue-600" />
+          )}
+          <span>{testing && probe.level === 'probe' ? '测试中…' : '测试'}</span>
+        </button>
+        <button
+          type="button"
+          disabled={testing}
+          onClick={() => void probeImageChannel(channel, 'generate')}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 cursor-pointer"
+        >
+          {testing && probe.level === 'generate' ? (
+            <LoaderCircle className="w-3.5 h-3.5 animate-spin text-blue-600" />
+          ) : (
+            <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+          )}
+          <span>{testing && probe.level === 'generate' ? '出图测试中…' : '真实出图测试'}</span>
+        </button>
+        <span className="text-[10px] text-zinc-400">
+          「测试」为免费探活；「真实出图测试」会实际生成一张图、消耗一次出图调用
+        </span>
+      </div>
+    )
+  }
+
+  const renderImageProbeResult = (channel: ImageGenChannel): React.ReactNode => {
+    const probe = imageProbes[channel.id]
+    if (!probe || probe.status === 'testing') return null
+    const levelLabel = probe.level === 'generate' ? '真实出图测试' : '探活'
+    return (
+      <div
+        className={clsx(
+          'rounded-lg px-3 py-2 text-[11px] border leading-relaxed',
+          probe.status === 'ok'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            : probe.status === 'warn'
+              ? 'bg-amber-50 border-amber-200 text-amber-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+        )}
+      >
+        {probe.status === 'ok'
+          ? `✅ ${levelLabel}通过`
+          : probe.status === 'warn'
+            ? `⚠️ ${levelLabel}未完全通过`
+            : `❌ ${levelLabel}失败`}
+        {probe.latencyMs !== undefined ? ` (${probe.latencyMs}ms)` : ''}
+        {probe.message ? `：${probe.message}` : ''}
+      </div>
+    )
+  }
+
+  const addImageChannel = (): void => {
+    const channels = imageChannelsOf(draft.imageGen)
+    updateChannels([
+      ...channels,
+      {
+        id: `channel-${Date.now().toString(36)}`,
+        name: `备用渠道 ${channels.length}`,
+        enabled: true,
+        baseUrl: '',
+        apiKey: '',
+        model: '',
+        editModel: '',
+        protocol: 'auto' as ImageChannelProtocol,
+        defaultSize: '1024x1024'
       }
+    ])
+  }
+
+  const removeImageChannel = (id: string): void => {
+    updateChannels(imageChannelsOf(draft.imageGen).filter((c) => c.id !== id))
+  }
+
+  const moveImageChannel = (id: string, dir: -1 | 1): void => {
+    const channels = [...imageChannelsOf(draft.imageGen)]
+    const idx = channels.findIndex((c) => c.id === id)
+    const target = idx + dir
+    // 下标 0 是主渠道（与平铺字段镜像），位置固定，备用渠道只在 1..n 之间排序
+    if (idx < 1 || target < 1 || target >= channels.length) return
+    const [moved] = channels.splice(idx, 1)
+    channels.splice(target, 0, moved)
+    updateChannels(channels)
+  }
+
+  const toggleChannelRole = (channel: ImageGenChannel, role: ImageChannelRole): void => {
+    const roles = channel.roles ?? []
+    updateChannel(channel.id, {
+      roles: roles.includes(role) ? roles.filter((r) => r !== role) : [...roles, role]
     })
   }
 
@@ -277,11 +485,130 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
     }
   }
 
+  const handlePickInspirationFolder = async (): Promise<void> => {
+    const folder = await window.zmo.agent.pickFolder()
+    if (folder) {
+      setDraft({ ...draft, inspiration: { ...draft.inspiration, folderPath: folder } })
+    }
+  }
+
+  const handlePickClipModelDir = async (): Promise<void> => {
+    const folder = await window.zmo.agent.pickFolder()
+    if (folder) {
+      setDraft({ ...draft, inspiration: { ...draft.inspiration, clipModelDir: folder } })
+    }
+  }
+
+  const handleDownloadClipModel = async (): Promise<void> => {
+    const dir = draft?.inspiration?.clipModelDir?.trim()
+    if (!dir || clipDownloading) return
+    setClipDownloading(true)
+    setClipDownloadPct(0)
+    setClipError(null)
+    const off = window.zmo.models.onClipModelDownloadProgress((p) =>
+      setClipDownloadPct(Math.round(p.overallRatio * 100))
+    )
+    try {
+      const status = await window.zmo.models.downloadClipModel(dir)
+      setClipStatus(status)
+    } catch (err) {
+      setClipError(err instanceof Error ? err.message : String(err))
+    } finally {
+      off()
+      setClipDownloading(false)
+    }
+  }
+
+  const handleRebuildInspirationIndex = async (): Promise<void> => {
+    const folder = draft?.inspiration?.folderPath?.trim()
+    if (!folder || rebuilding) return
+    setRebuilding(true)
+    setRebuildResult(null)
+    setRebuildProgress('正在扫描…')
+    const phaseZh: Record<string, string> = {
+      scan: '扫描素材',
+      'text-vectors': '计算文本向量',
+      'image-vectors': '计算图像向量',
+      write: '写入索引'
+    }
+    const off = window.zmo.models.onInspirationRebuildProgress((p) =>
+      setRebuildProgress(
+        p.total > 0 ? `${phaseZh[p.phase] ?? p.phase} ${p.done}/${p.total}` : (phaseZh[p.phase] ?? p.phase)
+      )
+    )
+    try {
+      const res = await window.zmo.models.rebuildInspirationIndex({
+        folder,
+        clipModelDir: draft?.inspiration?.clipModelDir
+      })
+      setRebuildResult(res)
+    } catch (err) {
+      setRebuildResult({
+        ok: false,
+        folder,
+        recordCount: 0,
+        recipeCount: 0,
+        assetCount: 0,
+        textVectorCount: 0,
+        imageVectorCount: 0,
+        vectorsComputed: false,
+        errors: [],
+        errorCount: 0,
+        elapsedMs: 0,
+        error: err instanceof Error ? err.message : String(err)
+      })
+    } finally {
+      off()
+      setRebuilding(false)
+      setRebuildProgress('')
+    }
+  }
+
+  /**
+   * 保存后对所有已启用的生图渠道做一遍轻量探活，返回需要提示用户的告警文案。
+   * 只提示、不阻断：设置在探活前已经落盘生效；中转 /models 接口本身不可靠，
+   * 探活未通过不等于出图不可用，因此不因探活失败回滚或拦下保存。
+   */
+  const probeEnabledImageChannelsOnSave = async (
+    imageGen: ModelSettingsState['imageGen']
+  ): Promise<string[]> => {
+    if (!imageGen.enabled) return []
+    const targets = imageChannelsOf(imageGen).filter((c) => c.enabled && c.apiKey.trim())
+    if (targets.length === 0) return []
+    const warnings: string[] = []
+    await Promise.all(
+      targets.map(async (channel) => {
+        try {
+          const res = await window.zmo.models.testImageChannel(channel, 'probe')
+          setImageProbes((prev) => ({ ...prev, [channel.id]: toImageProbeState(res) }))
+          if (!res.ok) {
+            warnings.push(`${channel.name}：${res.warning ?? res.error ?? '探活未通过'}`)
+          } else if (res.warning) {
+            warnings.push(`${channel.name}：${res.warning}`)
+          }
+        } catch (err) {
+          warnings.push(
+            `${channel.name}：探活请求异常（${err instanceof Error ? err.message : String(err)}）`
+          )
+        }
+      })
+    )
+    return warnings
+  }
+
   const handleSave = async (): Promise<void> => {
     setSaving(true)
+    setSaveProbeWarnings([])
     try {
       await onSave(draft)
       if (onSaveGeneral) await onSaveGeneral(genDraft)
+      const warnings = await probeEnabledImageChannelsOnSave(draft.imageGen)
+      if (warnings.length > 0) {
+        // 设置已保存生效；停留在生图页签展示告警，由用户看完后手动关闭
+        setSaveProbeWarnings(warnings)
+        setTab('image')
+        return
+      }
       onClose()
     } finally {
       setSaving(false)
@@ -685,6 +1012,20 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
               <code className="font-mono">gemini-nano-banana-2.1</code>）一键填入并开启生图 API；若主模型自身已支持生图（如直接选用生图模型），不配此处也能直接生图。
             </div>
 
+            {saveProbeWarnings.length > 0 && (
+              <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 leading-relaxed space-y-1.5">
+                <div className="font-semibold">设置已保存，但以下生图渠道探活未通过：</div>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  {saveProbeWarnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+                <div className="text-[11px] text-amber-700">
+                  探活只检查渠道的 /models 接口，中转未开放该接口时也会未通过、不代表出图不可用；可用各渠道下方的「真实出图测试」确认。
+                </div>
+              </div>
+            )}
+
             {(draft.profiles.some((p) => Boolean(p.apiKey.trim())) ||
               filterActiveRecognizedCandidates(recognizedCandidates, draft.profiles).length > 0) && (
               <div className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-3 space-y-2">
@@ -887,6 +1228,224 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                   <option value="1792x1024">1792x1024（宽屏 16:9）</option>
                 </select>
               </div>
+
+              <div>
+                <label className="block font-medium text-zinc-700 mb-1">
+                  协议偏好（主渠道）
+                </label>
+                <select
+                  value={imageChannelsOf(draft.imageGen)[0]?.protocol ?? 'auto'}
+                  onChange={(e) =>
+                    updateChannel(imageChannelsOf(draft.imageGen)[0]?.id ?? 'primary', {
+                      protocol: e.target.value as ImageChannelProtocol
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-lg border border-zinc-200 bg-white outline-none focus:border-blue-500"
+                >
+                  <option value="auto">自动（按模型名判断）</option>
+                  <option value="chat-first">对话接口优先（Nano/Gemini 类中转）</option>
+                  <option value="images-first">图片接口优先（/images/*）</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-zinc-700 mb-1">
+                  主渠道擅长方向（任务路由）
+                </label>
+                <div className="flex items-center gap-4 px-1 py-2">
+                  {(
+                    [
+                      ['generate', '文生图'],
+                      ['edit', '图生图']
+                    ] as Array<[ImageChannelRole, string]>
+                  ).map(([role, label]) => {
+                    const primary = imageChannelsOf(draft.imageGen)[0]
+                    const checked = Boolean(primary?.roles?.includes(role))
+                    return (
+                      <label
+                        key={role}
+                        className="inline-flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => primary && toggleChannelRole(primary, role)}
+                          className="w-4 h-4 rounded accent-blue-600"
+                        />
+                        <span>{label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {(() => {
+              const primary = imageChannelsOf(draft.imageGen)[0]
+              if (!primary) return null
+              return (
+                <div className="space-y-2">
+                  {renderImageTestButtons(primary)}
+                  {renderImageProbeResult(primary)}
+                </div>
+              )
+            })()}
+
+            <div className="rounded-xl border border-zinc-200 p-3.5 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-zinc-900">备用生图渠道（自动降级）</div>
+                  <div className="text-[11px] text-zinc-500 mt-0.5">
+                    出图时按顺序尝试：主渠道失败（超时 / 报错 / 无图）自动换下一个；任务会优先用标注了对应擅长方向的渠道。
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={addImageChannel}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 cursor-pointer shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>新增渠道</span>
+                </button>
+              </div>
+
+              {imageChannelsOf(draft.imageGen).length <= 1 && (
+                <div className="text-[11px] text-zinc-400">
+                  暂无备用渠道：目前只使用上方主渠道，行为与单渠道配置一致。
+                </div>
+              )}
+
+              {imageChannelsOf(draft.imageGen)
+                .slice(1)
+                .map((channel, i) => (
+                  <div
+                    key={channel.id}
+                    className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3 space-y-2.5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-zinc-400 font-mono">#{i + 2}</span>
+                      <input
+                        type="text"
+                        value={channel.name}
+                        onChange={(e) => updateChannel(channel.id, { name: e.target.value })}
+                        placeholder="渠道名称"
+                        className="flex-1 px-2.5 py-1.5 rounded-md border border-zinc-200 bg-white outline-none focus:border-blue-500"
+                      />
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={channel.enabled}
+                          onChange={(e) =>
+                            updateChannel(channel.id, { enabled: e.target.checked })
+                          }
+                          className="w-4 h-4 rounded accent-blue-600"
+                        />
+                        <span>启用</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => moveImageChannel(channel.id, -1)}
+                        className="px-2 py-1 rounded-md border border-zinc-200 bg-white hover:bg-zinc-100 cursor-pointer"
+                      >
+                        上移
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveImageChannel(channel.id, 1)}
+                        className="px-2 py-1 rounded-md border border-zinc-200 bg-white hover:bg-zinc-100 cursor-pointer"
+                      >
+                        下移
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeImageChannel(channel.id)}
+                        className="inline-flex items-center px-2 py-1 rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="sm:col-span-2">
+                        <input
+                          type="text"
+                          value={channel.baseUrl}
+                          onChange={(e) =>
+                            updateChannel(channel.id, { baseUrl: e.target.value })
+                          }
+                          placeholder="Base URL（OpenAI 兼容），如 https://xxx/v1"
+                          className="w-full px-2.5 py-1.5 rounded-md border border-zinc-200 bg-white font-mono outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <input
+                          type="password"
+                          value={channel.apiKey}
+                          onChange={(e) =>
+                            updateChannel(channel.id, { apiKey: e.target.value })
+                          }
+                          placeholder="API Key（sk-...）"
+                          className="w-full px-2.5 py-1.5 rounded-md border border-zinc-200 bg-white font-mono outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        value={channel.model}
+                        onChange={(e) => updateChannel(channel.id, { model: e.target.value })}
+                        placeholder="文生图模型"
+                        className="px-2.5 py-1.5 rounded-md border border-zinc-200 bg-white font-mono outline-none focus:border-blue-500"
+                      />
+                      <input
+                        type="text"
+                        value={channel.editModel ?? ''}
+                        onChange={(e) =>
+                          updateChannel(channel.id, { editModel: e.target.value })
+                        }
+                        placeholder="图生图模型（留空同文生图）"
+                        className="px-2.5 py-1.5 rounded-md border border-zinc-200 bg-white font-mono outline-none focus:border-blue-500"
+                      />
+                      <select
+                        value={channel.protocol}
+                        onChange={(e) =>
+                          updateChannel(channel.id, {
+                            protocol: e.target.value as ImageChannelProtocol
+                          })
+                        }
+                        className="px-2.5 py-1.5 rounded-md border border-zinc-200 bg-white outline-none focus:border-blue-500"
+                      >
+                        <option value="auto">协议：自动判断</option>
+                        <option value="chat-first">协议：对话接口优先</option>
+                        <option value="images-first">协议：图片接口优先</option>
+                      </select>
+                      <div className="flex items-center gap-3 px-1">
+                        {(
+                          [
+                            ['generate', '文生图'],
+                            ['edit', '图生图']
+                          ] as Array<[ImageChannelRole, string]>
+                        ).map(([role, label]) => (
+                          <label
+                            key={role}
+                            className="inline-flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={Boolean(channel.roles?.includes(role))}
+                              onChange={() => toggleChannelRole(channel, role)}
+                              className="w-4 h-4 rounded accent-blue-600"
+                            />
+                            <span>{label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      {renderImageTestButtons(channel)}
+                      {renderImageProbeResult(channel)}
+                    </div>
+                  </div>
+                ))}
             </div>
           </div>
         ) : tab === 'regulation' ? (
@@ -917,6 +1476,140 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
                   <span>浏览文件夹</span>
                 </button>
               </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-violet-50/70 border border-violet-100 text-violet-900 leading-relaxed">
+              内置 <code className="font-mono">search_inspiration</code> 工具（任务「搜索」）会检索该目录中的{' '}
+              <code className="font-mono">inspiration-index.json</code> 统一索引：建筑参考图与生图配方、3D
+              模型/贴图/HDRI 素材，本地不足时自动联网补充。索引只引用文件路径，素材本体不搬动。
+            </div>
+
+            <div>
+              <label className="block font-medium text-zinc-700 mb-1.5">本地灵感 / 素材库目录</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={draft.inspiration?.folderPath ?? ''}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      inspiration: { ...draft.inspiration, folderPath: e.target.value }
+                    })
+                  }
+                  className="flex-1 px-3 py-2 rounded-lg border border-zinc-200 font-mono focus:border-blue-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handlePickInspirationFolder()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-700 cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5" />
+                  <span>浏览文件夹</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-xl border border-zinc-200 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-zinc-900">本地向量模型（语义检索 / 以图搜图）</span>
+                <span className="text-zinc-500">
+                  {clipDownloading
+                    ? `下载中 ${clipDownloadPct}%`
+                    : clipStatus?.state === 'ready'
+                      ? `✅ 已就绪（${(clipStatus.sizeBytes / 1048576).toFixed(0)} MB）`
+                      : clipStatus?.state === 'downloading'
+                        ? '下载中…'
+                        : '未下载'}
+                </span>
+              </div>
+              <p className="text-zinc-500 leading-relaxed">
+                Chinese-CLIP ViT-B/16（约 377 MB，MIT 许可）不随安装包分发：首次使用时从 HuggingFace
+                下载到下方目录，之后完全离线。模型就绪后「重建索引」会把图文向量写入索引，
+                <code className="font-mono">search_inspiration</code>{' '}
+                即可换说法语义召回、按参考图找相近图；未下载时检索自动退化为纯关键词，不影响使用。
+              </p>
+              <div>
+                <label className="block font-medium text-zinc-700 mb-1.5">向量模型目录</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={draft.inspiration?.clipModelDir ?? ''}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        inspiration: { ...draft.inspiration, clipModelDir: e.target.value }
+                      })
+                    }
+                    className="flex-1 px-3 py-2 rounded-lg border border-zinc-200 font-mono focus:border-blue-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handlePickClipModelDir()}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-700 cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    <span>浏览文件夹</span>
+                  </button>
+                </div>
+              </div>
+              {clipDownloading && (
+                <div className="h-1.5 rounded-full bg-zinc-100 overflow-hidden">
+                  <div
+                    className="h-full bg-violet-500 transition-all"
+                    style={{ width: `${clipDownloadPct}%` }}
+                  />
+                </div>
+              )}
+              {clipError && (
+                <div className="rounded-lg px-3 py-2 border bg-rose-50 border-rose-200 text-rose-800">
+                  ❌ 模型下载失败：{clipError}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={clipDownloading || clipStatus?.state === 'ready'}
+                  onClick={() => void handleDownloadClipModel()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-700 disabled:opacity-50 cursor-pointer"
+                >
+                  {clipDownloading ? (
+                    <LoaderCircle className="w-3.5 h-3.5 animate-spin text-violet-600" />
+                  ) : (
+                    <Import className="w-3.5 h-3.5 text-violet-600" />
+                  )}
+                  <span>{clipDownloading ? '下载中…' : '下载向量模型'}</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={rebuilding || !draft.inspiration?.folderPath?.trim()}
+                  onClick={() => void handleRebuildInspirationIndex()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-zinc-300 bg-white hover:bg-zinc-50 text-zinc-700 disabled:opacity-50 cursor-pointer"
+                >
+                  {rebuilding ? (
+                    <LoaderCircle className="w-3.5 h-3.5 animate-spin text-violet-600" />
+                  ) : (
+                    <Search className="w-3.5 h-3.5 text-violet-600" />
+                  )}
+                  <span>{rebuilding ? '重建中…' : '重建索引'}</span>
+                </button>
+                {rebuilding && rebuildProgress && (
+                  <span className="text-zinc-500">{rebuildProgress}</span>
+                )}
+              </div>
+              {rebuildResult && (
+                <div
+                  className={clsx(
+                    'rounded-lg px-3 py-2 border',
+                    rebuildResult.ok
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  )}
+                >
+                  {rebuildResult.ok
+                    ? `✅ 索引已重建：共 ${rebuildResult.recordCount} 条（配方 ${rebuildResult.recipeCount} / 素材 ${rebuildResult.assetCount}），文本向量 ${rebuildResult.textVectorCount}、图像向量 ${rebuildResult.imageVectorCount}，耗时 ${(rebuildResult.elapsedMs / 1000).toFixed(1)}s${rebuildResult.vectorsComputed ? '' : `；未算向量：${rebuildResult.error ?? '模型未就绪'}`}${rebuildResult.errorCount > 0 ? `；另有 ${rebuildResult.errorCount} 条文件错误（详见索引服务日志）` : ''}`
+                    : `❌ 重建失败：${rebuildResult.error ?? '未知错误'}`}
+                </div>
+              )}
             </div>
           </div>
         ) : tab === 'web' ? (

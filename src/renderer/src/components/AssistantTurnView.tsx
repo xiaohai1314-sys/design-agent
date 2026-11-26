@@ -17,6 +17,7 @@ import {
   MessageSquareMore,
   Presentation,
   RotateCcw,
+  Sparkles,
   SplitSquareHorizontal,
   ThumbsDown,
   ThumbsUp,
@@ -30,6 +31,7 @@ import type {
   AskUserToolData,
   Deliverable,
   GenerateImageToolData,
+  InspirationToolData,
   PptWorkbenchToolData,
   RegulationToolData,
   WebSearchToolData
@@ -180,6 +182,13 @@ const ToolCallItem: React.FC<{ tc: ToolCallRecord; onPreviewDeliverable?: Previe
       ? (tc.toolData as WebSearchToolData)
       : null
 
+  const inspData =
+    tc.toolData &&
+    typeof tc.toolData === 'object' &&
+    (tc.toolData as { kind?: string }).kind === 'search_inspiration'
+      ? (tc.toolData as InspirationToolData)
+      : null
+
   const pptWbData =
     tc.toolData &&
     typeof tc.toolData === 'object' &&
@@ -215,6 +224,8 @@ const ToolCallItem: React.FC<{ tc: ToolCallRecord; onPreviewDeliverable?: Previe
           <BookCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
         ) : webSearchData ? (
           <Globe className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+        ) : inspData ? (
+          <Sparkles className="w-3.5 h-3.5 text-violet-600 shrink-0" />
         ) : pptWbData ? (
           <Presentation className="w-3.5 h-3.5 text-orange-600 shrink-0" />
         ) : (
@@ -229,6 +240,11 @@ const ToolCallItem: React.FC<{ tc: ToolCallRecord; onPreviewDeliverable?: Previe
         ) : webSearchData ? (
           <span className="text-zinc-500 truncate flex-1">
             检索「{webSearchData.query}」· {webSearchData.results.length} 条结果
+          </span>
+        ) : inspData ? (
+          <span className="text-zinc-500 truncate flex-1">
+            检索「{inspData.query}」· 本地命中 {inspData.total} 条
+            {inspData.webFallbackUsed ? ' · 已联网补充' : ''}
           </span>
         ) : pptWbData ? (
           <span className="text-zinc-500 truncate flex-1">
@@ -332,6 +348,34 @@ const ToolCallItem: React.FC<{ tc: ToolCallRecord; onPreviewDeliverable?: Previe
                   <div className="font-semibold text-zinc-900 truncate">{r.title}</div>
                   <div className="text-[10px] text-sky-700 font-mono truncate">{r.url}</div>
                   {r.snippet && <div className="text-zinc-600 line-clamp-2">{r.snippet}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {inspData && inspData.localHits.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-violet-700 font-medium">本地灵感 / 素材命中：</div>
+              {inspData.localHits.map((h) => (
+                <div
+                  key={h.id}
+                  className="p-2 rounded bg-violet-50/50 border border-violet-100 space-y-0.5"
+                >
+                  <div className="font-semibold text-zinc-900 truncate">
+                    {h.kind === 'recipe' ? '参考图' : '素材'} · {h.title}
+                  </div>
+                  {(h.style || h.buildingType) && (
+                    <div className="text-[10px] text-violet-700">
+                      {[h.style, h.buildingType].filter(Boolean).join(' / ')}
+                    </div>
+                  )}
+                  {h.filePath && (
+                    <div className="text-[10px] text-zinc-500 font-mono truncate">{h.filePath}</div>
+                  )}
+                  {!h.filePath && h.sourceUrl && (
+                    <div className="text-[10px] text-violet-700 font-mono truncate">{h.sourceUrl}</div>
+                  )}
+                  <div className="text-[10px] text-zinc-400">来源：{h.source}</div>
                 </div>
               ))}
             </div>
