@@ -1,0 +1,233 @@
+{
+  "pack": "cad-plan-modeling-v1",
+  "version": "1.0.0",
+  "host": "cad",
+  "connector": "multicad",
+  "purpose": "住宅两室两厅户型平面种子图：打开副本 → 复核 → 另存 DWG → 按任务绘制/修改 → 再复核 → 交付。适用于图转CAD、平立剖深化、图纸检查整理、二维构件绘制等 CAD 向任务的起始基线。",
+  "seed": {
+    "dxf": "seed/plan.dxf",
+    "format": "DXF R2010，单位 mm，几何 1:1 实测",
+    "notes": "notes/dimension-audit.md",
+    "policy": "种子原件只读：先复制到本轮输出目录再打开。包内不附 DWG——在 CAD 中打开 DXF 后另存为 DWG 即为工作文件（比第三方转换的 DWG 可靠）。"
+  },
+  "operations": [
+    {
+      "step": 1,
+      "op": "list-documents",
+      "detail": "用 multicad 列出当前已打开的文档，仅记录名称与路径，不关闭、不切换修改任何已有文档。"
+    },
+    {
+      "step": 2,
+      "op": "prepare-output-dir",
+      "detail": "在当前工作区下新建唯一输出目录（例如 cad-output/<年月日-时分秒>/），把 seed/plan.dxf 复制进去。"
+    },
+    {
+      "step": 3,
+      "op": "open-copy",
+      "detail": "用 multicad 打开输出目录中的 plan.dxf 副本；严禁用预置包目录内的种子原件作为编辑对象。"
+    },
+    {
+      "step": 4,
+      "op": "verify-seed",
+      "detail": "导出数据复核副本：图层须包含 validation.requiredLayers 全部；DIMENSION 计数须等于 validation.expectedDimensions；总尺寸须为 X 11400 × Y 9000。任一不符，停下并向用户报告差异，不要带病继续。"
+    },
+    {
+      "step": 5,
+      "op": "save-as-dwg",
+      "detail": "把副本另存为同目录 plan.dwg，后续全部编辑都在该 DWG 上进行。"
+    },
+    {
+      "step": 6,
+      "op": "task-work",
+      "detail": "执行本轮任务要求的绘制/修改（描图转绘、深化、构件绘制等）：新图元放对应 A-* 图层；新增标注用 ARCHDIM 样式且必须为实测值，禁止手工填写或改写标注文字。"
+    },
+    {
+      "step": 7,
+      "op": "verify-result",
+      "detail": "再次导出数据复核：图层齐全；未被任务改动的尺寸链仍闭合（见 validation.chains）；房间面积与 validation.rooms 一致（任务有意改动处须逐项说明）。"
+    },
+    {
+      "step": 8,
+      "op": "deliver",
+      "detail": "用 deliver 交付输出目录中的 DWG（按需附 DXF / 截图），并文字汇报两次复核的结果。"
+    }
+  ],
+  "validation": {
+    "expectedDimensions": 30,
+    "requiredLayers": [
+      "A-WALL",
+      "A-DOOR",
+      "A-WIND",
+      "A-ROOM",
+      "A-DIMS"
+    ],
+    "overallMm": {
+      "x": 11400.0,
+      "y": 9000.0
+    },
+    "chains": [
+      {
+        "orientation": "X",
+        "dimLineAt": -3500.0,
+        "segmentsMm": [
+          11400.0
+        ],
+        "totalMm": 11400.0
+      },
+      {
+        "orientation": "X",
+        "dimLineAt": -2400.0,
+        "segmentsMm": [
+          240.0,
+          5100.0,
+          120.0,
+          3600.0,
+          120.0,
+          1980.0,
+          240.0
+        ],
+        "totalMm": 11400.0
+      },
+      {
+        "orientation": "X",
+        "dimLineAt": -1300.0,
+        "segmentsMm": [
+          240.0,
+          6300.0,
+          120.0,
+          4500.0,
+          240.0
+        ],
+        "totalMm": 11400.0
+      },
+      {
+        "orientation": "Y",
+        "dimLineAt": -3500.0,
+        "segmentsMm": [
+          9000.0
+        ],
+        "totalMm": 9000.0
+      },
+      {
+        "orientation": "Y",
+        "dimLineAt": -2400.0,
+        "segmentsMm": [
+          240.0,
+          1380.0,
+          120.0,
+          1680.0,
+          120.0,
+          2100.0,
+          120.0,
+          3000.0,
+          240.0
+        ],
+        "totalMm": 9000.0
+      },
+      {
+        "orientation": "Y",
+        "dimLineAt": -1300.0,
+        "segmentsMm": [
+          240.0,
+          1260.0,
+          120.0,
+          4020.0,
+          120.0,
+          3000.0,
+          240.0
+        ],
+        "totalMm": 9000.0
+      }
+    ],
+    "rooms": [
+      {
+        "name": "主卧",
+        "area": 15.3,
+        "rect": [
+          240.0,
+          5760.0,
+          5340.0,
+          8760.0
+        ]
+      },
+      {
+        "name": "卫生间",
+        "area": 5.94,
+        "rect": [
+          9180.0,
+          5760.0,
+          11160.0,
+          8760.0
+        ]
+      },
+      {
+        "name": "厨房",
+        "area": 7.56,
+        "rect": [
+          6660.0,
+          1740.0,
+          11160.0,
+          3420.0
+        ]
+      },
+      {
+        "name": "客厅",
+        "area": 25.33,
+        "rect": [
+          240.0,
+          1620.0,
+          6540.0,
+          5640.0
+        ]
+      },
+      {
+        "name": "次卧",
+        "area": 10.8,
+        "rect": [
+          5460.0,
+          5760.0,
+          9060.0,
+          8760.0
+        ]
+      },
+      {
+        "name": "生活阳台",
+        "area": 6.21,
+        "rect": [
+          6660.0,
+          240.0,
+          11160.0,
+          1620.0
+        ]
+      },
+      {
+        "name": "阳台",
+        "area": 7.94,
+        "rect": [
+          240.0,
+          240.0,
+          6540.0,
+          1500.0
+        ]
+      },
+      {
+        "name": "餐厅",
+        "area": 9.45,
+        "rect": [
+          6660.0,
+          3540.0,
+          11160.0,
+          5640.0
+        ]
+      }
+    ],
+    "totalRoomAreaM2": 88.53
+  },
+  "protection": [
+    "不关闭、不重置、不修改用户已打开的任何文档；只操作本轮输出目录中的副本。",
+    "不修改预置包目录内的任何文件（seed/plan.dxf、scripts/run.json、notes/ 只读）。",
+    "成果只另存到本轮唯一输出目录，不覆盖已有文件；重名时递增序号另存。",
+    "保存后必须再导出数据复核一次，复核不通过不交付。",
+    "标注一律实测：禁止手工填写或改写 DIMENSION 文字（种子内 30 条标注全部为实测值、无一改字）。"
+  ]
+}
