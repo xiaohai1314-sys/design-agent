@@ -18,6 +18,7 @@ import type {
   AgentAttachment,
   ConversationRef,
   ImageGenConfig,
+  InspirationConfig,
   ModelAnnotationRef,
   PermissionMode,
   RegulationConfig,
@@ -29,6 +30,7 @@ import type {
 } from '@shared/protocol'
 import type { SelectedMcpConnector } from '@shared/mcp'
 import { inheritInterruptedTodos, settleCompletedTodos } from '@shared/todoUtils'
+import { normalizeImageGenConfig } from '@shared/imageChannels'
 
 function readJsonSafe<T>(filePath: string, fallback: T): T {
   try {
@@ -56,6 +58,8 @@ export class LocalAppStore {
   private readonly workspacesDir: string
   private readonly defaultWorkspaceRoot: string
   private readonly defaultRegulationDir: string
+  private readonly defaultInspirationDir: string
+  private readonly defaultClipModelDir: string
   private readonly regIndexerExe: string
 
   constructor(
@@ -69,10 +73,14 @@ export class LocalAppStore {
     const bundledReg = join(bundledResourcesDir, 'regulations')
     const userReg = join(userDataDir, 'regulations')
     this.defaultRegulationDir = existsSync(bundledReg) ? bundledReg : userReg
+    this.defaultInspirationDir = join(userDataDir, 'inspiration')
+    this.defaultClipModelDir = join(userDataDir, 'models', 'chinese-clip-vit-b16')
     this.regIndexerExe = join(bundledResourcesDir, 'runtime', 'reg-indexer.exe')
     mkdirSync(this.workspacesDir, { recursive: true })
     mkdirSync(this.defaultWorkspaceRoot, { recursive: true })
     mkdirSync(this.defaultRegulationDir, { recursive: true })
+    mkdirSync(this.defaultInspirationDir, { recursive: true })
+    mkdirSync(this.defaultClipModelDir, { recursive: true })
   }
 
   getWorkspacesDir(): string {
@@ -131,6 +139,10 @@ export class LocalAppStore {
     }
     const defaultRegulation: RegulationConfig = {
       folderPath: this.defaultRegulationDir
+    }
+    const defaultInspiration: InspirationConfig = {
+      folderPath: this.defaultInspirationDir,
+      clipModelDir: this.defaultClipModelDir
     }
     const defaultWebSearch: WebSearchConfig = {
       enabled: true,
@@ -195,6 +207,7 @@ export class LocalAppStore {
       activeProfileId: envProfiles[0]?.id ?? '',
       imageGen: defaultImageGen,
       regulation: defaultRegulation,
+      inspiration: defaultInspiration,
       webSearch: defaultWebSearch,
       profiles: envProfiles
     }
@@ -209,17 +222,25 @@ export class LocalAppStore {
     const resolvedActiveId = cleanedProfiles.some((p) => p.id === saved.activeProfileId)
       ? saved.activeProfileId
       : (cleanedProfiles[0]?.id ?? '')
+    // 生图配置迁移：旧版单槽 imageGen 自动规范化为多渠道（channels[0] 镜像平铺字段），值不丢失
+    const rawImageGen = saved.imageGen ?? defaultImageGen
+    const migratedImageGen = normalizeImageGenConfig(rawImageGen)
     const next: ModelSettingsState = {
       ...saved,
       activeProfileId: resolvedActiveId,
       profiles: cleanedProfiles,
-      imageGen: saved.imageGen ?? defaultImageGen,
+      imageGen: migratedImageGen,
       regulation: saved.regulation ?? defaultRegulation,
+      inspiration: {
+        folderPath: saved.inspiration?.folderPath ?? defaultInspiration.folderPath,
+        clipModelDir: saved.inspiration?.clipModelDir ?? defaultInspiration.clipModelDir
+      },
       webSearch: saved.webSearch ?? defaultWebSearch
     }
     if (
       cleanedProfiles.length !== saved.profiles.length ||
-      resolvedActiveId !== saved.activeProfileId
+      resolvedActiveId !== saved.activeProfileId ||
+      JSON.stringify(migratedImageGen) !== JSON.stringify(rawImageGen)
     ) {
       writeJsonAtomic(this.modelSettingsPath(), next)
     }
@@ -227,8 +248,12 @@ export class LocalAppStore {
   }
 
   saveModelSettings(settings: ModelSettingsState): ModelSettingsState {
-    writeJsonAtomic(this.modelSettingsPath(), settings)
-    return settings
+    const normalized: ModelSettingsState = {
+      ...settings,
+      imageGen: normalizeImageGenConfig(settings.imageGen)
+    }
+    writeJsonAtomic(this.modelSettingsPath(), normalized)
+    return normalized
   }
 
   getRegulationStats(): RegulationStatsResult {

@@ -25,7 +25,9 @@ import type {
   AgentAttachment,
   AgentDecision,
   AskAnswer,
+  ImageChannelTestLevel,
   ImageEditAnswer,
+  ImageGenChannel,
   PermissionMode,
   PptProposal,
   RuntimeInbound,
@@ -38,6 +40,12 @@ import { ModelPreviewService } from './modelService'
 import { McpConnectorManager } from './mcpManager'
 import { applyPptProposalToFile } from './pptPatcher'
 import { discoverCcSwitchCandidates, testModelProfileConnection } from './ccSwitchService'
+import { testImageChannelConnection } from './imageChannelTestService'
+import {
+  downloadClipModel,
+  getClipModelStatus,
+  rebuildInspirationIndex
+} from './inspirationModelService'
 import { discoverSkills } from '../runtime/prompts'
 import {
   capturePreEditSnapshot,
@@ -151,6 +159,34 @@ function registerIpcHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.ModelsTestConnection,
     (_e, profile: ModelSettingsState['profiles'][number]) => testModelProfileConnection(profile)
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.ModelsTestImageChannel,
+    (_e, channel: ImageGenChannel, level: ImageChannelTestLevel) =>
+      testImageChannelConnection(channel, level)
+  )
+  ipcMain.handle(IPC_CHANNELS.ModelsGetClipModelStatus, (_e, modelDir: string) =>
+    getClipModelStatus(modelDir)
+  )
+  ipcMain.handle(IPC_CHANNELS.ModelsDownloadClipModel, (e, modelDir: string) =>
+    downloadClipModel(modelDir, (p) => {
+      if (!e.sender.isDestroyed()) {
+        e.sender.send(IPC_CHANNELS.ModelsClipModelDownloadProgress, p)
+      }
+    })
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.ModelsRebuildInspirationIndex,
+    (e, payload: { folder: string; clipModelDir?: string }) =>
+      rebuildInspirationIndex({
+        folder: payload.folder,
+        clipModelDir: payload.clipModelDir,
+        onProgress: (p) => {
+          if (!e.sender.isDestroyed()) {
+            e.sender.send(IPC_CHANNELS.ModelsInspirationRebuildProgress, p)
+          }
+        }
+      })
   )
 
   ipcMain.handle(IPC_CHANNELS.AgentGetPermissionMode, () => store.getPermissionMode())
@@ -638,6 +674,8 @@ function registerIpcHandlers(): void {
       modelProfile,
       imageGenConfig: modelSettings.imageGen,
       regulationFolder: modelSettings.regulation?.folderPath,
+      inspirationFolder: modelSettings.inspiration?.folderPath,
+      clipModelDir: modelSettings.inspiration?.clipModelDir,
       webSearchConfig: modelSettings.webSearch,
       profile: payload.profile ?? 'ai-scheme-v1'
     })
@@ -690,6 +728,8 @@ function registerIpcHandlers(): void {
       modelProfile,
       imageGenConfig: modelSettings.imageGen,
       regulationFolder: modelSettings.regulation?.folderPath,
+      inspirationFolder: modelSettings.inspiration?.folderPath,
+      clipModelDir: modelSettings.inspiration?.clipModelDir,
       webSearchConfig: modelSettings.webSearch,
       profile: 'ai-scheme-v1',
       resolution
