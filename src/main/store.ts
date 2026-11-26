@@ -280,8 +280,8 @@ export class LocalAppStore {
         protocol: 'anthropic' as const,
         baseUrl: process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
         apiKey: process.env.ANTHROPIC_API_KEY ?? '',
-        model: 'claude-sonnet-4-20250514',
-        subagentModel: 'claude-sonnet-4-20250514',
+        model: '',
+        subagentModel: '',
         supportsThinking: true,
         maxOutputTokens: 16384
       }

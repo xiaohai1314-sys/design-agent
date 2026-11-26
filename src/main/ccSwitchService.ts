@@ -102,7 +102,7 @@ function readLiveClaudeCandidate(): CcSwitchCandidate | null {
     const env = raw.env ?? {}
     const baseUrl = (env.ANTHROPIC_BASE_URL || env.ANTHROPIC_API_URL || '').trim()
     const apiKey = (env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '').trim()
-    const model = (env.ANTHROPIC_MODEL || raw.model || 'claude-sonnet-4-5').trim()
+    const model = (env.ANTHROPIC_MODEL || raw.model || '').trim()
     if (!baseUrl && !apiKey) return null
     return {
       uid: 'live:claude',
@@ -283,7 +283,7 @@ export function parseCcSwitchRow(row: RawDbRow): CcSwitchCandidate[] {
     const primaryModel = (
       env.ANTHROPIC_MODEL ||
       env.ANTHROPIC_DEFAULT_SONNET_MODEL ||
-      String(cfg.model || catalogEntries[0]?.model || 'claude-sonnet-4-5')
+      String(cfg.model || catalogEntries[0]?.model || '')
     ).trim()
     if (!baseUrl && !apiKey) return []
     return buildVariants({
