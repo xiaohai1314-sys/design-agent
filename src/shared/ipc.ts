@@ -231,6 +231,8 @@ export interface CcSwitchCandidate {
   protocol: ApiProtocol
   baseUrl: string
   apiKey: string
+  /** 是否存在可用 Key（回传界面时 apiKey 会被置空，只保留这个布尔标记） */
+  hasKey?: boolean
   maskedKey: string
   model: string
   isCurrent: boolean

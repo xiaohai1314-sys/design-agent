@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   AIMessage,
@@ -11,10 +11,12 @@ import {
 import type { PersistedTurnItem } from '@shared/ipc'
 import type { ModelProviderProfile } from '@shared/protocol'
 import { createChatModel } from './modelFactory'
+import { SYSTEM_PROMPT_CACHE_BREAK } from './prompts'
 
 interface SerializedMsg {
   kind: 'human' | 'ai' | 'system' | 'tool'
-  content: string
+  /** 字符串，或原样保存的内容块数组（保留 Anthropic thinking 等非文本块，续跑时接口才不会报错） */
+  content: string | unknown[]
   name?: string
   tool_call_id?: string
   tool_calls?: ToolCall[]
@@ -40,6 +42,20 @@ interface CheckpointFile {
 
 function checkpointFilePath(transcriptPath: string): string {
   return join(dirname(transcriptPath), 'runtime-history.json')
+}
+
+/** 断点里保留完整内容块；只把图片的 base64 换成占位文字，避免断点文件膨胀 */
+function serializeContentBlocks(content: unknown): string | unknown[] {
+  if (!Array.isArray(content)) return serializeContent(content)
+  return content.map((part) => {
+    if (part && typeof part === 'object') {
+      const p = part as { type?: string }
+      if (p.type === 'image_url' || p.type === 'image') {
+        return { type: 'text', text: '[图片内容未保存到断点，如需查看请重新读取原文件]' }
+      }
+    }
+    return part
+  })
 }
 
 function serializeContent(content: unknown): string {
@@ -73,14 +89,14 @@ export function saveRuntimeCheckpoint(
     for (const msg of history) {
       const kind = msg._getType()
       if (kind === 'human') {
-        messages.push({ kind: 'human', content: serializeContent(msg.content) })
+        messages.push({ kind: 'human', content: serializeContentBlocks(msg.content) })
       } else if (kind === 'system') {
         messages.push({ kind: 'system', content: serializeContent(msg.content) })
       } else if (kind === 'ai') {
         const ai = msg as AIMessage
         messages.push({
           kind: 'ai',
-          content: serializeContent(ai.content),
+          content: serializeContentBlocks(ai.content),
           ...(ai.tool_calls && ai.tool_calls.length > 0 ? { tool_calls: ai.tool_calls } : {})
         })
       } else if (kind === 'tool') {
@@ -89,7 +105,7 @@ export function saveRuntimeCheckpoint(
           kind: 'tool',
           name: tm.name,
           tool_call_id: tm.tool_call_id,
-          content: serializeContent(tm.content),
+          content: serializeContentBlocks(tm.content),
           status: tm.status === 'error' ? 'error' : 'success'
         })
       }
@@ -101,9 +117,16 @@ export function saveRuntimeCheckpoint(
       messages,
       ...(pendingSuspension ? { pendingSuspension } : {})
     }
-    writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
-  } catch {
-    // ignore persistence errors
+    // 先写临时文件再 rename，避免写到一半崩溃留下半截 JSON
+    const tmp = `${filePath}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(payload), 'utf8')
+    try {
+      renameSync(tmp, filePath)
+    } catch {
+      writeFileSync(filePath, JSON.stringify(payload), 'utf8')
+    }
+  } catch (err) {
+    console.error('[runtime] 保存断点失败，重启后可能无法从中断处继续：', err)
   }
 }
 
@@ -157,12 +180,12 @@ export function loadRuntimeCheckpoint(
       if (Array.isArray(raw.messages)) {
         const out: BaseMessage[] = []
         for (const m of raw.messages) {
-          if (m.kind === 'human') out.push(new HumanMessage(m.content))
-          else if (m.kind === 'system') out.push(new SystemMessage(m.content))
+          if (m.kind === 'human') out.push(new HumanMessage({ content: m.content as never }))
+          else if (m.kind === 'system') out.push(new SystemMessage(serializeContent(m.content)))
           else if (m.kind === 'ai') {
             out.push(
               new AIMessage({
-                content: m.content,
+                content: m.content as never,
                 ...(m.tool_calls?.length ? { tool_calls: m.tool_calls } : {})
               })
             )
@@ -171,7 +194,7 @@ export function loadRuntimeCheckpoint(
               new ToolMessage({
                 tool_call_id: m.tool_call_id ?? 'restored',
                 name: m.name ?? 'tool',
-                content: m.content,
+                content: m.content as never,
                 status: m.status === 'error' ? 'error' : undefined
               })
             )
@@ -257,16 +280,18 @@ export function offloadLargeToolOutput(params: {
 }
 
 export function buildSystemMessage(systemPrompt: string, enableAnthropicCache: boolean): SystemMessage {
-  if (!enableAnthropicCache) return new SystemMessage(systemPrompt)
-  return new SystemMessage({
-    content: [
-      {
-        type: 'text',
-        text: systemPrompt,
-        cache_control: { type: 'ephemeral' }
-      }
-    ] as unknown as string
-  })
+  const breakIdx = systemPrompt.indexOf(SYSTEM_PROMPT_CACHE_BREAK)
+  const staticPart = (breakIdx >= 0 ? systemPrompt.slice(0, breakIdx) : systemPrompt).trim()
+  const dynamicPart = breakIdx >= 0 ? systemPrompt.slice(breakIdx + SYSTEM_PROMPT_CACHE_BREAK.length).trim() : ''
+  if (!enableAnthropicCache) {
+    return new SystemMessage(dynamicPart ? `${staticPart}\n\n${dynamicPart}` : staticPart)
+  }
+  // 只给固定部分打缓存断点；每轮变化的部分放在断点之后，不会让整段缓存失效
+  const blocks: Array<Record<string, unknown>> = [
+    { type: 'text', text: staticPart, cache_control: { type: 'ephemeral' } }
+  ]
+  if (dynamicPart) blocks.push({ type: 'text', text: dynamicPart })
+  return new SystemMessage({ content: blocks as unknown as string })
 }
 
 function estimateContentWeightChars(content: unknown): number {
@@ -303,23 +328,27 @@ export function estimateMessagesTokens(systemPrompt: string, history: BaseMessag
   return Math.ceil(chars / 2.2)
 }
 
-/** 切分点安全向后挪，绝不拆散 AIMessage(tool_calls) 与其紧随的 ToolMessage */
-function findSafeSplitIndex(history: BaseMessage[], targetKeepTail: number): number {
-  let splitIdx = Math.max(0, history.length - targetKeepTail)
-  while (splitIdx > 0 && splitIdx < history.length) {
-    const cur = history[splitIdx]
-    if (cur._getType() === 'tool') {
-      splitIdx--
-      continue
-    }
-    break
+/**
+ * 选择压缩切分点：尽量保留最近 keepHumanTurns 轮完整对话（从倒数第 N 条用户消息开始保留），
+ * 切分点总落在用户消息上，保证保留段不会以 AI / 工具消息开头，也不会拆散工具调用与其结果。
+ */
+function findSafeSplitIndex(history: BaseMessage[], keepHumanTurns: number, maxKeepTokens: number): number {
+  const humanIdx: number[] = []
+  for (let i = 0; i < history.length; i++) {
+    if (history[i]._getType() === 'human') humanIdx.push(i)
   }
-  return splitIdx
+  if (humanIdx.length === 0) return 0
+  for (let k = Math.min(keepHumanTurns, humanIdx.length); k >= 1; k--) {
+    const idx = humanIdx[humanIdx.length - k]
+    if (k === 1 || estimateMessagesTokens('', history.slice(idx)) <= maxKeepTokens) return idx
+  }
+  return humanIdx[humanIdx.length - 1]
 }
 
 /**
  * 长对话上下文自动压缩（对齐原版 SummarizationMiddleware）：
  * 将早期消息归档到 `.zmo/history-archive/` 并用大模型（失败则启发式）浓缩为摘要 SystemMessage。
+ * 只按 Token 触发（上下文窗口的 65%），至少保留最近 3 轮完整对话；上一次的摘要会完整带入新摘要，避免层层截断丢失约束。
  */
 export async function compactHistoryIfNeeded(params: {
   rootDir: string
@@ -329,18 +358,18 @@ export async function compactHistoryIfNeeded(params: {
   force?: boolean
 }): Promise<{ compacted: boolean; archivePath?: string; summaryText?: string }> {
   const ctxLimit = params.profile.contextWindowTokens ?? 64000
-  const triggerTokens = Math.min(Math.floor(ctxLimit * 0.45), 24000)
+  const triggerTokens = Math.floor(ctxLimit * 0.65)
   const est = estimateMessagesTokens(params.systemPrompt, params.history)
 
-  if (!params.force && est < triggerTokens && params.history.length <= 24) {
+  if (!params.force && est < triggerTokens) {
     return { compacted: false }
   }
   if (params.history.length <= 6) {
     return { compacted: false }
   }
 
-  const splitIdx = findSafeSplitIndex(params.history, 6)
-  if (splitIdx <= 2) return { compacted: false }
+  const splitIdx = findSafeSplitIndex(params.history, 3, Math.floor(ctxLimit * 0.35))
+  if (splitIdx <= 1) return { compacted: false }
 
   const older = params.history.slice(0, splitIdx)
   const kept = params.history.slice(splitIdx)
@@ -355,10 +384,21 @@ export async function compactHistoryIfNeeded(params: {
   writeFileSync(archivePath, archiveBody, 'utf8')
 
   // 2. 压缩生成摘要
-  const digestInput = older
-    .map((m) => `${m._getType()}: ${serializeContent(m.content).slice(0, 600)}`)
+  // 上一次的摘要（SystemMessage）完整带入，其余消息截取要点
+  const previousSummaries = older
+    .filter((m) => m._getType() === 'system')
+    .map((m) => serializeContent(m.content))
+    .join('\n\n')
+  const digestBody = older
+    .filter((m) => m._getType() !== 'system')
+    .map((m) => `${m._getType()}: ${serializeContent(m.content).slice(0, 1200)}`)
     .join('\n')
-    .slice(0, 14000)
+  const digestInput = [
+    previousSummaries ? `【此前的压缩摘要，须完整保留其中的约束与决策】\n${previousSummaries.slice(0, 8000)}` : '',
+    `【新增的历史消息】\n${digestBody.slice(-24000)}`
+  ]
+    .filter(Boolean)
+    .join('\n\n')
 
   let summary = ''
   try {

@@ -149,6 +149,8 @@ export interface ModelProviderProfile {
   authStyle?: AnthropicAuthStyle
   baseUrl: string
   apiKey: string
+  /** 由 CC Switch 导入时记录候选 uid：真实 Key 只在主进程按 uid 解析，不落到界面 */
+  ccUid?: string
   model: string
   subagentModel?: string
   supportsThinking?: boolean
@@ -175,6 +177,8 @@ export interface ImageGenChannel {
   enabled: boolean
   baseUrl: string
   apiKey: string
+  /** 从 CC Switch 候选一键填入时记录 uid，真实 Key 由主进程解析 */
+  ccUid?: string
   model: string
   editModel?: string
   protocol: ImageChannelProtocol
@@ -186,6 +190,8 @@ export interface ImageGenConfig {
   enabled: boolean
   baseUrl: string
   apiKey: string
+  /** 从 CC Switch 候选一键填入时记录 uid，真实 Key 由主进程解析 */
+  ccUid?: string
   model: string
   editModel?: string
   defaultSize?: string
@@ -440,7 +446,7 @@ export type SubagentStreamEvent =
       delta?: string
     }
 
-export type AgentErrorKind = 'execution-failed' | 'permission-rejected' | 'preflight'
+export type AgentErrorKind = 'execution-failed' | 'permission-rejected' | 'preflight' | 'runtime-crashed'
 
 export type PersistedPendingInteraction =
   | {

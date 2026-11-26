@@ -1,6 +1,6 @@
 ---
 name: pptx
-description: "Use this skill any time a .pptx or .potx file is involved in any way — as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx or .potx file (even if the extracted content will be used elsewhere, like in an email or summary); editing, modifying, or updating existing presentations; combining or splitting slide files; working with templates (.potx), layouts, speaker notes, or comments. Trigger whenever the user mentions \"deck,\" \"slides,\" \"presentation,\" or references a .pptx or .potx filename, regardless of what they plan to do with the content afterward. If a .pptx or .potx file needs to be opened, created, or touched, use this skill."
+description: 任何涉及 .pptx 或 .potx 文件的任务（作为输入、输出或两者）都使用本技能：制作幻灯片 / 演示文稿（deck、slides、presentation）、读取或提取其中的文本、修改现有演示、合并或拆分幻灯片文件、处理模板（.potx）、版式、演讲者备注与批注。只要用户提到“幻灯片”“演示文稿”“deck”，或给出 .pptx/.potx 文件名，无论后续拿内容做什么，都应触发。
 license: Proprietary. LICENSE.txt has complete terms
 ---
 

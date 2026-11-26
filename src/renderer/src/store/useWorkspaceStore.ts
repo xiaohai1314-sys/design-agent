@@ -32,6 +32,48 @@ import type {
 } from '@shared/protocol'
 import { inheritInterruptedTodos, settleCompletedTodos } from '@shared/todoUtils'
 
+/**
+ * M3：token / reasoning 事件按 ~30ms 合并后再交给 store，避免每个 token 都复制对话数组、触发整段 Markdown 重新渲染。
+ * 其他事件到达前会先把积压的文字刷出去，保证事件顺序不变。
+ */
+function subscribeAgentEventsBatched(handle: (ev: RuntimeOutbound) => void): () => void {
+  let pending: RuntimeOutbound[] = []
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const flush = (): void => {
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    const batch = pending
+    pending = []
+    for (const ev of batch) handle(ev)
+  }
+  const off = window.zmo.agent.onEvent((ev) => {
+    if (ev.type === 'token' || ev.type === 'reasoning') {
+      const last = pending[pending.length - 1]
+      if (
+        last &&
+        (last.type === 'token' || last.type === 'reasoning') &&
+        last.type === ev.type &&
+        last.threadId === ev.threadId &&
+        last.requestId === ev.requestId
+      ) {
+        pending[pending.length - 1] = { ...last, delta: last.delta + ev.delta } as RuntimeOutbound
+      } else {
+        pending.push(ev)
+      }
+      if (!timer) timer = setTimeout(flush, 32)
+      return
+    }
+    flush()
+    handle(ev)
+  })
+  return () => {
+    flush()
+    off()
+  }
+}
+
 export function ccCandidateProfileId(uid: string): string {
   return `cc_${uid.replace(/[^a-zA-Z0-9_-]/g, '_')}`
 }
@@ -45,7 +87,9 @@ export function candidateToProfile(
     label: c.name,
     protocol: c.protocol,
     baseUrl: c.baseUrl,
-    apiKey: c.apiKey,
+    // S5：候选的真实 Key 不再经过渲染进程，只记 uid，保存时由主进程按 uid 解析
+    apiKey: '',
+    ccUid: c.uid,
     model: c.model,
     subagentModel: '',
     supportsThinking: true,
@@ -69,24 +113,22 @@ export function filterActiveRecognizedCandidates(
   candidates: CcSwitchCandidate[],
   profiles: ModelProviderProfile[]
 ): CcSwitchCandidate[] {
-  const configured = profiles.filter((p) => Boolean(p.apiKey?.trim()))
+  const configured = profiles.filter((p) => Boolean(p.ccUid) || Boolean(p.apiKey?.trim()))
   const configuredIds = new Set(configured.map((p) => p.id))
   const seenKeys = new Set(
     configured.map((p) => `${normalizeEndpointBase(p.baseUrl)}::${p.model.trim()}`)
   )
-  const configuredProviderKeys = new Set(
-    configured.map((p) => `${normalizeEndpointBase(p.baseUrl)}::${p.apiKey.trim()}`)
+  // S5 之后候选不再带明文 Key，改用 uid 判断“是否已导入过”
+  const configuredCcUids = new Set(
+    configured.map((p) => p.ccUid).filter((uid): uid is string => Boolean(uid))
   )
 
   const out: CcSwitchCandidate[] = []
   for (const c of candidates) {
-    if (!c.apiKey?.trim() || !c.baseUrl?.trim() || !c.model?.trim()) continue
+    if (!c.hasKey || !c.baseUrl?.trim() || !c.model?.trim()) continue
     if (c.isHealthy === false) continue
 
-    const isSiblingOfConfigured = configuredProviderKeys.has(
-      `${normalizeEndpointBase(c.baseUrl)}::${c.apiKey.trim()}`
-    )
-    if (!c.isCurrent && !isSiblingOfConfigured) continue
+    if (!c.isCurrent && !configuredCcUids.has(c.uid)) continue
 
     if (configuredIds.has(ccCandidateProfileId(c.uid))) continue
     const dedupKey = `${normalizeEndpointBase(c.baseUrl)}::${c.model.trim()}`
@@ -352,7 +394,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
         ])
 
       offAgentEvents?.()
-      offAgentEvents = window.zmo.agent.onEvent((ev) => {
+      offAgentEvents = subscribeAgentEventsBatched((ev) => {
         get().handleRuntimeEvent(ev)
       })
       offNotificationOpen?.()
@@ -752,7 +794,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     try {
       const res = await window.zmo.models.discoverCcSwitch()
       const valid = (res.candidates ?? []).filter(
-        (c) => Boolean(c.apiKey?.trim()) && Boolean(c.baseUrl?.trim()) && Boolean(c.model?.trim())
+        (c) => Boolean(c.hasKey) && Boolean(c.baseUrl?.trim()) && Boolean(c.model?.trim())
       )
       set({ ccSwitchCandidates: valid })
     } catch {

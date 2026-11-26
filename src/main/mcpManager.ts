@@ -307,7 +307,17 @@ export class McpConnectorManager {
         if (!existsSync(srcDir)) return { ok: false, message: '未找到 3dsmax 插件 bundle 目录' }
         const targetDir = this.get3dsMaxPluginTarget()
         if (!targetDir) return { ok: false, message: '无法确定 Autodesk ApplicationPlugins 目录' }
-        rmSync(targetDir, { recursive: true, force: true })
+        // M5：只清理确实是本插件包的目录，避免误删用户放在同名目录里的其他文件
+        if (existsSync(targetDir)) {
+          const isOurBundle =
+            existsSync(join(targetDir, 'PackageContents.xml')) ||
+            existsSync(join(targetDir, 'PackageContents.xml.in')) ||
+            readdirSync(targetDir).length === 0
+          if (!isOurBundle) {
+            return { ok: false, message: `目标目录 ${targetDir} 已存在且不是 3dsmax-mcp 插件包，为避免误删已停止安装，请手动检查。` }
+          }
+          rmSync(targetDir, { recursive: true, force: true })
+        }
         mkdirSync(targetDir, { recursive: true })
         cpSync(srcDir, targetDir, { recursive: true, force: true })
         const xmlIn = join(targetDir, 'PackageContents.xml.in')

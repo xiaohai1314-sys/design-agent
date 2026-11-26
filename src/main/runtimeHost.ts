@@ -81,8 +81,15 @@ export class AgentRuntimeHost extends EventEmitter {
         this.child = null
         this.ready = false
       }
-      if (!this.disposing && code !== 0) {
+      // 进程退出后，等待中的连接检测不会再有回音，直接以失败结束
+      for (const [id, cb] of this.pendingMcpChecks) {
+        this.pendingMcpChecks.delete(id)
+        cb({ ok: false, reason: '智能体进程已退出' })
+      }
+      if (!this.disposing) {
         console.warn(`[main] agent-runtime exited with code ${code}, will respawn on next message.`)
+        // R5：通知主进程把仍在运行中的任务标记为中断，避免界面一直停在“运行中”
+        this.emit('crashed', code)
       }
     })
   }

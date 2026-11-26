@@ -1,40 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
-  ArrowUp,
-  AtSign,
-  BookOpenCheck,
-  Box,
-  Brain,
   ChevronDown,
-  ChevronRight,
   Compass,
-  Eye,
   FileSpreadsheet,
   FileText,
   FolderPlus,
-  History,
-  Image as ImageIcon,
-  KeyRound,
-  LayoutGrid,
-  Library,
-  MapPin,
-  Maximize2,
-  MessageSquare,
-  MessageSquarePlus,
-  Minimize2,
   PanelRight,
-  Pencil,
-  Plug,
-  Plus,
-  Presentation,
-  Search,
-  Settings,
   ShieldCheck,
-  SlidersHorizontal,
   Sparkles,
-  Square,
-  Trash2,
-  Upload,
   Wand2,
   X
 } from 'lucide-react'
@@ -48,6 +21,11 @@ import {
   type ComposerMode
 } from './store/useWorkspaceStore'
 import { TodoBar } from './components/TodoBar'
+import { ComposerCard } from './components/chat/ComposerCard'
+import { WindowTitleBar } from './components/layout/WindowTitleBar'
+import { WorkspaceSidebar } from './components/layout/WorkspaceSidebar'
+import { ProjectMetaModal } from './components/modals/ProjectMetaModal'
+import { CharterModal } from './components/modals/CharterModal'
 import { InterruptCard } from './components/InterruptCard'
 import { ClarifyCard } from './components/ClarifyCard'
 import { AssistantTurnView } from './components/AssistantTurnView'
@@ -56,18 +34,13 @@ import { ModelSettingsModal } from './components/ModelSettingsModal'
 import { ImageEditModal } from './components/ImageEditModal'
 import { DeliveryPopover } from './components/DeliveryPopover'
 import {
-  FunctionToolChips,
   ToolboxPanel,
   type SceneToolboxPreset
 } from './components/SceneToolboxBar'
 import {
   MODE_HEADLINE,
-  MODE_PLACEHOLDER,
   MODE_TABS,
-  ModeEcosystemPanel,
-  ModelingMcpStrip,
-  RegulationScopeStrip,
-  ReportTemplateSlot
+  ModeEcosystemPanel
 } from './components/WorkspaceModeHome'
 import { LocalLibraryView } from './components/LocalLibraryView'
 
@@ -186,14 +159,8 @@ export const App: React.FC = () => {
   const [plusSubmenu, setPlusSubmenu] = useState<'none' | 'recent' | 'conv' | 'mcp'>('none')
   const [permMenuOpen, setPermMenuOpen] = useState(false)
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [regScope, setRegScope] = useState<'comprehensive' | 'retrieve' | 'qa'>('comprehensive')
   const [atBottom, setAtBottom] = useState(true)
-  const [taskSearch, setTaskSearch] = useState('')
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
-  const [editingTitle, setEditingTitle] = useState('')
-  const [editingProjId, setEditingProjId] = useState<string | null>(null)
-  const [editingProjName, setEditingProjName] = useState('')
   const [projectMetaTarget, setProjectMetaTarget] = useState<ProjectSummary | null>(null)
   const [projectMetaDraft, setProjectMetaDraft] = useState<ProjectMeta>({})
   const [dragOver, setDragOver] = useState(false)
@@ -304,7 +271,6 @@ export const App: React.FC = () => {
   }
 
   const switchLeftMode = async (mode: ComposerMode): Promise<void> => {
-    setMoreMenuOpen(false)
     setActiveView('chat')
     setComposerMode(mode)
     if (turns.length > 0) {
@@ -444,12 +410,6 @@ export const App: React.FC = () => {
     }
   }
 
-  const filteredTasks = tasks
-    .filter((t) => (activeProjectId ? t.projectId === activeProjectId : true))
-    .filter((t) =>
-      taskSearch.trim() ? t.title.toLowerCase().includes(taskSearch.trim().toLowerCase()) : true
-    )
-
   const refableTasks = tasks.filter((t) => t.id !== activeTaskId && t.transcriptPath)
 
   if (!initialized) {
@@ -464,499 +424,76 @@ export const App: React.FC = () => {
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-[#f8f9fb] text-zinc-900">
-      {/* 顶部无边框自定义窗口栏 + 多标签页条（留出 flex-1 纯空白拖拽热区，修复 Windows 无边框无法拖动） */}
-      <div className="h-9 shrink-0 bg-[#eceef2] border-b border-zinc-200/90 flex items-center px-2 select-none app-drag-region">
-        <div className="flex items-center gap-1 min-w-0 max-w-[calc(100%-250px)] overflow-x-auto">
-          <div className="w-6 h-6 rounded-md bg-zinc-900 text-white flex items-center justify-center text-[11px] font-bold shrink-0 mr-1">
-            Z
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setActiveView(activeView === 'toolbox' ? 'chat' : 'toolbox')}
-            className={clsx(
-              'app-no-drag inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium shrink-0 cursor-pointer transition-colors',
-              activeView === 'toolbox'
-                ? 'bg-white text-blue-700 shadow-2xs'
-                : 'text-zinc-600 hover:bg-zinc-200/70'
-            )}
-          >
-            <LayoutGrid className="w-3 h-3" />
-            <span>工具箱</span>
-          </button>
-
-          <div className="h-3.5 w-[1px] bg-zinc-300 mx-0.5 shrink-0" />
-
-          {openTabIds.map((tid) => {
-            const t = tasks.find((x) => x.id === tid)
-            if (!t) return null
-            const isTabActive = activeView === 'chat' && activeTaskId === tid
-            const isTabRunning = slices[tid]?.running
-            return (
-              <div
-                key={tid}
-                onClick={() => void selectTask(tid)}
-                className={clsx(
-                  'app-no-drag group flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-md text-[11px] max-w-44 cursor-pointer transition-colors shrink-0',
-                  isTabActive
-                    ? 'bg-white text-zinc-900 font-medium shadow-2xs'
-                    : 'text-zinc-600 hover:bg-zinc-200/60'
-                )}
-              >
-                {isTabRunning && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping shrink-0" />
-                )}
-                <span className="truncate">{t.title}</span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    closeTab(tid)
-                  }}
-                  title="关闭标签页"
-                  className="p-0.5 rounded text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 cursor-pointer opacity-70 group-hover:opacity-100"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            )
-          })}
-
-          <button
-            type="button"
-            onClick={() => void createNewTask()}
-            title="新建任务标签页"
-            className="app-no-drag p-1 rounded-md text-zinc-500 hover:text-zinc-900 hover:bg-zinc-200/70 cursor-pointer shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* 显式居中弹性拖拽区域（至少保留 64px 可拖动空白区，双击亦可最大化/还原） */}
-        <div
-          onDoubleClick={() => window.zmo.window.toggleMaximize()}
-          title="按住拖动窗口位置（双击最大化/还原）"
-          className="flex-1 h-full min-w-[64px] app-drag-region"
-        />
-
-        <div className="app-no-drag flex items-center gap-1 shrink-0 ml-2">
-          <button
-            type="button"
-            onClick={() => taskSearchInputRef.current?.focus()}
-            title="搜索任务"
-            className="p-1.5 rounded-md text-zinc-600 hover:bg-zinc-200/70 cursor-pointer"
-          >
-            <Search className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setSettingsModalOpen(true)}
-            title="API 与桌面设置"
-            className="p-1.5 rounded-md text-zinc-600 hover:bg-zinc-200/70 cursor-pointer"
-          >
-            <Settings className="w-3.5 h-3.5" />
-          </button>
-          <div className="h-3.5 w-[1px] bg-zinc-300 mx-0.5" />
-          <button
-            type="button"
-            onClick={() => window.zmo.window.minimize()}
-            aria-label="最小化"
-            className="p-1.5 rounded-md text-zinc-600 hover:bg-zinc-200/70 cursor-pointer"
-          >
-            <Minimize2 className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={() => window.zmo.window.toggleMaximize()}
-            aria-label={isMaximized ? '还原' : '最大化'}
-            className="p-1.5 rounded-md text-zinc-600 hover:bg-zinc-200/70 cursor-pointer"
-          >
-            <Maximize2 className="w-3 h-3" />
-          </button>
-          <button
-            type="button"
-            onClick={() => window.zmo.window.close()}
-            aria-label="关闭"
-            className="p-1.5 rounded-md text-zinc-600 hover:bg-rose-500 hover:text-white cursor-pointer"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
+      <WindowTitleBar
+        toolboxActive={activeView === 'toolbox'}
+        onToggleToolbox={() => setActiveView(activeView === 'toolbox' ? 'chat' : 'toolbox')}
+        tabs={openTabIds.flatMap((tid) => {
+          const t = tasks.find((x) => x.id === tid)
+          return t
+            ? [
+                {
+                  id: tid,
+                  title: t.title,
+                  running: Boolean(slices[tid]?.running),
+                  active: activeView === 'chat' && activeTaskId === tid
+                }
+              ]
+            : []
+        })}
+        onSelectTask={(tid) => void selectTask(tid)}
+        onCloseTab={closeTab}
+        onCreateTask={() => void createNewTask()}
+        onFocusSearch={() => taskSearchInputRef.current?.focus()}
+        onOpenSettings={() => setSettingsModalOpen(true)}
+        isMaximized={isMaximized}
+      />
 
       <div className="flex-1 min-h-0 flex overflow-hidden">
-      {/* 左侧导航栏（对齐 znzmo 场景导航 + 我的项目 + 任务记录） */}
-      <aside className="w-[224px] shrink-0 border-r border-zinc-200/90 bg-[#f5f6f8] flex flex-col select-none">
-        {/* 顶部功能导航区 */}
-        <div className="p-2.5 space-y-0.5 border-b border-zinc-200/70 relative">
-          <button
-            type="button"
-            onClick={() => {
-              setComposerMode('general')
-              setActiveView('chat')
-              void createNewTask()
-            }}
-            className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium text-zinc-800 hover:bg-white hover:shadow-2xs transition-all cursor-pointer"
-          >
-            <MessageSquarePlus className="w-4 h-4 text-zinc-600 shrink-0" />
-            <span>新建任务</span>
-          </button>
-
-          {(
-            [
-              { mode: 'image' as const, label: 'AI 生图', icon: ImageIcon },
-              { mode: 'modeling' as const, label: 'AI 建模', icon: Box },
-              { mode: 'report' as const, label: 'AI 汇报', icon: Presentation, tag: 'PPT' },
-              { mode: 'regulation' as const, label: 'AI 查规范', icon: BookOpenCheck }
-            ] as const
-          ).map((nav) => {
-            const Icon = nav.icon
-            const isNavActive = activeView === 'chat' && composerMode === nav.mode
-            return (
-              <button
-                key={nav.mode}
-                type="button"
-                onClick={() => void switchLeftMode(nav.mode)}
-                className={clsx(
-                  'w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs transition-all cursor-pointer',
-                  isNavActive
-                    ? 'bg-zinc-200/80 text-zinc-900 font-semibold'
-                    : 'text-zinc-700 hover:bg-white/80'
-                )}
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  <Icon className="w-4 h-4 text-zinc-600 shrink-0" />
-                  <span className="truncate">{nav.label}</span>
-                </span>
-                {'tag' in nav && nav.tag && (
-                  <span className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 text-[9px] font-semibold shrink-0">
-                    {nav.tag}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-
-          <button
-            type="button"
-            onClick={() => {
-              setMoreMenuOpen(false)
-              void refreshRecentFiles()
-              setActiveView('library')
-            }}
-            className={clsx(
-              'w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs transition-all cursor-pointer',
-              activeView === 'library'
-                ? 'bg-zinc-200/80 text-zinc-900 font-semibold'
-                : 'text-zinc-700 hover:bg-white/80'
-            )}
-          >
-            <span className="flex items-center gap-2 min-w-0">
-              <Library className="w-4 h-4 text-zinc-600 shrink-0" />
-              <span>资料库</span>
-            </span>
-            <span className="text-[10px] text-zinc-400">本地成果</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMoreMenuOpen((v) => !v)}
-            className={clsx(
-              'w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs transition-all cursor-pointer',
-              activeView === 'toolbox' || moreMenuOpen
-                ? 'bg-zinc-200/80 text-zinc-900 font-semibold'
-                : 'text-zinc-700 hover:bg-white/80'
-            )}
-          >
-            <span className="flex items-center gap-2">
-              <LayoutGrid className="w-4 h-4 text-zinc-600 shrink-0" />
-              <span>更多</span>
-            </span>
-            <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
-          </button>
-
-          {moreMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-30" onClick={() => setMoreMenuOpen(false)} />
-              <div className="absolute left-[216px] top-44 z-40 w-44 rounded-2xl border border-zinc-200 bg-white shadow-xl p-1.5 space-y-0.5 text-xs">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoreMenuOpen(false)
-                    setActiveView('chat')
-                    setWorkbenchOpen(true)
-                    setWorkbenchTab('preview')
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                  <span>AI 工作台画布</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMoreMenuOpen(false)
-                    setInitialToolboxCode(null)
-                    setActiveView('toolbox')
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                >
-                  <LayoutGrid className="w-3.5 h-3.5 text-zinc-600" />
-                  <span>43 项工具箱</span>
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className="px-2.5 pt-2.5 pb-1.5">
-          <div className="flex items-center justify-between px-1.5 mb-1">
-            <span className="text-[11px] font-medium text-zinc-400">项目空间</span>
-            <button
-              type="button"
-              onClick={() => void handleCreateProject()}
-              title="绑定本地项目文件夹"
-              className="p-0.5 rounded text-zinc-400 hover:text-zinc-800 cursor-pointer"
-            >
-              <FolderPlus className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="space-y-0.5 max-h-28 overflow-y-auto">
-            <button
-              type="button"
-              onClick={() => setActiveProjectId(null)}
-              className={clsx(
-                'w-full px-2.5 py-1.5 rounded-lg text-left text-xs truncate cursor-pointer transition-colors',
-                activeProjectId === null
-                  ? 'bg-white text-zinc-900 font-medium shadow-2xs'
-                  : 'text-zinc-600 hover:bg-zinc-200/50'
-              )}
-            >
-              全部对话 ({tasks.length})
-            </button>
-            {projects.map((proj) => {
-              const isProjEditing = editingProjId === proj.id
-              return (
-                <div
-                  key={proj.id}
-                  className={clsx(
-                    'group flex items-center gap-0.5 rounded-lg pr-1 transition-colors',
-                    activeProjectId === proj.id
-                      ? 'bg-white text-zinc-900 font-medium shadow-2xs'
-                      : 'text-zinc-600 hover:bg-zinc-200/50'
-                  )}
-                >
-                  {isProjEditing ? (
-                    <input
-                      autoFocus
-                      value={editingProjName}
-                      onChange={(e) => setEditingProjName(e.target.value)}
-                      onBlur={() => {
-                        void renameProject(proj.id, editingProjName)
-                        setEditingProjId(null)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          void renameProject(proj.id, editingProjName)
-                          setEditingProjId(null)
-                        } else if (e.key === 'Escape') {
-                          setEditingProjId(null)
-                        }
-                      }}
-                      className="flex-1 min-w-0 mx-1 my-1 px-1.5 py-0.5 rounded bg-zinc-50 border border-blue-400 text-xs outline-none"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setActiveProjectId(proj.id)}
-                      title={proj.folderPath}
-                      className="flex-1 min-w-0 px-2.5 py-1.5 text-left text-xs truncate cursor-pointer"
-                    >
-                      📁 {proj.name}
-                    </button>
-                  )}
-                  {!isProjEditing && (
-                    <>
-                      <button
-                        type="button"
-                        title="编辑项目档案与指标"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void handleOpenProjectMeta(proj)
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-blue-600 cursor-pointer"
-                      >
-                        <SlidersHorizontal className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        title="重命名项目"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setEditingProjId(proj.id)
-                          setEditingProjName(proj.name)
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-zinc-800 cursor-pointer"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        title="移除项目空间（不删除本机文件）"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          void deleteProject(proj.id)
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-rose-600 cursor-pointer"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="px-2.5 pt-2 pb-1 flex-1 min-h-0 flex flex-col">
-          <div className="px-1.5 mb-1.5 flex items-center justify-between gap-1">
-            <span className="text-[11px] font-medium text-zinc-400">任务记录</span>
-          </div>
-          <div className="relative mb-1.5">
-            <Search className="w-3 h-3 text-zinc-400 absolute left-2 top-1/2 -translate-y-1/2" />
-            <input
-              ref={taskSearchInputRef}
-              type="text"
-              value={taskSearch}
-              onChange={(e) => setTaskSearch(e.target.value)}
-              placeholder="搜索历史任务…"
-              className="w-full pl-6 pr-2 py-1 rounded-lg bg-white/80 border border-zinc-200/80 text-[11px] text-zinc-700 placeholder:text-zinc-400 outline-none focus:border-zinc-400"
-            />
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-0.5 pr-0.5">
-            {filteredTasks.map((t) => {
-              const isSelected = t.id === activeTaskId
-              const isTaskRunning = slices[t.id]?.running
-              const isEditing = editingTaskId === t.id
-              return (
-                <div
-                  key={t.id}
-                  onClick={() => !isEditing && void selectTask(t.id)}
-                  className={clsx(
-                    'group flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs cursor-pointer transition-colors',
-                    isSelected
-                      ? 'bg-white text-zinc-900 font-medium shadow-xs border border-zinc-200/60'
-                      : 'text-zinc-600 hover:bg-zinc-200/50'
-                  )}
-                >
-                  {isTaskRunning && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping shrink-0" />
-                  )}
-                  {isEditing ? (
-                    <input
-                      autoFocus
-                      value={editingTitle}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      onBlur={() => {
-                        void renameTask(t.id, editingTitle)
-                        setEditingTaskId(null)
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          void renameTask(t.id, editingTitle)
-                          setEditingTaskId(null)
-                        } else if (e.key === 'Escape') {
-                          setEditingTaskId(null)
-                        }
-                      }}
-                      className="flex-1 min-w-0 px-1.5 py-0.5 rounded bg-zinc-50 border border-blue-400 text-xs outline-none"
-                    />
-                  ) : (
-                    <span className="truncate flex-1">{t.title}</span>
-                  )}
-                  {!isEditing && (
-                    <button
-                      type="button"
-                      title="重命名任务"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setEditingTaskId(t.id)
-                        setEditingTitle(t.title)
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-zinc-800 cursor-pointer"
-                    >
-                      <Pencil className="w-3 h-3" />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      void deleteTask(t.id)
-                    }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-zinc-400 hover:text-rose-600 cursor-pointer"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="p-2.5 border-t border-zinc-200/80 space-y-1.5 bg-zinc-100/60">
-          <button
-            type="button"
-            onClick={() =>
-              void setPermissionMode(permissionMode === 'auto' ? 'default' : 'auto')
-            }
-            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-700 hover:bg-white transition-colors cursor-pointer"
-          >
-            <span className="flex items-center gap-1.5">
-              <ShieldCheck
-                className={clsx(
-                  'w-3.5 h-3.5',
-                  permissionMode === 'auto' ? 'text-amber-600' : 'text-zinc-500'
-                )}
-              />
-              <span>权限模式</span>
-            </span>
-            <span
-              className={clsx(
-                'px-1.5 py-0.5 rounded font-medium',
-                permissionMode === 'auto'
-                  ? 'bg-amber-50 text-amber-700'
-                  : 'bg-zinc-100 text-zinc-600'
-              )}
-            >
-              {permissionMode === 'auto' ? '完全访问' : '默认权限'}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setSettingsModalOpen(true)}
-            className={clsx(
-              'w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-xs font-medium border transition-all cursor-pointer',
-              hasApiKey
-                ? 'bg-white border-zinc-200 text-zinc-800 hover:border-zinc-300'
-                : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
-            )}
-          >
-            <span className="flex items-center gap-1.5 truncate">
-              <KeyRound className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span className="truncate">
-                {hasApiKey ? activeProfile?.label : '请配置模型'}
-              </span>
-            </span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-500 shrink-0">
-              设置
-            </span>
-          </button>
-        </div>
-      </aside>
+      <WorkspaceSidebar
+        activeView={activeView}
+        composerMode={composerMode}
+        onNewTask={() => {
+          setComposerMode('general')
+          setActiveView('chat')
+          void createNewTask()
+        }}
+        onSwitchMode={(mode) => void switchLeftMode(mode)}
+        onOpenLibrary={() => {
+          void refreshRecentFiles()
+          setActiveView('library')
+        }}
+        onOpenWorkbench={() => {
+          setActiveView('chat')
+          setWorkbenchOpen(true)
+          setWorkbenchTab('preview')
+        }}
+        onOpenToolbox={() => {
+          setInitialToolboxCode(null)
+          setActiveView('toolbox')
+        }}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        taskCount={tasks.length}
+        onSelectProject={setActiveProjectId}
+        onCreateProject={() => void handleCreateProject()}
+        onOpenProjectMeta={(proj) => void handleOpenProjectMeta(proj)}
+        onDeleteProject={(id) => void deleteProject(id)}
+        onRenameProject={(id, name) => void renameProject(id, name)}
+        tasks={tasks}
+        activeTaskId={activeTaskId}
+        isTaskRunning={(id) => Boolean(slices[id]?.running)}
+        searchInputRef={taskSearchInputRef}
+        onSelectTask={(id) => void selectTask(id)}
+        onDeleteTask={(id) => void deleteTask(id)}
+        onRenameTask={(id, title) => void renameTask(id, title)}
+        permissionMode={permissionMode}
+        onTogglePermission={() =>
+          void setPermissionMode(permissionMode === 'auto' ? 'default' : 'auto')
+        }
+        hasApiKey={hasApiKey}
+        activeProfileLabel={activeProfile?.label}
+        onOpenSettings={() => setSettingsModalOpen(true)}
+      />
 
       {/* 中间对话主面板 */}
       <main className="flex-1 min-w-0 flex flex-col h-full bg-white relative">
@@ -1050,661 +587,46 @@ export const App: React.FC = () => {
           )
 
           const composerCard = !replacesComposer ? (
-            <div
-              className={clsx(isHomeEmpty ? '' : 'px-4 pb-4')}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDragOver(true)
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDropFiles}
-            >
-              <div
-                className={clsx(
-                  'border bg-white transition-colors px-4 pt-3 pb-2.5',
-                  showTodoBar
-                    ? 'rounded-t-none rounded-b-[20px] shadow-[0_2px_10px_rgba(0,0,0,0.04)]'
-                    : 'rounded-[20px] shadow-[0_2px_14px_rgba(0,0,0,0.05)]',
-                  dragOver
-                    ? 'border-blue-500 ring-2 ring-blue-200 bg-blue-50/20'
-                    : 'border-zinc-200/90 focus-within:border-zinc-300'
-                )}
-              >
-                {composerMode === 'report' && isHomeEmpty && (
-                  <ReportTemplateSlot
-                    templateAtt={templateAttachment}
-                    onPickTemplate={() => void handlePickFiles('ppt_template')}
-                    onClearTemplate={() =>
-                      setAttachments((prev) => prev.filter((a) => a.role !== 'ppt_template'))
-                    }
-                    onHelperPrompt={() =>
-                      setInputText(
-                        '请结合附件资料为我策划并制作一套 12-16 页（16:9）可编辑设计汇报 PPT：包含项目定位、场地/现状分析、平面功能分区、核心空间效果图及关键做法对比。'
-                      )
-                    }
-                  />
-                )}
-                {(attachments.length > 0 ||
-                      draftAnnotations.length > 0 ||
-                      draftConversationRefs.length > 0 ||
-                      pptSelection ||
-                      enabledConnectors.length > 0 ||
-                      thinkingEnabled) && (
-                      <div className="flex flex-wrap gap-1.5 mb-2 pb-2 border-b border-zinc-100">
-                        {thinkingEnabled && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-purple-50 border border-purple-200 text-[11px] text-purple-800 font-medium">
-                            <Brain className="w-3 h-3" />
-                            <span>深度思考</span>
-                            <button
-                              type="button"
-                              onClick={() => setThinkingEnabled(false)}
-                              className="text-purple-400 hover:text-purple-800 cursor-pointer"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        )}
-                        {enabledConnectors.map((conn) => (
-                          <span
-                            key={conn.name}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900 font-medium"
-                          >
-                            <span>🔌 {conn.label}</span>
-                            <button
-                              type="button"
-                              onClick={() => void toggleMcpConnector(conn.name, false)}
-                              title={`断开 ${conn.label}`}
-                              className="text-emerald-500 hover:text-emerald-900 cursor-pointer"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        ))}
-                        {pptSelection && (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-orange-50 border border-orange-200 text-xs text-orange-900 font-medium">
-                            <Presentation className="w-3 h-3 text-orange-600" />
-                            <span className="truncate max-w-52">
-                              PPT 选区：{pptSelection.referenceLabels?.join('、') || pptSelection.currentSlideId}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => setPptSelection(null)}
-                              className="text-orange-400 hover:text-orange-800 cursor-pointer"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        )}
-                        {draftConversationRefs.map((ref) => (
-                          <span
-                            key={ref.path}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-xs text-indigo-900 font-medium"
-                          >
-                            <MessageSquare className="w-3 h-3 text-indigo-600" />
-                            <span className="truncate max-w-48">引用：{ref.title}</span>
-                            <button
-                              type="button"
-                              onClick={() => removeConversationRef(ref.path)}
-                              className="text-indigo-400 hover:text-indigo-800 cursor-pointer"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        ))}
-                        {draftAnnotations.map((ann) => (
-                          <span
-                            key={ann.path}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-900 font-medium"
-                          >
-                            <MapPin className="w-3 h-3 text-blue-600" />
-                            <span className="truncate max-w-52">
-                              {ann.title} · {ann.count} 条批注
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => removeAnnotationRef(ann.path)}
-                              className="text-blue-400 hover:text-blue-800 cursor-pointer"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        ))}
-                        {attachments.map((att, idx) => (
-                          <span
-                            key={idx}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 text-xs text-zinc-800"
-                          >
-                            <span className="truncate max-w-44">{att.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => openFilePreview(att.path, att.name)}
-                              title="在右侧工作台预览"
-                              className="text-zinc-400 hover:text-blue-600 cursor-pointer"
-                            >
-                              <Eye className="w-3 h-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setAttachments((prev) => prev.filter((_, i) => i !== idx))
-                              }
-                              className="text-zinc-400 hover:text-zinc-800 cursor-pointer"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <textarea
-                      rows={isHomeEmpty ? 3 : 2}
-                      value={inputText}
-                      disabled={Boolean(pendingInterrupt)}
-                      onChange={(e) => setInputText(e.target.value)}
-                      onPaste={handlePaste}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault()
-                          void handleSend()
-                        }
-                      }}
-                      placeholder={
-                        pendingInterrupt
-                          ? '请先在上方卡片完成操作授权…'
-                          : running
-                            ? '当前有任务进行中…'
-                            : MODE_PLACEHOLDER[composerMode]
-                      }
-                      className="w-full resize-none bg-transparent text-[14px] text-zinc-900 placeholder:text-zinc-400 outline-none max-h-40 leading-relaxed"
-                    />
-
-                    {activeScenePreset && (
-                      <FunctionToolChips
-                        preset={activeScenePreset}
-                        paramValues={sceneParamValues}
-                        onChangeParam={(name, val) =>
-                          setSceneParamValues((prev) => ({ ...prev, [name]: val }))
-                        }
-                        onClear={() => {
-                          setActiveScenePreset(null)
-                          setSceneParamValues({})
-                        }}
-                      />
-                    )}
-
-                    <div className="flex items-center justify-between gap-2 pt-2 mt-1">
-                      {/* 左侧：+ 菜单与权限档位（完全访问 / 默认权限） */}
-                      <div className="flex items-center gap-1">
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              void refreshRecentFiles()
-                              void refreshMcpConnectors()
-                              setPlusSubmenu('none')
-                              setPlusMenuOpen((v) => !v)
-                            }}
-                            title="上传文件、引用对话、软件连接器或高级模式"
-                            aria-label="添加附件或工具"
-                            className="w-8 h-8 rounded-full flex items-center justify-center text-zinc-600 hover:bg-zinc-100 cursor-pointer transition-colors"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </button>
-
-                          {plusMenuOpen && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-30"
-                                onClick={() => {
-                                  setPlusMenuOpen(false)
-                                  setPlusSubmenu('none')
-                                }}
-                              />
-                              <div className="absolute left-0 bottom-10 z-40 w-64 rounded-2xl border border-zinc-200 bg-white shadow-xl p-1.5 space-y-0.5 text-xs">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setPlusMenuOpen(false)
-                                    void handlePickFiles('project_material')
-                                  }}
-                                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                                >
-                                  <Upload className="w-3.5 h-3.5 text-zinc-500" />
-                                  <span>上传文件 / 图纸 / 图片</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setPlusMenuOpen(false)
-                                    void handlePickFiles('ppt_template')
-                                  }}
-                                  className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                                >
-                                  <Presentation className="w-3.5 h-3.5 text-orange-500" />
-                                  <span>上传 PPT 版式模板</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setPlusSubmenu((s) => (s === 'recent' ? 'none' : 'recent'))
-                                  }
-                                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                                >
-                                  <span className="flex items-center gap-2.5">
-                                    <History className="w-3.5 h-3.5 text-zinc-500" />
-                                    <span>最近使用的文件</span>
-                                  </span>
-                                  <ChevronDown
-                                    className={clsx(
-                                      'w-3.5 h-3.5 text-zinc-400 transition-transform',
-                                      plusSubmenu === 'recent' && 'rotate-180'
-                                    )}
-                                  />
-                                </button>
-                                {plusSubmenu === 'recent' && (
-                                  <div className="mx-1.5 my-1 p-1 rounded-xl bg-zinc-50 border border-zinc-100 max-h-36 overflow-y-auto space-y-0.5">
-                                    {recentFiles.length === 0 ? (
-                                      <div className="px-2 py-1.5 text-[11px] text-zinc-400">
-                                        暂无近期文件记录
-                                      </div>
-                                    ) : (
-                                      recentFiles.slice(0, 8).map((rf) => (
-                                        <button
-                                          key={rf.path}
-                                          type="button"
-                                          onClick={() => {
-                                            appendAttachedFiles([
-                                              {
-                                                path: rf.path,
-                                                name: rf.name,
-                                                kind: rf.kind,
-                                                size: rf.size
-                                              }
-                                            ])
-                                            setPlusMenuOpen(false)
-                                          }}
-                                          title={rf.path}
-                                          className="w-full px-2 py-1 rounded-lg text-left text-[11px] text-zinc-700 hover:bg-zinc-200/60 truncate cursor-pointer"
-                                        >
-                                          📎 {rf.name}
-                                        </button>
-                                      ))
-                                    )}
-                                  </div>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setPlusSubmenu((s) => (s === 'conv' ? 'none' : 'conv'))
-                                  }
-                                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                                >
-                                  <span className="flex items-center gap-2.5">
-                                    <AtSign className="w-3.5 h-3.5 text-zinc-500" />
-                                    <span>引用历史对话</span>
-                                  </span>
-                                  <ChevronDown
-                                    className={clsx(
-                                      'w-3.5 h-3.5 text-zinc-400 transition-transform',
-                                      plusSubmenu === 'conv' && 'rotate-180'
-                                    )}
-                                  />
-                                </button>
-                                {plusSubmenu === 'conv' && (
-                                  <div className="mx-1.5 my-1 p-1 rounded-xl bg-zinc-50 border border-zinc-100 max-h-36 overflow-y-auto space-y-0.5">
-                                    {refableTasks.length === 0 ? (
-                                      <div className="px-2 py-1.5 text-[11px] text-zinc-400">
-                                        暂无其他历史对话
-                                      </div>
-                                    ) : (
-                                      refableTasks.map((t) => (
-                                        <button
-                                          key={t.id}
-                                          type="button"
-                                          onClick={() => {
-                                            if (t.transcriptPath) {
-                                              attachConversationRef({
-                                                title: t.title,
-                                                path: t.transcriptPath
-                                              })
-                                            }
-                                            setPlusMenuOpen(false)
-                                          }}
-                                          className="w-full px-2 py-1 rounded-lg text-left text-[11px] text-zinc-700 hover:bg-zinc-200/60 truncate cursor-pointer"
-                                        >
-                                          💬 {t.title}
-                                        </button>
-                                      ))
-                                    )}
-                                  </div>
-                                )}
-
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setPlusSubmenu((s) => (s === 'mcp' ? 'none' : 'mcp'))
-                                  }
-                                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                                >
-                                  <span className="flex items-center gap-2.5">
-                                    <Plug className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>
-                                      软件连接器{enabledConnectors.length > 0 ? ` (${enabledConnectors.length})` : ''}
-                                    </span>
-                                  </span>
-                                  <ChevronDown
-                                    className={clsx(
-                                      'w-3.5 h-3.5 text-zinc-400 transition-transform',
-                                      plusSubmenu === 'mcp' && 'rotate-180'
-                                    )}
-                                  />
-                                </button>
-                                {plusSubmenu === 'mcp' && (
-                                  <div className="mx-1.5 my-1 p-1.5 rounded-xl bg-zinc-50 border border-zinc-100 max-h-44 overflow-y-auto space-y-1">
-                                    {mcpConnectors.map((c) => (
-                                      <div
-                                        key={c.name}
-                                        className="flex items-center justify-between gap-2 px-1.5 py-1 rounded-lg hover:bg-white"
-                                      >
-                                        <span className="text-[11px] text-zinc-800 truncate">
-                                          {c.label}
-                                        </span>
-                                        <button
-                                          type="button"
-                                          onClick={() => void toggleMcpConnector(c.name, !c.enabled)}
-                                          className={clsx(
-                                            'px-2 py-0.5 rounded-full text-[10px] font-medium cursor-pointer shrink-0',
-                                            c.enabled
-                                              ? 'bg-emerald-600 text-white'
-                                              : 'bg-zinc-200 text-zinc-700 hover:bg-zinc-300'
-                                          )}
-                                        >
-                                          {c.enabled ? '已开启' : '启用'}
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                <div className="my-1 border-t border-zinc-100" />
-                                <button
-                                  type="button"
-                                  onClick={() => setThinkingEnabled(!thinkingEnabled)}
-                                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                                >
-                                  <span className="flex items-center gap-2.5">
-                                    <Brain className="w-3.5 h-3.5 text-purple-600" />
-                                    <span>深度思考</span>
-                                  </span>
-                                  <span
-                                    className={clsx(
-                                      'text-[11px] font-medium',
-                                      thinkingEnabled ? 'text-purple-600' : 'text-zinc-400'
-                                    )}
-                                  >
-                                    {thinkingEnabled ? '开' : '关'}
-                                  </span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setAiSchemeMode(!aiSchemeMode)}
-                                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-800 hover:bg-zinc-100 cursor-pointer"
-                                >
-                                  <span className="flex items-center gap-2.5">
-                                    <Compass className="w-3.5 h-3.5 text-blue-600" />
-                                    <span>AI 方案策略</span>
-                                  </span>
-                                  <span
-                                    className={clsx(
-                                      'text-[11px] font-medium',
-                                      aiSchemeMode ? 'text-blue-600' : 'text-zinc-400'
-                                    )}
-                                  >
-                                    {aiSchemeMode ? '开' : '关'}
-                                  </span>
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-
-                        {isHomeEmpty && composerMode === 'modeling' ? (
-                          <ModelingMcpStrip
-                            connectors={mcpConnectors}
-                            onToggle={(name, en) => void toggleMcpConnector(name, en)}
-                          />
-                        ) : isHomeEmpty && composerMode === 'regulation' ? (
-                          <RegulationScopeStrip scope={regScope} onChange={setRegScope} />
-                        ) : (
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => setPermMenuOpen((v) => !v)}
-                            className={clsx(
-                              'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer transition-colors',
-                              permissionMode === 'auto'
-                                ? 'text-amber-600 hover:bg-amber-50/70'
-                                : 'text-zinc-600 hover:bg-zinc-100'
-                            )}
-                          >
-                            <ShieldCheck className="w-4 h-4 shrink-0" />
-                            <span>{permissionMode === 'auto' ? '完全访问' : '默认权限'}</span>
-                            <ChevronDown className="w-3.5 h-3.5 opacity-70" />
-                          </button>
-
-                          {permMenuOpen && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-30"
-                                onClick={() => setPermMenuOpen(false)}
-                              />
-                              <div className="absolute left-0 bottom-10 z-40 w-64 rounded-2xl border border-zinc-200 bg-white shadow-xl p-1.5 space-y-1 text-xs">
-                                <div className="px-2.5 py-1.5 text-[11px] font-medium text-zinc-400">
-                                  应如何批准智能体操作？
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void setPermissionMode('default')
-                                    setPermMenuOpen(false)
-                                  }}
-                                  className={clsx(
-                                    'w-full text-left px-2.5 py-2 rounded-xl transition-colors cursor-pointer',
-                                    permissionMode === 'default' ? 'bg-zinc-100' : 'hover:bg-zinc-50'
-                                  )}
-                                >
-                                  <div className="font-medium text-zinc-900">默认权限</div>
-                                  <div className="text-[11px] text-zinc-500 mt-0.5">
-                                    编辑外部文件或执行系统命令时询问确认
-                                  </div>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    void setPermissionMode('auto')
-                                    setPermMenuOpen(false)
-                                  }}
-                                  className={clsx(
-                                    'w-full text-left px-2.5 py-2 rounded-xl transition-colors cursor-pointer',
-                                    permissionMode === 'auto' ? 'bg-amber-50' : 'hover:bg-zinc-50'
-                                  )}
-                                >
-                                  <div className="font-medium text-amber-700">完全访问</div>
-                                  <div className="text-[11px] text-zinc-500 mt-0.5">
-                                    可不受限制地读写工作区文件与执行命令
-                                  </div>
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                        )}
-                      </div>
-
-                      {/* 右侧：模型选择菜单 + 圆形发送/停止钮 */}
-                      <div className="flex items-center gap-2">
-                        {modelSettings && (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const nextOpen = !modelMenuOpen
-                                setModelMenuOpen(nextOpen)
-                                if (nextOpen) void refreshCcSwitchCandidates()
-                              }}
-                              className={clsx(
-                                'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer transition-colors max-w-48',
-                                hasApiKey
-                                  ? 'text-zinc-700 hover:bg-zinc-100'
-                                  : 'text-amber-700 bg-amber-50 hover:bg-amber-100'
-                              )}
-                            >
-                              <span className="truncate">
-                                {activeProfile?.model || activeProfile?.label || '请配置模型'}
-                              </span>
-                              <ChevronDown className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                            </button>
-
-                            {modelMenuOpen && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-30"
-                                  onClick={() => setModelMenuOpen(false)}
-                                />
-                                <div className="absolute right-0 bottom-10 z-40 w-72 rounded-2xl border border-zinc-200 bg-white shadow-xl p-1.5 space-y-0.5 text-xs">
-                                  <div className="max-h-64 overflow-y-auto space-y-0.5">
-                                    {configuredProfiles.length > 0 && (
-                                      <>
-                                        <div className="px-2.5 py-1 text-[11px] font-medium text-zinc-400">
-                                          已配置模型渠道
-                                        </div>
-                                        {configuredProfiles.map((p) => {
-                                          const active = p.id === activeProfile?.id
-                                          return (
-                                            <button
-                                              key={p.id}
-                                              type="button"
-                                              onClick={() => {
-                                                void setActiveProfileId(p.id)
-                                                setModelMenuOpen(false)
-                                              }}
-                                              className={clsx(
-                                                'w-full text-left px-2.5 py-2 rounded-xl flex flex-col cursor-pointer transition-colors',
-                                                active
-                                                  ? 'bg-zinc-100 text-zinc-900 font-medium'
-                                                  : 'text-zinc-700 hover:bg-zinc-50'
-                                              )}
-                                            >
-                                              <span className="truncate">{p.model}</span>
-                                              <span className="text-[10px] text-zinc-400 truncate">
-                                                {p.label}
-                                              </span>
-                                            </button>
-                                          )
-                                        })}
-                                      </>
-                                    )}
-
-                                    {(recognizedCandidates.length > 0 || ccSwitchLoading) && (
-                                      <div
-                                        className={clsx(
-                                          configuredProfiles.length > 0 &&
-                                            'border-t border-zinc-100 pt-1 mt-1'
-                                        )}
-                                      >
-                                        <div className="px-2.5 py-1 text-[11px] font-medium text-zinc-400 flex items-center justify-between">
-                                          <span>当前激活的本机模型</span>
-                                          {ccSwitchLoading && (
-                                            <span className="text-[10px] text-blue-600">扫描中…</span>
-                                          )}
-                                        </div>
-                                        {recognizedCandidates.map((c) => (
-                                          <button
-                                            key={c.uid}
-                                            type="button"
-                                            onClick={() => {
-                                              void importAndActivateCandidate(c)
-                                              setModelMenuOpen(false)
-                                            }}
-                                            className="w-full text-left px-2.5 py-2 rounded-xl flex flex-col cursor-pointer transition-colors text-zinc-700 hover:bg-blue-50/70"
-                                          >
-                                            <div className="flex items-center justify-between gap-1.5">
-                                              <span className="truncate font-medium">{c.model}</span>
-                                              {c.isCurrent && (
-                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 shrink-0">
-                                                  当前激活
-                                                </span>
-                                              )}
-                                            </div>
-                                            <span className="text-[10px] text-zinc-400 truncate">
-                                              {c.name} · {c.appType}
-                                            </span>
-                                          </button>
-                                        ))}
-                                      </div>
-                                    )}
-
-                                    {configuredProfiles.length === 0 &&
-                                      recognizedCandidates.length === 0 &&
-                                      !ccSwitchLoading && (
-                                        <div className="px-2.5 py-2.5 text-[11px] text-zinc-400">
-                                          暂无可用模型，请点击下方手动配置或从 CC Switch 导入。
-                                        </div>
-                                      )}
-                                  </div>
-
-                                  <div className="border-t border-zinc-100 pt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setModelMenuOpen(false)
-                                        setSettingsModalOpen(true)
-                                      }}
-                                      className="w-full text-left px-2.5 py-1.5 rounded-xl text-blue-600 hover:bg-blue-50 cursor-pointer"
-                                    >
-                                      配置 API 渠道 / 管理模型…
-                                    </button>
-                                  </div>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-
-                        {running && activeTaskId ? (
-                          <button
-                            type="button"
-                            onClick={() => void stopTask(activeTaskId)}
-                            aria-label="停止生成"
-                            title="停止生成"
-                            className="w-8 h-8 rounded-full bg-zinc-900 text-white hover:bg-zinc-700 flex items-center justify-center cursor-pointer transition-colors shrink-0"
-                          >
-                            <Square className="w-3.5 h-3.5 fill-current" />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={
-                              !inputText.trim() &&
-                              attachments.length === 0 &&
-                              draftAnnotations.length === 0 &&
-                              draftConversationRefs.length === 0 &&
-                              !pptSelection
-                            }
-                            onClick={() => void handleSend()}
-                            aria-label="发送"
-                            title="发送"
-                            className="w-8 h-8 rounded-full bg-zinc-900 text-white hover:bg-zinc-800 disabled:bg-zinc-200 disabled:text-white flex items-center justify-center cursor-pointer disabled:cursor-not-allowed transition-colors shrink-0"
-                          >
-                            <ArrowUp className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+            <ComposerCard
+              isHomeEmpty={isHomeEmpty}
+              showTodoBar={showTodoBar}
+              headline={headline}
+              activeProj={activeProj}
+              templateAttachment={templateAttachment}
+              activeProfile={activeProfile}
+              configuredProfiles={configuredProfiles}
+              recognizedCandidates={recognizedCandidates}
+              enabledConnectors={enabledConnectors}
+              refableTasks={refableTasks}
+              attachments={attachments}
+              inputText={inputText}
+              dragOver={dragOver}
+              running={running}
+              hasApiKey={hasApiKey}
+              pendingInterrupt={pendingInterrupt}
+              activeScenePreset={activeScenePreset}
+              sceneParamValues={sceneParamValues}
+              regScope={regScope}
+              plusMenuOpen={plusMenuOpen}
+              plusSubmenu={plusSubmenu}
+              permMenuOpen={permMenuOpen}
+              modelMenuOpen={modelMenuOpen}
+              setInputText={setInputText}
+              setAttachments={setAttachments}
+              setDragOver={setDragOver}
+              setActiveScenePreset={setActiveScenePreset}
+              setSceneParamValues={setSceneParamValues}
+              setRegScope={setRegScope}
+              setPlusMenuOpen={setPlusMenuOpen}
+              setPlusSubmenu={setPlusSubmenu}
+              setPermMenuOpen={setPermMenuOpen}
+              setModelMenuOpen={setModelMenuOpen}
+              appendAttachedFiles={appendAttachedFiles}
+              handleDropFiles={handleDropFiles}
+              handlePaste={handlePaste}
+              handlePickFiles={handlePickFiles}
+              handleSend={handleSend}
+            />
           ) : null
 
           if (isHomeEmpty) {
@@ -2031,144 +953,28 @@ export const App: React.FC = () => {
       </div>
 
       {projectMetaTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white border border-zinc-200 shadow-2xl overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200">
-              <div className="text-xs font-semibold text-zinc-900">
-                项目档案：{projectMetaTarget.name}（自动注入本项目所有对话）
-              </div>
-              <button
-                type="button"
-                onClick={() => setProjectMetaTarget(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-4 space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-zinc-700 mb-1">所属领域</label>
-                  <input
-                    type="text"
-                    value={projectMetaDraft.domain ?? ''}
-                    onChange={(e) => setProjectMetaDraft({ ...projectMetaDraft, domain: e.target.value })}
-                    placeholder="如 室内工装 / 住宅家装 / 建筑 / 景观"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-zinc-700 mb-1">项目类型</label>
-                  <input
-                    type="text"
-                    value={projectMetaDraft.projectType ?? ''}
-                    onChange={(e) =>
-                      setProjectMetaDraft({ ...projectMetaDraft, projectType: e.target.value })
-                    }
-                    placeholder="如 新中式茶室 / 商业展厅"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-zinc-700 mb-1">项目地区</label>
-                  <input
-                    type="text"
-                    value={projectMetaDraft.region ?? ''}
-                    onChange={(e) => setProjectMetaDraft({ ...projectMetaDraft, region: e.target.value })}
-                    placeholder="如 北京（影响地方规范适配）"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-zinc-700 mb-1">面积与预算</label>
-                  <input
-                    type="text"
-                    value={projectMetaDraft.area ?? ''}
-                    onChange={(e) => setProjectMetaDraft({ ...projectMetaDraft, area: e.target.value })}
-                    placeholder="如 280㎡ · 预算 60 万元"
-                    className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block font-medium text-zinc-700 mb-1">任务书 / 客户核心要求</label>
-                <textarea
-                  rows={4}
-                  value={projectMetaDraft.brief ?? ''}
-                  onChange={(e) => setProjectMetaDraft({ ...projectMetaDraft, brief: e.target.value })}
-                  placeholder="填写客户明确的设计诉求、忌讳项或保留空间结构…"
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-zinc-200 outline-none focus:border-blue-500 resize-y"
-                />
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-200 bg-zinc-50">
-              <button
-                type="button"
-                onClick={() => setProjectMetaTarget(null)}
-                className="px-3.5 py-1.5 rounded-lg text-xs border border-zinc-300 bg-white text-zinc-700 cursor-pointer"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  await window.zmo.projects.updateMeta(projectMetaTarget.id, projectMetaDraft)
-                  setProjectMetaTarget(null)
-                }}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer"
-              >
-                保存项目档案
-              </button>
-            </div>
-          </div>
-        </div>
+        <ProjectMetaModal
+          target={projectMetaTarget}
+          draft={projectMetaDraft}
+          onChange={setProjectMetaDraft}
+          onClose={() => setProjectMetaTarget(null)}
+          onSave={async (id, draft) => {
+            await window.zmo.projects.updateMeta(id, draft)
+            setProjectMetaTarget(null)
+          }}
+        />
       )}
 
       {charterOpen && activeTask?.rootDir && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px] p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white border border-zinc-200 shadow-2xl overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200">
-              <div className="text-xs font-semibold text-zinc-900">
-                项目宪章 (ZNZMO.md) · 自动注入到本工作区所有智能体对话
-              </div>
-              <button
-                type="button"
-                onClick={() => setCharterOpen(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="p-4">
-              <textarea
-                rows={10}
-                value={charterDraft}
-                onChange={(e) => setCharterDraft(e.target.value)}
-                placeholder="可填写项目硬约束、品牌调性、面积指标、出图规范等（Markdown 格式）…"
-                className="w-full p-3 rounded-xl border border-zinc-200 text-xs font-mono outline-none focus:border-blue-500 resize-y"
-              />
-            </div>
-            <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-zinc-200 bg-zinc-50">
-              <button
-                type="button"
-                onClick={() => setCharterOpen(false)}
-                className="px-3.5 py-1.5 rounded-lg text-xs border border-zinc-300 bg-white text-zinc-700 cursor-pointer"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  await window.zmo.projects.saveCharter(activeTask.rootDir, charterDraft)
-                  setCharterOpen(false)
-                }}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-900 text-white hover:bg-zinc-800 cursor-pointer"
-              >
-                保存 ZNZMO.md
-              </button>
-            </div>
-          </div>
-        </div>
+        <CharterModal
+          draft={charterDraft}
+          onChange={setCharterDraft}
+          onClose={() => setCharterOpen(false)}
+          onSave={async () => {
+            await window.zmo.projects.saveCharter(activeTask.rootDir, charterDraft)
+            setCharterOpen(false)
+          }}
+        />
       )}
 
       {pendingImageEdit && activeTaskId && (

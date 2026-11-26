@@ -1,20 +1,31 @@
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
+import { StringDecoder } from 'node:string_decoder'
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
 import { capturePreEditSnapshot } from '@shared/fileSnapshots'
-import { resolvePathWithinRoot, samePath } from '@shared/workspacePaths'
+import { isPathWithinRoot, resolvePathWithinRoot, samePath } from '@shared/workspacePaths'
 import type { TodoItem, WriteTodosToolData } from '@shared/protocol'
+import { resolveToolCallId } from './callId'
 
-function resolveTarget(rootDir: string, inputPath?: string, allowedReadPaths: string[] = []): string {
+function resolveTarget(
+  rootDir: string,
+  inputPath?: string,
+  allowedReadPaths: string[] = [],
+  readOnlyRoots: string[] = []
+): string {
   let cleaned = inputPath?.trim() ?? ''
   if (/^\/[a-zA-Z]:[\\/]/.test(cleaned)) cleaned = cleaned.slice(1)
   try {
     return resolvePathWithinRoot(rootDir, cleaned)
   } catch (error) {
     const candidate = cleaned ? (isAbsolute(cleaned) ? resolve(cleaned) : resolve(rootDir, cleaned)) : resolve(rootDir)
+    // 技能目录、预设目录等只读资源目录：允许浏览与读取（写入类工具不传这一参数）
+    if (readOnlyRoots.some((root) => isPathWithinRoot(root, candidate))) {
+      return candidate
+    }
     if (
       allowedReadPaths.some((allowedPath) => samePath(allowedPath, candidate)) &&
       existsSync(candidate) &&
@@ -85,6 +96,7 @@ export interface ApprovalGate {
 
 export function createWorkspaceTools(params: {
   rootDir: string
+  readOnlyRoots?: string[]
   projectMemoryPath?: string
   extraEnvPaths?: string[]
   protectedPptPaths?: string[]
@@ -96,6 +108,7 @@ export function createWorkspaceTools(params: {
 }): DynamicStructuredTool[] {
   const { rootDir, signal, requireApproval, recordToolData, onTodosChange } = params
   const allowedReadPaths = params.allowedReadPaths ?? []
+  const readOnlyRoots = (params.readOnlyRoots ?? []).filter((root) => root && existsSync(root))
 
   const isProtectedPpt = (targetPath: string): boolean => {
     const lower = targetPath.replace(/\\/g, '/').toLowerCase()
@@ -115,7 +128,7 @@ export function createWorkspaceTools(params: {
       path: z.string().optional().describe('目录路径（缺省为当前工作区根目录）')
     }),
     func: async ({ path }) => {
-      const target = resolveTarget(rootDir, path)
+      const target = resolveTarget(rootDir, path, allowedReadPaths, readOnlyRoots)
       if (!existsSync(target)) return `目录不存在：${target}`
       const st = statSync(target)
       if (!st.isDirectory()) return `${target} 是文件（大小 ${st.size} 字节），请使用 read_file 读取。`
@@ -144,7 +157,7 @@ export function createWorkspaceTools(params: {
       path: z.string().optional().describe('搜索起始目录（缺省为工作区根目录）')
     }),
     func: async ({ pattern, path }) => {
-      const base = resolveTarget(rootDir, path)
+      const base = resolveTarget(rootDir, path, allowedReadPaths, readOnlyRoots)
       if (!existsSync(base)) return `起始目录不存在：${base}`
       const all = walkFiles(base, 3000)
       const regex = globToRegExp(pattern)
@@ -168,8 +181,11 @@ export function createWorkspaceTools(params: {
       path: z.string().optional().describe('要搜索的文件或目录路径（缺省为工作区根目录）')
     }),
     func: async ({ pattern, path }) => {
-      const target = resolveTarget(rootDir, path, allowedReadPaths)
+      const target = resolveTarget(rootDir, path, allowedReadPaths, readOnlyRoots)
       if (!existsSync(target)) return `路径不存在：${target}`
+      if (pattern.length > 300) {
+        return '检索模式过长（超过 300 个字符），请缩短关键词或正则表达式。'
+      }
       let re: RegExp
       try {
         re = new RegExp(pattern, 'i')
@@ -190,7 +206,8 @@ export function createWorkspaceTools(params: {
           const content = readFileSync(file, 'utf8')
           const lines = content.split(/\r?\n/)
           for (let idx = 0; idx < lines.length; idx++) {
-            if (re.test(lines[idx])) {
+            // 只匹配每行前 4000 个字符，降低超长行配合复杂正则导致的回溯卡死风险
+            if (re.test(lines[idx].slice(0, 4000))) {
               hits.push(`${file.replace(/\\/g, '/')}:${idx + 1}: ${lines[idx].slice(0, 240)}`)
               if (hits.length >= 100) break
             }
@@ -213,7 +230,7 @@ export function createWorkspaceTools(params: {
       end_line: z.number().int().positive().optional().describe('结束行号（包含，可选）')
     }),
     func: async ({ file_path, start_line, end_line }) => {
-      const target = resolveTarget(rootDir, file_path, allowedReadPaths)
+      const target = resolveTarget(rootDir, file_path, allowedReadPaths, readOnlyRoots)
       if (!existsSync(target)) return `错误：文件不存在 -> ${target}`
       const st = statSync(target)
       if (st.isDirectory()) return `错误：${target} 是目录，请改用 ls 工具浏览。`
@@ -270,8 +287,8 @@ export function createWorkspaceTools(params: {
       file_path: z.string().describe('目标文件路径（相对工作区根或绝对路径）'),
       content: z.string().describe('要写入的完整文本内容')
     }),
-    func: async ({ file_path, content }, runManager) => {
-      const toolCallId = (runManager as unknown as { toolCallId?: string })?.toolCallId ?? `wf_${Date.now()}`
+    func: async ({ file_path, content }, runManager, config) => {
+      const toolCallId = resolveToolCallId(runManager, config)
       const target = resolveTarget(rootDir, file_path)
       if (isProtectedCharter(target)) {
         throw new Error(
@@ -306,8 +323,8 @@ export function createWorkspaceTools(params: {
       old_string: z.string().min(1).describe('文件中待替换的精确原文片段'),
       new_string: z.string().describe('替换后的新内容')
     }),
-    func: async ({ file_path, old_string, new_string }, runManager) => {
-      const toolCallId = (runManager as unknown as { toolCallId?: string })?.toolCallId ?? `ef_${Date.now()}`
+    func: async ({ file_path, old_string, new_string }, runManager, config) => {
+      const toolCallId = resolveToolCallId(runManager, config)
       const target = resolveTarget(rootDir, file_path)
       if (isProtectedCharter(target)) {
         throw new Error(
@@ -324,6 +341,12 @@ export function createWorkspaceTools(params: {
       const current = readFileSync(target, 'utf8')
       if (!current.includes(old_string)) {
         throw new Error(`未在 ${target} 中找到完全匹配的 old_string，请先调用 read_file 核对原文与缩进。`)
+      }
+      const occurrences = current.split(old_string).length - 1
+      if (occurrences > 1) {
+        throw new Error(
+          `old_string 在 ${target} 中出现了 ${occurrences} 次，无法确定要改哪一处；请扩大片段、带上前后几行使其唯一。`
+        )
       }
       const updated = current.replace(old_string, () => new_string)
       capturePreEditSnapshot({
@@ -346,8 +369,8 @@ export function createWorkspaceTools(params: {
       description: z.string().optional().describe('简短中文说明该命令的用途（用于界面状态展示）'),
       timeout_ms: z.number().int().min(1000).max(300000).optional().describe('超时毫秒数（默认 120000）')
     }),
-    func: async ({ command, description, timeout_ms }, runManager) => {
-      const toolCallId = (runManager as unknown as { toolCallId?: string })?.toolCallId ?? `exec_${Date.now()}`
+    func: async ({ command, description, timeout_ms }, runManager, config) => {
+      const toolCallId = resolveToolCallId(runManager, config)
       await requireApproval('execute', { command, description }, toolCallId)
 
       mkdirSync(rootDir, { recursive: true })
@@ -373,27 +396,40 @@ export function createWorkspaceTools(params: {
           }
         })
 
+        // 结束整棵进程树：Windows 上只杀 powershell 会残留它拉起的 python / node 子进程
+        const killTree = (): void => {
+          if (isWin && child.pid) {
+            const killer = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true })
+            killer.on('error', () => child.kill())
+          } else {
+            child.kill()
+          }
+        }
+
         let stdout = ''
         let stderr = ''
         const maxBuf = 64 * 1024
+        // StringDecoder 处理被切在两个数据块之间的多字节字符，避免中文乱码
+        const outDecoder = new StringDecoder('utf8')
+        const errDecoder = new StringDecoder('utf8')
 
         child.stdout?.on('data', (chunk: Buffer) => {
-          if (stdout.length < maxBuf) stdout += chunk.toString('utf8')
+          if (stdout.length < maxBuf) stdout += outDecoder.write(chunk)
         })
         child.stderr?.on('data', (chunk: Buffer) => {
-          if (stderr.length < maxBuf) stderr += chunk.toString('utf8')
+          if (stderr.length < maxBuf) stderr += errDecoder.write(chunk)
         })
-
-        const timer = setTimeout(() => {
-          child.kill()
-          resolvePromise(`命令执行超时（>${timeout}ms）已终止。\n已输出 stdout:\n${stdout}\nstderr:\n${stderr}`)
-        }, timeout)
 
         const onAbort = (): void => {
           clearTimeout(timer)
-          child.kill()
+          killTree()
           rejectPromise(new Error('命令已被用户中止'))
         }
+        const timer = setTimeout(() => {
+          signal.removeEventListener('abort', onAbort)
+          killTree()
+          resolvePromise(`命令执行超时（>${timeout}ms）已终止。\n已输出 stdout:\n${stdout}\nstderr:\n${stderr}`)
+        }, timeout)
         signal.addEventListener('abort', onAbort, { once: true })
 
         child.on('error', (err) => {
@@ -405,6 +441,8 @@ export function createWorkspaceTools(params: {
         child.on('close', (code) => {
           clearTimeout(timer)
           signal.removeEventListener('abort', onAbort)
+          stdout += outDecoder.end()
+          stderr += errDecoder.end()
           const combined = [
             `Exit code: ${code ?? 0}`,
             stdout.trim() ? `--- stdout ---\n${stdout.trim()}` : '',
@@ -433,8 +471,8 @@ export function createWorkspaceTools(params: {
         .min(1)
         .max(15)
     }),
-    func: async ({ todos }, runManager) => {
-      const toolCallId = (runManager as unknown as { toolCallId?: string })?.toolCallId ?? `todo_${Date.now()}`
+    func: async ({ todos }, runManager, config) => {
+      const toolCallId = resolveToolCallId(runManager, config)
       onTodosChange(todos)
       const data: WriteTodosToolData = { kind: 'write_todos', todos }
       recordToolData(toolCallId, data)
@@ -449,7 +487,9 @@ export function createWorkspaceTools(params: {
     schema: z.object({
       note: z.string().min(1).describe('要持久记住的精炼条目（一行或一小段事实/决策）')
     }),
-    func: async ({ note }) => {
+    func: async ({ note }, runManager, config) => {
+      // R16：写入的内容会进入后续每一轮的系统提示词，需经用户确认
+      await requireApproval('remember', { note }, resolveToolCallId(runManager, config))
       const memFile = params.projectMemoryPath
         ? resolvePathWithinRoot(dirname(params.projectMemoryPath), params.projectMemoryPath)
         : resolvePathWithinRoot(rootDir, join(rootDir, '.zmo', 'memory.md'))

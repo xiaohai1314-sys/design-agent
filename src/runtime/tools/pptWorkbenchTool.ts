@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from '
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { resolveToolCallId } from './callId'
 import { parsePptxDeck, type PptDeckModel } from '@shared/pptParser'
 import type {
   PptOperation,
@@ -81,10 +82,9 @@ export function createPptWorkbenchTool(params: {
         .optional(),
       summary: z.string().max(1000).optional()
     }),
-    func: async ({ action, mode, slideId, elementId, offset, limit, operations, summary }, runManager) => {
+    func: async ({ action, mode, slideId, elementId, offset, limit, operations, summary }, runManager, config) => {
       const callId =
-        (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable?.toolCallId ??
-        `pptwb_${Date.now()}`
+        resolveToolCallId(runManager, config)
       const deck = await getDeck()
       const sel = params.pptSelection
 

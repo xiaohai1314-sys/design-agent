@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { resolveToolCallId } from './callId'
 import type {
   InspirationHit,
   InspirationIndexRecord,
@@ -183,10 +184,9 @@ export function createSearchInspirationTool(params: {
           '可选：参考图路径（绝对路径，或相对灵感库目录）。传入时按图搜图——找视觉上相近的参考图/贴图，与 query 文本混合排序；需要本地向量模型与带图像向量的索引'
         )
     }),
-    func: async ({ query, kind, style, building_type, image_path }, runManager) => {
+    func: async ({ query, kind, style, building_type, image_path }, runManager, config) => {
       const callId =
-        (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable
-          ?.toolCallId ?? `insp_${Date.now()}`
+        resolveToolCallId(runManager, config)
 
       const folder = params.inspirationFolder?.trim() ?? ''
       const records = folder ? loadIndex(folder) : null

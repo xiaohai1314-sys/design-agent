@@ -1,5 +1,6 @@
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { resolveToolCallId } from './callId'
 import type { AskAnswer, AskQuestion, AskUserToolData } from '@shared/protocol'
 
 export function formatAnswersForModel(answers: AskAnswer[]): string {
@@ -35,8 +36,8 @@ export function createAskUserTool(params: {
         .max(4)
         .describe('本次需要向用户澄清的问题列表')
     }),
-    func: async ({ questions }, runManager) => {
-      const toolCallId = (runManager as unknown as { toolCallId?: string })?.toolCallId ?? `ask_${Date.now()}`
+    func: async ({ questions }, runManager, config) => {
+      const toolCallId = resolveToolCallId(runManager, config)
       const answers = await params.waitForUserAnswer(toolCallId, questions)
       params.recordToolData(toolCallId, {
         kind: 'ask_user',

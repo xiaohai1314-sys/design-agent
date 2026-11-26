@@ -10,6 +10,12 @@ function escapeXml(str: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/** M5：颜色值只接受 6 位十六进制，避免非法值被直接拼进 XML 破坏文件 */
+function safeHex(value?: string): string | undefined {
+  const v = (value ?? '').trim().replace(/^#/, '')
+  return /^[0-9a-fA-F]{6}$/.test(v) ? v.toUpperCase() : undefined
+}
+
 function buildTxBodyParagraphsXml(
   text: string,
   style?: { colorHex?: string; fontSizePt?: number; bold?: boolean }
@@ -17,9 +23,8 @@ function buildTxBodyParagraphsXml(
   const lines = text.split(/\r?\n/)
   const szAttr = style?.fontSizePt ? ` sz="${Math.round(style.fontSizePt * 100)}"` : ''
   const bAttr = style?.bold !== undefined ? ` b="${style.bold ? '1' : '0'}"` : ''
-  const fillXml = style?.colorHex
-    ? `<a:solidFill><a:srgbClr val="${style.colorHex.replace(/^#/, '').toUpperCase()}"/></a:solidFill>`
-    : ''
+  const hex = safeHex(style?.colorHex)
+  const fillXml = hex ? `<a:solidFill><a:srgbClr val="${hex}"/></a:solidFill>` : ''
 
   return lines
     .map(
@@ -80,8 +85,8 @@ function patchShapeInSlideXml(slideXml: string, shapeId: string, op: PptOperatio
           const bVal = op.bold ? '1' : '0'
           attrs = /\bb="[01]"/.test(attrs) ? attrs.replace(/\bb="[01]"/, `b="${bVal}"`) : `${attrs} b="${bVal}"`
         }
-        if (op.colorHex) {
-          const hex = op.colorHex.replace(/^#/, '').toUpperCase()
+        const hex = safeHex(op.colorHex)
+        if (hex) {
           const fillTag = `<a:solidFill><a:srgbClr val="${hex}"/></a:solidFill>`
           body = /<a:solidFill>[\s\S]*?<\/a:solidFill>/.test(body)
             ? body.replace(/<a:solidFill>[\s\S]*?<\/a:solidFill>/, fillTag)

@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import * as electron from 'electron'
 import { basename, dirname, extname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
@@ -43,24 +44,89 @@ function assertSafeStorageId(value: string, label: string): string {
 }
 
 function readJsonSafe<T>(filePath: string, fallback: T): T {
+  if (!existsSync(filePath)) return fallback
   try {
-    if (!existsSync(filePath)) return fallback
     return JSON.parse(readFileSync(filePath, 'utf8')) as T
-  } catch {
+  } catch (err) {
+    // M2：文件损坏时先留一份备份再回退默认值，避免下一次写入把仅存的数据覆盖掉
+    try {
+      copyFileSync(filePath, `${filePath}.corrupt-${Date.now()}`)
+    } catch {
+      // ignore
+    }
+    console.error(`[store] 读取 ${filePath} 失败，已备份损坏文件并使用默认值：`, err)
     return fallback
   }
 }
 
-function writeJsonAtomic(filePath: string, data: unknown): void {
+function writeJsonAtomic(filePath: string, data: unknown, pretty = true): void {
   mkdirSync(dirname(filePath), { recursive: true })
   const tmp = `${filePath}.${process.pid}.tmp`
-  writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8')
-  writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8')
+  writeFileSync(tmp, pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data), 'utf8')
   try {
-    rmSync(tmp, { force: true })
+    // M2：写临时文件后 rename 替换，保证正式文件要么是旧内容、要么是完整的新内容
+    renameSync(tmp, filePath)
   } catch {
-    // ignore
+    // rename 偶尔会因为杀毒软件或其他进程占用失败，退回直接写入
+    writeFileSync(filePath, pretty ? JSON.stringify(data, null, 2) : JSON.stringify(data), 'utf8')
+    try {
+      rmSync(tmp, { force: true })
+    } catch {
+      // ignore
+    }
   }
+}
+
+// ---------------- S1：API Key 落盘加密 ----------------
+const SECRET_PREFIX = 'enc:v1:'
+
+function getSafeStorage(): Electron.SafeStorage | null {
+  try {
+    const ss = (electron as unknown as { safeStorage?: Electron.SafeStorage }).safeStorage
+    return ss && ss.isEncryptionAvailable() ? ss : null
+  } catch {
+    return null
+  }
+}
+
+function encryptSecret(value: string): string {
+  if (!value || value.startsWith(SECRET_PREFIX)) return value
+  const ss = getSafeStorage()
+  if (!ss) return value
+  return SECRET_PREFIX + ss.encryptString(value).toString('base64')
+}
+
+function decryptSecret(value: string): string {
+  if (!value || !value.startsWith(SECRET_PREFIX)) return value
+  const ss = getSafeStorage()
+  if (!ss) return ''
+  try {
+    return ss.decryptString(Buffer.from(value.slice(SECRET_PREFIX.length), 'base64'))
+  } catch {
+    return ''
+  }
+}
+
+/** 深拷贝对象，对其中所有 apiKey 字段应用 fn */
+function mapApiKeys<T>(value: T, fn: (key: string) => string): T {
+  if (Array.isArray(value)) return value.map((v) => mapApiKeys(v, fn)) as unknown as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = k === 'apiKey' && typeof v === 'string' ? fn(v) : mapApiKeys(v, fn)
+    }
+    return out as T
+  }
+  return value
+}
+
+function hasPlaintextKeys(value: unknown): boolean {
+  let found = false
+  mapApiKeys(value, (k) => {
+    if (k && !k.startsWith(SECRET_PREFIX)) found = true
+    return k
+  })
+  return found
 }
 
 export class LocalAppStore {
@@ -71,6 +137,10 @@ export class LocalAppStore {
   private readonly defaultInspirationDir: string
   private readonly defaultClipModelDir: string
   private readonly regIndexerExe: string
+  // M1：对话记录放在内存里维护，按节流批量落盘，不再每个 token 都整份读写磁盘
+  private readonly transcriptCache = new Map<string, PersistedTurnItem[]>()
+  private readonly dirtyTranscripts = new Set<string>()
+  private transcriptFlushTimer: NodeJS.Timeout | null = null
 
   constructor(
     userDataDir: string,
@@ -136,6 +206,10 @@ export class LocalAppStore {
 
   private modelSettingsPath(): string {
     return join(this.baseDir, 'model-settings.json')
+  }
+
+  private writeModelSettings(settings: ModelSettingsState): void {
+    writeJsonAtomic(this.modelSettingsPath(), mapApiKeys(settings, encryptSecret))
   }
 
   getModelSettings(): ModelSettingsState {
@@ -221,11 +295,14 @@ export class LocalAppStore {
       webSearch: defaultWebSearch,
       profiles: envProfiles
     }
-    const saved = readJsonSafe<ModelSettingsState | null>(this.modelSettingsPath(), null)
-    if (!saved || !Array.isArray(saved.profiles)) {
-      writeJsonAtomic(this.modelSettingsPath(), defaultProfiles)
+    const savedRaw = readJsonSafe<ModelSettingsState | null>(this.modelSettingsPath(), null)
+    if (!savedRaw || !Array.isArray(savedRaw.profiles)) {
+      this.writeModelSettings(defaultProfiles)
       return defaultProfiles
     }
+    const saved = mapApiKeys(savedRaw, decryptSecret)
+    // 旧版本留下的明文 Key：加密可用时就地迁移为密文
+    const needsEncryptMigration = Boolean(getSafeStorage()) && hasPlaintextKeys(savedRaw)
     const cleanedProfiles = saved.profiles.filter(
       (p) => !(builtinTemplateIds.has(p.id) && !p.apiKey?.trim())
     )
@@ -250,9 +327,10 @@ export class LocalAppStore {
     if (
       cleanedProfiles.length !== saved.profiles.length ||
       resolvedActiveId !== saved.activeProfileId ||
-      JSON.stringify(migratedImageGen) !== JSON.stringify(rawImageGen)
+      JSON.stringify(migratedImageGen) !== JSON.stringify(rawImageGen) ||
+      needsEncryptMigration
     ) {
-      writeJsonAtomic(this.modelSettingsPath(), next)
+      this.writeModelSettings(next)
     }
     return next
   }
@@ -262,7 +340,7 @@ export class LocalAppStore {
       ...settings,
       imageGen: normalizeImageGenConfig(settings.imageGen)
     }
-    writeJsonAtomic(this.modelSettingsPath(), normalized)
+    this.writeModelSettings(normalized)
     return normalized
   }
 
@@ -682,6 +760,8 @@ export class LocalAppStore {
 
   deleteTask(threadId: string): void {
     const task = this.getTask(threadId)
+    this.transcriptCache.delete(threadId)
+    this.dirtyTranscripts.delete(threadId)
     const list = readJsonSafe<TaskSummary[]>(this.tasksPath(), []).filter((t) => t.id !== threadId)
     writeJsonAtomic(this.tasksPath(), list)
     const tPath = this.transcriptPath(threadId, task?.projectId ?? null)
@@ -704,13 +784,54 @@ export class LocalAppStore {
   }
 
   readTranscript(threadId: string): PersistedTurnItem[] {
+    const cached = this.transcriptCache.get(threadId)
+    if (cached) return cached
     const task = this.getTask(threadId)
-    return readJsonSafe<PersistedTurnItem[]>(this.transcriptPath(threadId, task?.projectId ?? null), [])
+    const items = readJsonSafe<PersistedTurnItem[]>(this.transcriptPath(threadId, task?.projectId ?? null), [])
+    this.transcriptCache.set(threadId, items)
+    return items
   }
 
-  private saveTranscript(threadId: string, items: PersistedTurnItem[]): void {
-    const task = this.getTask(threadId)
-    writeJsonAtomic(this.transcriptPath(threadId, task?.projectId ?? null), items)
+  /**
+   * immediate=false 时只更新内存并在 400ms 后批量落盘（用于 token 等高频事件）；
+   * 关键事件（工具结果、审批、完成、出错）立即落盘，保证崩溃时丢失的最多是几百毫秒的流式文字。
+   */
+  private saveTranscript(threadId: string, items: PersistedTurnItem[], immediate = true): void {
+    this.transcriptCache.set(threadId, items)
+    if (immediate) {
+      this.dirtyTranscripts.delete(threadId)
+      this.writeTranscriptNow(threadId, items)
+      return
+    }
+    this.dirtyTranscripts.add(threadId)
+    if (!this.transcriptFlushTimer) {
+      this.transcriptFlushTimer = setTimeout(() => {
+        this.transcriptFlushTimer = null
+        this.flushTranscripts()
+      }, 400)
+    }
+  }
+
+  private writeTranscriptNow(threadId: string, items: PersistedTurnItem[]): void {
+    try {
+      const task = this.getTask(threadId)
+      writeJsonAtomic(this.transcriptPath(threadId, task?.projectId ?? null), items, false)
+    } catch (err) {
+      console.error(`[store] 保存对话记录失败（${threadId}）：`, err)
+    }
+  }
+
+  /** 把所有尚未落盘的对话记录写入磁盘（退出前、触发记忆提炼前调用） */
+  flushTranscripts(): void {
+    if (this.transcriptFlushTimer) {
+      clearTimeout(this.transcriptFlushTimer)
+      this.transcriptFlushTimer = null
+    }
+    for (const threadId of [...this.dirtyTranscripts]) {
+      this.dirtyTranscripts.delete(threadId)
+      const items = this.transcriptCache.get(threadId)
+      if (items) this.writeTranscriptNow(threadId, items)
+    }
   }
 
   appendUserTurn(params: {
@@ -891,7 +1012,12 @@ export class LocalAppStore {
         return
     }
 
-    this.saveTranscript(threadId, items)
+    const highFrequency =
+      event.type === 'token' ||
+      event.type === 'reasoning' ||
+      event.type === 'usage' ||
+      (event.type === 'subagent' && (event.event.type === 'token' || event.event.type === 'reasoning'))
+    this.saveTranscript(threadId, items, !highFrequency)
   }
 
   clearPendingInteraction(threadId: string): void {

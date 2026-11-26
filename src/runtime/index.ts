@@ -30,6 +30,7 @@ import {
   buildModelingPresetDirective,
   discoverModelingPresets,
   matchModelingPreset,
+  resolvePresetsRoot,
   type ModelingPresetInfo
 } from './presets'
 import { approvalDelta, splitMcpToolName, toolDelta, toolLabel } from './toolMeta'
@@ -61,6 +62,7 @@ import {
   type PendingSuspension
 } from './checkpoint'
 import { distillProjectMemory, generateNextSuggestions } from './distiller'
+import { resolveToolCallId } from './tools/callId'
 
 const parentPort = (
   process as unknown as {
@@ -70,6 +72,35 @@ const parentPort = (
     }
   }
 ).parentPort
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[runtime] unhandledRejection:', reason)
+})
+process.on('uncaughtException', (err) => {
+  console.error('[runtime] uncaughtException:', err)
+})
+
+function lastAiText(history: BaseMessage[]): string {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i]
+    if (m._getType() !== 'ai') continue
+    const c = m.content as unknown
+    const text =
+      typeof c === 'string'
+        ? c
+        : Array.isArray(c)
+          ? c
+              .map((part) =>
+                part && typeof part === 'object' && (part as { type?: string }).type === 'text'
+                  ? String((part as { text?: unknown }).text ?? '')
+                  : ''
+              )
+              .join('')
+          : ''
+    if (text.trim()) return text.trim()
+  }
+  return ''
+}
 
 function post(msg: RuntimeOutbound): void {
   if (parentPort) {
@@ -115,6 +146,8 @@ interface ActiveTurnState {
   pendingClarification: PendingClarification | null
   pendingImageEdit: PendingImageEdit | null
   deliverables: Deliverable[]
+  /** 本轮权限模式：「全部允许」只提升当前这一轮，不影响其他会话 */
+  permissionMode: PermissionMode
 }
 
 let globalPermissionMode: PermissionMode = 'default'
@@ -196,6 +229,16 @@ function describeConversationRefs(refs?: ConversationRef[]): string {
   return entries.length > 0 ? `<conversations>\n${entries.join('\n')}\n</conversations>` : ''
 }
 
+/** P9：插进标签属性的值转义尖括号、引号与 & */
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/** 插进标签正文的用户文本：与 annotations 一致，用全角尖括号替换，避免伪造标签 */
+function escapeTagBody(value: string): string {
+  return value.replace(/</g, '＜').replace(/>/g, '＞')
+}
+
 function formatUserMessageWithContext(params: {
   text: string
   filelist?: InputFile[]
@@ -212,9 +255,9 @@ function formatUserMessageWithContext(params: {
   if (params.sceneParam?.toolTitle || params.sceneParam?.paramValues) {
     const kv = Object.entries(params.sceneParam.paramValues ?? {})
       .filter(([, v]) => v && v.trim())
-      .map(([k, v]) => `  ${k}: ${v}`)
+      .map(([k, v]) => `  ${escapeTagBody(k)}: ${escapeTagBody(v)}`)
       .join('\n')
-    const toolName = params.sceneParam.toolTitle ?? ''
+    const toolName = escapeAttr(params.sceneParam.toolTitle ?? '')
     blocks.push(kv ? `<scene tool="${toolName}">\n${kv}\n</scene>` : `<scene tool="${toolName}" />`)
   }
 
@@ -223,7 +266,7 @@ function formatUserMessageWithContext(params: {
   }
 
   if (params.mcp && params.mcp.length > 0) {
-    blocks.push(`<mcp>${params.mcp.map((m) => m.name).join(', ')}</mcp>`)
+    blocks.push(`<mcp>${escapeTagBody(params.mcp.map((m) => m.name).join(', '))}</mcp>`)
   }
 
   if (params.mcpStatusBlocks && params.mcpStatusBlocks.length > 0) {
@@ -243,6 +286,8 @@ function formatUserMessageWithContext(params: {
       references: params.pptSelection.references,
       referenceLabels: params.pptSelection.referenceLabels
     })
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
     blocks.push(
       `<ppt-workbench>\n${selMeta}\n用户当前在右侧 PPT 交互工作台选中了以上页面/元素范围。请优先调用 ppt_workbench(action="read") 查看结构并调用 ppt_workbench(action="suggest") 提交修改建议；禁止直接用 write_file 覆盖该 .pptx。\n</ppt-workbench>`
     )
@@ -256,7 +301,7 @@ function formatUserMessageWithContext(params: {
           f.role === 'ppt_template'
             ? ' [role=ppt_template 仅参考版式与视觉语言，切勿照抄模板中示例数据]'
             : ''
-        return `- ${f.name ?? 'file'} (${f.type ?? 'file'}, ${f.size ?? 0} bytes)${roleTag}: ${f.path!.replace(/\\/g, '/')}`
+        return `- ${escapeTagBody(f.name ?? 'file')} (${f.type ?? 'file'}, ${f.size ?? 0} bytes)${roleTag}: ${f.path!.replace(/\\/g, '/')}`
       })
     if (fileLines.length > 0) {
       blocks.push(`<files>\n用户随本条消息提供的本机文件绝对路径：\n${fileLines.join('\n')}\n</files>`)
@@ -298,7 +343,25 @@ function extractStreamDeltas(chunk: AIMessage): { textDelta: string; reasoningDe
   return { textDelta, reasoningDelta }
 }
 
-async function runAgentLoop(params: {
+/**
+ * OpenAI Chat Completions 的 tool 消息只接受文本块，带 image 块会被网关 400。
+ * Anthropic 与 Responses API 支持原生图片，保持原样。
+ */
+function degradeToolImageBlocks(content: unknown, keepImages: boolean): unknown {
+  if (keepImages || !Array.isArray(content)) return content
+  let degraded = false
+  const parts = content.map((part) => {
+    const type = (part as { type?: string } | null)?.type
+    if (type === 'image_url' || type === 'image') {
+      degraded = true
+      return { type: 'text', text: '[图片内容已读取，但当前模型接口不支持在工具结果中返回图片]' }
+    }
+    return part
+  })
+  return degraded ? parts : content
+}
+
+export async function runAgentLoop(params: {
   model: ReturnType<typeof createChatModel>
   systemPrompt: string
   history: BaseMessage[]
@@ -307,6 +370,8 @@ async function runAgentLoop(params: {
   maxIterations?: number
   offloadRootDir?: string
   enableAnthropicCache?: boolean
+  /** 用于判断该接口能否接收工具结果里的图片块 */
+  profile?: ModelProviderProfile
   compactContext?: {
     rootDir: string
     profile: ModelProviderProfile
@@ -320,6 +385,9 @@ async function runAgentLoop(params: {
   takeRecordedToolData: (id: string) => unknown
 }): Promise<{ completedNaturally: boolean }> {
   const { model, systemPrompt, history, tools, signal, maxIterations = 80, compactContext } = params
+  const toolImagesSupported = params.profile
+    ? params.profile.protocol === 'anthropic' || Boolean(params.profile.useResponsesApi)
+    : true
   const toolMap = new Map(tools.map((t) => [t.name, t]))
   let lastBoundCount = -1
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -349,8 +417,16 @@ async function runAgentLoop(params: {
     }
 
     const streamOnce = async (): Promise<AIMessage | null> => {
-      const sysMsg = buildSystemMessage(systemPrompt, Boolean(params.enableAnthropicCache))
-      const messages: BaseMessage[] = [sysMsg, ...history]
+      // 压缩摘要等 SystemMessage 合并进系统提示词，保证发送给模型的消息里只有开头一条 system
+      const extraSystem = history
+        .filter((m) => m._getType() === 'system')
+        .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))
+        .join('\n\n')
+      const sysMsg = buildSystemMessage(
+        extraSystem ? `${systemPrompt}\n\n${extraSystem}` : systemPrompt,
+        Boolean(params.enableAnthropicCache)
+      )
+      const messages: BaseMessage[] = [sysMsg, ...history.filter((m) => m._getType() !== 'system')]
       const stream = await boundModel.stream(messages, { signal })
       let agg: AIMessage | null = null
       for await (const chunk of stream) {
@@ -492,7 +568,7 @@ async function runAgentLoop(params: {
           new ToolMessage({
             tool_call_id: callId,
             name: callName,
-            content: typeof safeOutput === 'string' ? safeOutput : (safeOutput as never)
+            content: degradeToolImageBlocks(safeOutput, toolImagesSupported) as never
           })
         )
       } catch (err) {
@@ -519,14 +595,15 @@ async function runAgentLoop(params: {
 function isDirectImageGenerationIntent(text: string): boolean {
   const t = text.trim()
   if (!t) return false
+  // P2：去掉过宽的“来”“出”，避免“接下来分析这张图片”“读出这张照片上的尺寸”被误判为生图
   const asksImage =
-    /(生成|出|画|渲染|改|制作|来).{0,14}(效果图|夜景图|日景图|黄昏图|鸟瞰图|彩平图|透视图|人视图|意向图|概念图|实景图|方案图|图片|照片|出图|生图|改图)|文生图|图生图|垫图出图/i.test(
+    /(生成|画|渲染|制作|做|改成|改为|换成|出一?[张版套幅个]|来一?[张版套幅个])\S{0,10}(效果图|夜景图|日景图|黄昏图|鸟瞰图|彩平图|透视图|人视图|意向图|概念图|实景图|方案图|图片|照片)|改图|出图|生图|文生图|图生图|垫图出图/i.test(
       t
     )
   if (!asksImage) return false
   // 若用户明确还要纯 CAD 尺寸分析、规范核查、文档生成或三维软件建模，不直接拦截
   const asksOtherDeliverable =
-    /(三维建模|建模型|白模|sketchup|blender|rhino|3ds\s*max|ppt|pptx|word|docx|excel|xlsx|pdf|规范|条文|核查|面积表|尺寸表|只分析|先分析|先读)/i.test(
+    /(三维建模|建模型|白模|sketchup|blender|rhino|3ds\s*max|ppt|pptx|word|docx|excel|xlsx|pdf|规范|条文|核查|面积表|尺寸表|分析|识别|读取|读出|看看|看一下|标注|尺寸|测量|说明|解释|描述|重命名|文件名)/i.test(
       t
     )
   return !asksOtherDeliverable
@@ -846,6 +923,7 @@ async function executeTurn(
   if (msg.permissionMode) {
     globalPermissionMode = msg.permissionMode
   }
+  let initialPermissionMode: PermissionMode = msg.permissionMode ?? globalPermissionMode
   // 任务上下文仅 chat 消息携带（恢复轮次无此字段）：提升到此处供生图渠道按任务路由使用
   const turnSceneParam: SceneParam | undefined =
     msg.type === 'chat' ? msg.sceneParam : undefined
@@ -855,7 +933,7 @@ async function executeTurn(
     msg.resolution.decision.type === 'approve' &&
     msg.resolution.decision.scope === 'all'
   ) {
-    globalPermissionMode = 'auto'
+    initialPermissionMode = 'auto'
   }
 
   const abortController = new AbortController()
@@ -866,9 +944,9 @@ async function executeTurn(
     pendingApproval: null,
     pendingClarification: null,
     pendingImageEdit: null,
-    deliverables: []
+    deliverables: [],
+    permissionMode: initialPermissionMode
   }
-  activeTurns.set(threadId, turnState)
 
   // 跨软件重启恢复同一 threadId 的完整 LLM 上下文（Checkpoint）
   let pendingSuspension: PendingSuspension | undefined
@@ -906,8 +984,20 @@ async function executeTurn(
   let approvedSuspendedCallId: string | null = null
 
   const recordToolData = (_id: string, data: unknown): void => {
-    const key = currentActiveToolCallId || _id
+    const key = _id || currentActiveToolCallId
     toolDataStore.set(key, data)
+  }
+  // 主循环发起的工具调用 ID（只有这些调用的挂起状态可以跨重启恢复；子智能体内部的调用不写入断点）
+  const mainLoopCallIds = new Set<string>()
+  // R1：同一轮内的人工交互（审批 / 追问 / 图片标注）串行排队，避免并发子任务互相覆盖挂起位
+  let interactionChain: Promise<void> = Promise.resolve()
+  const runExclusive = <T>(fn: () => Promise<T>): Promise<T> => {
+    const next = interactionChain.then(fn, fn)
+    interactionChain = next.then(
+      () => undefined,
+      () => undefined
+    )
+    return next
   }
   const takeRecordedToolData = (id: string): unknown => {
     const val = toolDataStore.get(id)
@@ -920,7 +1010,8 @@ async function executeTurn(
     'edit_file',
     'execute',
     'generate_image',
-    'edit_image_with_ref'
+    'edit_image_with_ref',
+    'remember'
   ])
 
   const requireApproval = async (
@@ -928,50 +1019,57 @@ async function executeTurn(
     args: Record<string, unknown>,
     _id: string
   ): Promise<void> => {
-    const callId = currentActiveToolCallId || _id
+    const callId = _id || currentActiveToolCallId
     if (approvedSuspendedCallId && callId === approvedSuspendedCallId) {
       approvedSuspendedCallId = null
       return
     }
     const isMcpTool = Boolean(splitMcpToolName(toolName))
-    if ((!gatedToolNames.has(toolName) && !isMcpTool) || globalPermissionMode === 'auto') return
-    const authRequestId = randomUUID()
-    saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history, {
-      kind: 'interrupt',
-      toolCallId: callId,
-      toolName,
-      args,
-      requestId,
-      turnNum
-    })
-    post({
-      type: 'interrupt',
-      requestId,
-      threadId,
-      actions: [{ name: toolName, args, toolCallId: callId }],
-      authorization: {
-        authRequestId,
-        toolCallId: callId,
-        messageId: turnId,
-        turnNum
-      },
-      message: toolLabel(toolName),
-      delta: approvalDelta(toolName, args)
-    })
-
-    const decision = await new Promise<AgentDecision>((resolveDecision, rejectDecision) => {
-      turnState.pendingApproval = { resolve: resolveDecision, reject: rejectDecision }
-    })
-    turnState.pendingApproval = null
-    saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history)
-
-    if (decision.type === 'approve') {
-      if (decision.scope === 'all') {
-        globalPermissionMode = 'auto'
+    if (!gatedToolNames.has(toolName) && !isMcpTool) return
+    return runExclusive(async () => {
+      abortController.signal.throwIfAborted()
+      if (turnState.permissionMode === 'auto') return
+      const resumable = mainLoopCallIds.has(callId)
+      const authRequestId = randomUUID()
+      if (resumable) {
+        saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history, {
+          kind: 'interrupt',
+          toolCallId: callId,
+          toolName,
+          args,
+          requestId,
+          turnNum
+        })
       }
-      return
-    }
-    throw new PermissionRejectedError(decision.message || '用户拒绝了该操作')
+      post({
+        type: 'interrupt',
+        requestId,
+        threadId,
+        actions: [{ name: toolName, args, toolCallId: callId }],
+        authorization: {
+          authRequestId,
+          toolCallId: callId,
+          messageId: turnId,
+          turnNum
+        },
+        message: toolLabel(toolName),
+        delta: approvalDelta(toolName, args)
+      })
+
+      const decision = await new Promise<AgentDecision>((resolveDecision, rejectDecision) => {
+        turnState.pendingApproval = { resolve: resolveDecision, reject: rejectDecision }
+      })
+      turnState.pendingApproval = null
+      if (resumable) saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history)
+
+      if (decision.type === 'approve') {
+        if (decision.scope === 'all') {
+          turnState.permissionMode = 'auto'
+        }
+        return
+      }
+      throw new PermissionRejectedError(decision.message || '用户拒绝了该操作')
+    })
   }
 
   const waitForUserAnswer = async (
@@ -979,8 +1077,9 @@ async function executeTurn(
     questions: AskQuestion[],
     interaction?: 'host-readiness',
     fallbackPrompt?: string
-  ): Promise<AskAnswer[]> => {
-    const callId = currentActiveToolCallId || _id
+  ): Promise<AskAnswer[]> => runExclusive(async () => {
+    abortController.signal.throwIfAborted()
+    const callId = _id || currentActiveToolCallId
     saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history, {
       kind: 'ask_user',
       toolCallId: callId,
@@ -1007,14 +1106,15 @@ async function executeTurn(
     turnState.pendingClarification = null
     saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history)
     return answers
-  }
+  })
 
   const waitForImageEdit = async (
     _id: string,
     imagePath: string,
     hint: string
-  ): Promise<ImageEditAnswer> => {
-    const callId = currentActiveToolCallId || _id
+  ): Promise<ImageEditAnswer> => runExclusive(async () => {
+    abortController.signal.throwIfAborted()
+    const callId = _id || currentActiveToolCallId
     saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history, {
       kind: 'ask_image_edit',
       toolCallId: callId,
@@ -1037,7 +1137,7 @@ async function executeTurn(
     turnState.pendingImageEdit = null
     saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history)
     return answer
-  }
+  })
 
   const skillsRoot = process.env.ZMO_SKILLS_ROOT || ''
   const availablePresets = discoverModelingPresets(undefined, skillsRoot)
@@ -1063,10 +1163,12 @@ async function executeTurn(
     post({ type: 'usage', requestId, threadId, usage: { ...turnUsage } })
   }
 
+  const mcpImageDir = join(rootDir, '.zmo', 'mcp-images')
+  activeTurns.set(threadId, turnState)
   try {
     mcpBundle =
       mcpServers && mcpServers.length > 0
-        ? await connectMcpServers(mcpServers, requireApproval)
+        ? await connectMcpServers(mcpServers, requireApproval, { imageDir: mcpImageDir })
         : null
 
     if (isResumeTurn) {
@@ -1076,7 +1178,7 @@ async function executeTurn(
       ) {
         const choice = msg.resolution.answers[0]?.selected?.[0] || msg.resolution.answers[0]?.text || ''
         if (choice.includes('重试') && mcpBundle && mcpBundle.failedServers.length > 0) {
-          extraMcpBundle = await connectMcpServers(mcpBundle.failedServers, requireApproval)
+          extraMcpBundle = await connectMcpServers(mcpBundle.failedServers, requireApproval, { imageDir: mcpImageDir })
           mcpBundle.tools.push(...extraMcpBundle.tools)
           mcpBundle.serverPrompts = extraMcpBundle.serverPrompts
         }
@@ -1093,7 +1195,12 @@ async function executeTurn(
       }
     } else {
       const { text, filelist, annotations, conversationRefs, pptSelection, sceneParam, mcp } = msg
-      const matchedPreset = matchModelingPreset(availablePresets, { text, sceneParam, mcp })
+      const matchedPreset = matchModelingPreset(availablePresets, {
+        text,
+        sceneParam,
+        mcp,
+        hasAttachments: (filelist?.length ?? 0) > 0
+      })
       const presetDirective = matchedPreset
         ? buildModelingPresetDirective(matchedPreset, { text, sceneParam, skillsRoot })
         : undefined
@@ -1127,7 +1234,7 @@ async function executeTurn(
         )
         const choice = answers[0]?.selected?.[0] || answers[0]?.text || ''
         if (choice.includes('重试')) {
-          extraMcpBundle = await connectMcpServers(mcpBundle.failedServers, requireApproval)
+          extraMcpBundle = await connectMcpServers(mcpBundle.failedServers, requireApproval, { imageDir: mcpImageDir })
           mcpBundle.tools.push(...extraMcpBundle.tools)
           mcpBundle.serverPrompts = extraMcpBundle.serverPrompts
         }
@@ -1200,8 +1307,10 @@ async function executeTurn(
         : [])
     ]
 
+    const readOnlyRoots = [skillsRoot, resolvePresetsRoot(undefined, skillsRoot)].filter(Boolean)
     const baseTools = createWorkspaceTools({
       rootDir,
+      readOnlyRoots,
       projectMemoryPath: projectMemoryFile,
       extraEnvPaths,
       protectedPptPaths,
@@ -1270,6 +1379,7 @@ async function executeTurn(
 
     const subWorkspaceTools = createWorkspaceTools({
       rootDir,
+      readOnlyRoots,
       projectMemoryPath: projectMemoryFile,
       extraEnvPaths,
       protectedPptPaths,
@@ -1312,8 +1422,8 @@ async function executeTurn(
           .optional()
           .describe('子智能体角色（用于裁剪可用工具子集）：research=只读调研/查规范；cad-analyzer=图纸与文档解析；modeler=三维MCP建模；general=全工具')
       }),
-      func: async ({ prompt: subPrompt, role }) => {
-        const parentToolCallId = currentActiveToolCallId
+      func: async ({ prompt: subPrompt, role }, runManager, config) => {
+        const parentToolCallId = resolveToolCallId(runManager, config) || currentActiveToolCallId
         const { tools: scopedSubTools, roleInstruction } = selectToolsForSubagentRole(
           role,
           subagentAllTools
@@ -1332,6 +1442,7 @@ async function executeTurn(
           offloadRootDir: rootDir,
           enableAnthropicCache:
             modelProfile.protocol === 'anthropic' && modelProfile.enablePromptCache !== false,
+          profile: modelProfile,
           onUsage: addUsage,
           onToken: (delta) => {
             subFinalText += delta
@@ -1373,7 +1484,9 @@ async function executeTurn(
           takeRecordedToolData: () => null
         })
 
-        return subFinalText.trim() || '子任务已执行完毕。'
+        // 只把子智能体的最终结论交回主上下文，中间过程不再整段回灌
+        const finalText = lastAiText(subHistory) || subFinalText.trim().slice(-4000)
+        return finalText || '子任务已执行完毕。'
       }
     })
 
@@ -1428,6 +1541,7 @@ async function executeTurn(
       offloadRootDir: rootDir,
       enableAnthropicCache:
         modelProfile.protocol === 'anthropic' && modelProfile.enablePromptCache !== false,
+      profile: modelProfile,
       onUsage: addUsage,
       compactContext: {
         rootDir,
@@ -1449,6 +1563,7 @@ async function executeTurn(
       },
       onToolStart: (id, name, args) => {
         currentActiveToolCallId = id
+        mainLoopCallIds.add(id)
         post({
           type: 'tool',
           requestId,
@@ -1559,13 +1674,18 @@ async function executeTurn(
       })
     }
   } finally {
-    const cleanHist = sanitizeHistoryForResume(history)
-    history.splice(0, history.length, ...cleanHist)
-    saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history)
-    cancelAsyncJobs?.()
-    await mcpBundle?.closeAll()
-    await extraMcpBundle?.closeAll()
-    activeTurns.delete(threadId)
+    try {
+      const cleanHist = sanitizeHistoryForResume(history)
+      history.splice(0, history.length, ...cleanHist)
+      saveRuntimeCheckpoint(transcriptPath, threadId, turnNum, history)
+      cancelAsyncJobs?.()
+      await mcpBundle?.closeAll()
+      await extraMcpBundle?.closeAll()
+    } catch (cleanupErr) {
+      console.error('[runtime] turn cleanup failed:', cleanupErr)
+    } finally {
+      activeTurns.delete(threadId)
+    }
   }
 }
 
@@ -1573,7 +1693,18 @@ onInbound((msg) => {
   switch (msg.type) {
     case 'chat':
     case 'resume_suspended_turn':
-      void executeTurn(msg)
+      executeTurn(msg).catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error('[runtime] executeTurn failed before start:', err)
+        post({
+          type: 'error',
+          requestId: msg.requestId,
+          threadId: msg.threadId,
+          kind: 'execution-failed',
+          message,
+          userMessage: `任务启动失败：${message}`
+        })
+      })
       break
     case 'resume': {
       const turn = activeTurns.get(msg.threadId)
@@ -1598,6 +1729,7 @@ onInbound((msg) => {
     }
     case 'set_permission_mode':
       globalPermissionMode = msg.permissionMode
+      for (const turn of activeTurns.values()) turn.permissionMode = msg.permissionMode
       break
     case 'abort': {
       const turn = activeTurns.get(msg.threadId)
@@ -1613,9 +1745,16 @@ onInbound((msg) => {
       post({ type: 'flush_pending_done', requestId: msg.requestId })
       break
     case 'mcp_check':
-      void checkSingleMcpServer(msg.server).then((res) =>
-        post({ type: 'mcp_check_done', requestId: msg.requestId, ...res })
-      )
+      void checkSingleMcpServer(msg.server)
+        .then((res) => post({ type: 'mcp_check_done', requestId: msg.requestId, ...res }))
+        .catch((err: unknown) =>
+          post({
+            type: 'mcp_check_done',
+            requestId: msg.requestId,
+            ok: false,
+            reason: err instanceof Error ? err.message : String(err)
+          })
+        )
       break
     case 'distill_project':
       void distillProjectMemory({
@@ -1624,15 +1763,26 @@ onInbound((msg) => {
         conversationId: msg.conversationId,
         transcriptPath: msg.transcriptPath,
         modelProfile: msg.modelProfile
-      }).then((updated) =>
-        post({
-          type: 'distill_done',
-          requestId: msg.requestId,
-          projectId: msg.projectId,
-          ok: true,
-          updated
+      })
+        .then((updated) =>
+          post({
+            type: 'distill_done',
+            requestId: msg.requestId,
+            projectId: msg.projectId,
+            ok: true,
+            updated
+          })
+        )
+        .catch((err: unknown) => {
+          console.error('[runtime] distill failed:', err)
+          post({
+            type: 'distill_done',
+            requestId: msg.requestId,
+            projectId: msg.projectId,
+            ok: false,
+            updated: false
+          })
         })
-      )
       break
   }
 })

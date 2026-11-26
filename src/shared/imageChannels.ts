@@ -125,3 +125,8 @@ export function sortChannelsForRole(
   const rest = channels.filter((c) => !c.roles?.includes(role))
   return [...preferred, ...rest]
 }
+
+/** 取规范化后的渠道列表（主渠道在前，降级链顺序） */
+export function imageChannelsOf(img: ImageGenConfig): ImageGenChannel[] {
+  return normalizeImageGenConfig(img).channels ?? []
+}

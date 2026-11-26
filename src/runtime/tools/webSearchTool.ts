@@ -1,5 +1,6 @@
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { resolveToolCallId } from './callId'
 import type { WebSearchConfig, WebSearchResultItem, WebSearchToolData } from '@shared/protocol'
 
 function stripHtmlTags(s: string): string {
@@ -98,14 +99,17 @@ export async function runWebSearch(params: {
   const provider = params.config?.provider ?? 'duckduckgo'
   const apiKey = params.config?.apiKey?.trim() ?? ''
   let results: WebSearchResultItem[] = []
+  // M5：返回实际使用的检索服务（配置了 Tavily / 博查但没填 Key 时会回退到 DuckDuckGo）
+  let used: string = provider
   if (provider === 'tavily' && apiKey) {
     results = await searchTavily(params.query, apiKey, params.signal)
   } else if (provider === 'bocha' && apiKey) {
     results = await searchBocha(params.query, apiKey, params.signal)
   } else {
+    used = 'duckduckgo'
     results = await searchDuckDuckGo(params.query, params.signal)
   }
-  return { provider, results }
+  return { provider: used, results }
 }
 
 export function createWebSearchTool(params: {
@@ -123,12 +127,11 @@ export function createWebSearchTool(params: {
     schema: z.object({
       query: z.string().min(1).describe('精准的联网搜索关键词')
     }),
-    func: async ({ query }, runManager) => {
+    func: async ({ query }, runManager, config) => {
       const callId =
-        (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable?.toolCallId ??
-        `web_${Date.now()}`
+        resolveToolCallId(runManager, config)
 
-      const { results } = await runWebSearch({
+      const { provider: usedProvider, results } = await runWebSearch({
         config: params.config,
         query,
         signal: params.signal
@@ -137,7 +140,7 @@ export function createWebSearchTool(params: {
       params.recordToolData(callId, {
         kind: 'web_search',
         query,
-        provider,
+        provider: usedProvider as typeof provider,
         results
       })
 
@@ -145,7 +148,7 @@ export function createWebSearchTool(params: {
         return `联网检索未返回直接结果（检索词：${query}）。请尝试更换关键词或提示用户确认具体参数。`
       }
 
-      return JSON.stringify({ query, provider, results }, null, 2)
+      return JSON.stringify({ query, provider: usedProvider, results }, null, 2)
     }
   })
 }

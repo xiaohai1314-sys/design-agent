@@ -1,14 +1,17 @@
 import {
+  createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
   type Dirent
 } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { basename, dirname, extname, join, relative } from 'node:path'
 import type {
   ClipModelDownloadProgress,
@@ -82,6 +85,18 @@ export function getClipModelStatus(modelDir: string): ClipModelStatus {
   }
 }
 
+/** 流式计算文件 SHA-256（模型权重较大，不能整份读入内存） */
+async function sha256OfFile(filePath: string): Promise<string> {
+  const hash = createHash('sha256')
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath)
+    stream.on('data', (chunk) => hash.update(chunk))
+    stream.once('error', reject)
+    stream.once('end', () => resolve())
+  })
+  return hash.digest('hex')
+}
+
 export async function downloadClipModel(
   modelDir: string,
   onProgress?: (p: ClipModelDownloadProgress) => void
@@ -95,12 +110,19 @@ export async function downloadClipModel(
     try {
       for (const spec of CLIP_MODEL_FILES) {
         const dest = join(dir, spec.name)
-        // 已完整下载的文件跳过（断点续传以文件为粒度）
+        // 已完整下载的文件跳过（断点续传以文件为粒度），但先校验哈希：
+        // 否则磁盘上已损坏/被替换的文件会永久通过"大小足够"的判断
         if (existsSync(dest) && statSync(dest).size >= spec.expectedBytes * 0.99) {
-          completedBytes += spec.expectedBytes
-          continue
+          const existingDigest = await sha256OfFile(dest).catch(() => '')
+          if (existingDigest === spec.sha256) {
+            completedBytes += spec.expectedBytes
+            continue
+          }
+          rmSync(dest, { force: true })
         }
-        const resp = await fetch(spec.url)
+        const resp = await fetch(spec.url, { signal: AbortSignal.timeout(30000) }).catch((err: unknown) => {
+          throw new Error(`连接下载地址失败（${spec.name}）：${err instanceof Error ? err.message : String(err)}`)
+        })
         if (!resp.ok || !resp.body) {
           throw new Error(`下载 ${spec.name} 失败（HTTP ${resp.status}）：请检查网络后重试`)
         }
@@ -110,8 +132,26 @@ export async function downloadClipModel(
         const out = createWriteStream(tmp)
         const reader = resp.body.getReader()
         let got = 0
+        // M5：60 秒收不到任何数据就判定网络中断，并清理半截文件
+        const readChunk = async () => {
+          let idle: NodeJS.Timeout | undefined
+          try {
+            return await Promise.race([
+              reader.read(),
+              new Promise<never>((_, rej) => {
+                idle = setTimeout(
+                  () => rej(new Error(`下载 ${spec.name} 超过 60 秒没有收到数据，请检查网络后重试`)),
+                  60000
+                )
+              })
+            ])
+          } finally {
+            clearTimeout(idle)
+          }
+        }
+        try {
         for (;;) {
-          const { done, value } = await reader.read()
+          const { done, value } = await readChunk()
           if (done) break
           got += value.byteLength
           if (downloadState && downloadState.dir === dir) {
@@ -131,6 +171,24 @@ export async function downloadClipModel(
           out.once('error', rej)
           out.end(() => res())
         })
+        } catch (downloadErr) {
+          void reader.cancel().catch(() => undefined)
+          out.destroy()
+          try {
+            rmSync(tmp, { force: true })
+          } catch {
+            // ignore
+          }
+          throw downloadErr
+        }
+        // 校验下载结果：大小对得上不代表内容正确（CDN 损坏、中间人替换都可能）
+        const digest = await sha256OfFile(tmp).catch(() => '')
+        if (digest !== spec.sha256) {
+          rmSync(tmp, { force: true })
+          throw new Error(
+            `下载 ${spec.name} 校验失败（SHA-256 不匹配），文件可能已损坏或被篡改，请重试`
+          )
+        }
         renameSync(tmp, dest)
         completedBytes += total
       }

@@ -4,6 +4,8 @@ import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
 import type { ModelProviderProfile } from '@shared/protocol'
 import { createChatModel } from '../modelFactory'
+// 仅类型引用：编译后擦除，运行期不会形成 index → asyncSubagents 的循环依赖
+import type { runAgentLoop } from '../index'
 
 export interface AsyncSubagentRecord {
   taskId: string
@@ -28,8 +30,9 @@ export interface UsageDelta {
 }
 
 const ROLE_TOOL_ALLOWLISTS: Record<Exclude<SubagentRole, 'general'>, Set<string>> = {
-  research: new Set(['ls', 'glob', 'grep', 'read_file', 'search_regulations', 'web_search']),
-  'cad-analyzer': new Set(['ls', 'glob', 'grep', 'read_file', 'execute', 'search_regulations', 'web_search']),
+  // 工具名必须与实际注册名一致（规范检索为 retrieve_regulation_chunks）
+  research: new Set(['ls', 'glob', 'grep', 'read_file', 'retrieve_regulation_chunks', 'search_inspiration', 'web_search']),
+  'cad-analyzer': new Set(['ls', 'glob', 'grep', 'read_file', 'execute', 'retrieve_regulation_chunks', 'web_search']),
   modeler: new Set(['ls', 'glob', 'grep', 'read_file', 'write_file', 'edit_file', 'execute'])
 }
 
@@ -62,24 +65,10 @@ export function selectToolsForSubagentRole(
   return { tools: filtered, roleInstruction: ROLE_INSTRUCTIONS[effectiveRole] }
 }
 
-export interface AsyncLoopRunner {
-  (params: {
-    model: ReturnType<typeof createChatModel>
-    systemPrompt: string
-    history: BaseMessage[]
-    tools: DynamicStructuredTool[]
-    signal: AbortSignal
-    maxIterations?: number
-    offloadRootDir?: string
-    enableAnthropicCache?: boolean
-    onUsage?: (delta: UsageDelta) => void
-    onToken: (delta: string) => void
-    onReasoning: (delta: string) => void
-    onToolStart: (id: string, name: string, args: Record<string, unknown>) => void
-    onToolEnd: (id: string, name: string, ok: boolean, toolData: unknown) => void
-    takeRecordedToolData: (id: string) => unknown
-  }): Promise<unknown>
-}
+/** 直接用 runAgentLoop 的真实签名，避免手写副本随主循环演进悄悄失真 */
+export type AsyncLoopRunner = (
+  params: Parameters<typeof runAgentLoop>[0]
+) => Promise<{ completedNaturally: boolean }>
 
 export function createAsyncSubagentTools(params: {
   rootDir: string
@@ -104,7 +93,7 @@ export function createAsyncSubagentTools(params: {
   const startAsyncTask = new DynamicStructuredTool({
     name: 'start_async_task',
     description:
-      '启动一个后台异步子智能体执行耗时专项研究或批处理（不阻塞当前主对话），立即返回 task_id，后续可用 check_async_task 轮询进度与结果。',
+      '在本轮对话内启动一个后台子智能体并行执行耗时的专项研究或批处理，立即返回 task_id，可用 check_async_task 查询进度与结果。注意：后台任务只在当前这一轮有效，本轮回复结束时会被自动取消，下一轮无法再查询；需要它的结论时，请在结束本轮回复之前用 check_async_task 取回。',
     schema: z.object({
       description: z.string().min(1).describe('简短后台任务标题'),
       prompt: z.string().min(1).describe('完整的后台子任务指令'),
@@ -183,7 +172,7 @@ export function createAsyncSubagentTools(params: {
 
   const checkAsyncTask = new DynamicStructuredTool({
     name: 'check_async_task',
-    description: '查询后台异步子任务的当前状态、已执行步骤及最终结论。',
+    description: '查询本轮内启动的后台子任务的当前状态、已执行步骤及最终结论（上一轮启动的任务已被取消，无法查询）。',
     schema: z.object({
       task_id: z.string().min(1)
     }),
@@ -207,7 +196,7 @@ export function createAsyncSubagentTools(params: {
 
   const listAsyncTasks = new DynamicStructuredTool({
     name: 'list_async_tasks',
-    description: '列出当前会话的所有后台异步子任务及其状态。',
+    description: '列出本轮内启动的所有后台子任务及其状态。',
     schema: z.object({}),
     func: async () => {
       const items = [...jobs.values()].map((j) => ({

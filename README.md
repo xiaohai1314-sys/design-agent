@@ -1,1 +1,94 @@
 # design-agent
+
+空间设计智能体桌面工作台：面向建筑、室内、景观设计师的 Windows 桌面应用。智能体运行在独立进程中，通过 MCP 连接本机的 SketchUp、Blender、3ds Max、Rhino、AutoCAD 等设计软件，并内置 CAD 图纸解析、规范检索、出图提示词改写、汇报文档（PPT / Word / Excel / PDF）等技能。
+
+> 代码评审报告与修复记录见 [`docs/review.md`](docs/review.md)。
+
+## 功能概览
+
+- **设计软件连接器**：SketchUp、Blender、3ds Max、Rhino、Photoshop、multicad（AutoCAD / 中望 / 浩辰 / BricsCAD）、computer-use，默认关闭、按需启用。
+- **技能**：`resources/skills/` 下每个子目录一个技能（`SKILL.md` + 脚本），智能体按需读取。
+- **确定性预设**：`resources/presets/`，如客厅 SketchUp 参数化工程包、CAD 户型种子图包。
+- **长任务机制**：断点续跑、审批挂起（可跨重启）、上下文自动压缩、超长输出转存、子智能体。
+- **工作台**：CAD、三维模型、PDF、Office 文件预览，PPT 修改提案，改图前后对比。
+
+## 目录结构
+
+```
+src/
+  main/       主进程：窗口、IPC（含路径授权校验）、本地存储、MCP 管理、预览转换
+  preload/    contextBridge 暴露的 window.zmo 接口
+  runtime/    智能体进程：主循环、工具、断点与压缩、子智能体、MCP 桥接
+  renderer/   界面（React 19 + Zustand + Tailwind 4）
+  shared/     IPC 协议类型、路径安全工具、PPT 解析等
+resources/
+  skills/     技能
+  presets/    预设工程包
+  mcp/        各连接器的配置与依赖
+  regulations/ 示例规范库
+  runtime/    内置运行时（Python、reg-indexer.exe、zmo_native.dll 等，未纳入 Git）
+scripts/      verify-runtime.ts（端到端测试）、check-resources.mjs、mock-mcp-server.mjs
+tools/        RegIndexerCs（C# 规范索引器）、native-core（C++ 原生库）
+```
+
+## 环境要求
+
+- Windows 10 / 11 x64
+- Node.js 22 及以上、npm
+- 可选：Python 3.10+（未放置内置 Python 时，CAD 解析等技能会使用系统 Python）
+- 可选：LibreOffice（部分文档技能用于格式转换与渲染）
+- 使用对应连接器时，需要本机已安装相应设计软件及其插件（见下文）
+
+## 快速开始
+
+```bash
+npm install
+npm run check:resources   # 检查内置运行资源是否齐全（缺失时会列出受影响的功能）
+npm run dev               # 开发模式
+```
+
+首次启动后，在左下角「设置 → 模型与 API」中添加模型配置（支持 OpenAI 兼容与 Anthropic 协议）。也可以通过环境变量预置：`DEEPSEEK_API_KEY`、`DASHSCOPE_API_KEY`、`OPENAI_API_KEY`（配合 `OPENAI_BASE_URL`）、`ANTHROPIC_API_KEY`（配合 `ANTHROPIC_BASE_URL`），生图渠道可用 `IMAGE_GEN_API_KEY`。
+
+API Key 保存在用户数据目录的 `model-settings.json` 中，系统支持时使用 Electron `safeStorage` 加密；界面只拿到脱敏后的值。
+
+## 常用命令
+
+| 命令 | 说明 |
+|---|---|
+| `npm run dev` | 开发模式启动 |
+| `npm run build` | 构建到 `out/` |
+| `npm run typecheck` | 主进程与界面两套 TypeScript 类型检查 |
+| `npm run test:runtime` | 端到端测试（需先 `npm run build`，测试会启动 `out/main/runtime.js`） |
+| `npm run check:resources` | 检查 `resources/` 下的内置运行资源 |
+| `npm run dist:win` | 构建并打包 Windows 安装包（输出到 `dist/`） |
+
+## 运行资源（未纳入 Git）
+
+以下二进制与第三方依赖体积较大，已在 `.gitignore` 中排除，需要单独放置到对应目录。缺少时应用仍能启动，但相关功能不可用：
+
+| 路径 | 用途 | 缺少时的影响 |
+|---|---|---|
+| `resources/runtime/python/python.exe` | 内置 Python（技能脚本与 Python 类 MCP 连接器） | 回退到系统 `python`；连接器依赖可能不全 |
+| `resources/runtime/node/node.exe` | 内置 Node（Photoshop 连接器） | 回退到 Electron 自带的 Node |
+| `resources/runtime/reg-indexer.exe`、`zmo_native.dll` | 规范库 SQLite 全文索引 | 回退到较慢的逐文件扫描 |
+| `resources/skills/cad/vendor/win64/` | dwg2dxf / LibreDWG，DWG 转 DXF | 无法解析 DWG（DXF 不受影响） |
+| `resources/mcp/sketchup/lib/` | `sketchup_mcp` Python 包 | SketchUp 连接器不可用 |
+| `resources/mcp/blender/lib/` | `blender_mcp` Python 包 | Blender 连接器不可用 |
+| `resources/mcp/3dsmax/lib/` | `maxmcp` Python 包与 3ds Max 插件 bundle | 3ds Max 连接器不可用 |
+| `resources/mcp/multicad/lib/` | multicad 连接器（`server.py`） | CAD 编辑连接器不可用 |
+| `resources/mcp/photoshop/node_modules/` | `@alisaitteke/photoshop-mcp`（可在该目录执行 `npm install` 获取） | Photoshop 连接器不可用 |
+| `resources/mcp/computer-use/cua-driver.exe` | 电脑操控驱动 | computer-use 连接器不可用 |
+
+各设计软件还需要安装宿主侧插件：SketchUp 扩展、Blender 插件 `blender_mcp.py`、3ds Max 插件包、Rhino 的 Rhino-MCP-Platform（可在设置中一键安装的会有提示）。
+
+## 打包
+
+```bash
+npm run dist:win
+```
+
+`electron-builder.yml` 会把 `resources/skills`、`presets`、`regulations`、`mcp`、`runtime` 作为 extraResources 打进安装包。**发布前请先阅读 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)**：部分内置技能与依赖的许可证限制再分发。
+
+## 许可证
+
+本项目尚未声明许可证。第三方组件的许可情况见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。

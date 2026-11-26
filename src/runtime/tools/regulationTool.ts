@@ -1,8 +1,10 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, extname, join } from 'node:path'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { resolveToolCallId } from './callId'
 import type { RegulationChunk, RegulationToolData } from '@shared/protocol'
 
 function findRegIndexerExe(pythonExe: string): string | null {
@@ -19,6 +21,9 @@ function findRegIndexerExe(pythonExe: string): string | null {
   return null
 }
 
+// R15：改为异步子进程，检索期间不再冻结整个 runtime（其他会话的流式输出、停止按钮照常工作）
+const execFileAsync = promisify(execFile)
+
 interface NativeRegQueryResult {
   indexedDocs: number
   indexedPages: number
@@ -27,7 +32,8 @@ interface NativeRegQueryResult {
   chunks: RegulationChunk[]
 }
 
-function queryWithNativeIndexer(params: {
+async function queryWithNativeIndexer(params: {
+  signal?: AbortSignal
   exePath: string
   folder: string
   pythonExe: string
@@ -35,7 +41,7 @@ function queryWithNativeIndexer(params: {
   standard?: string
   currentOnly?: boolean
   mandatoryOnly?: boolean
-}): NativeRegQueryResult | null {
+}): Promise<NativeRegQueryResult | null> {
   try {
     const dbPath = join(params.folder, '.zmo-reg-index.db')
     const args = [
@@ -60,11 +66,12 @@ function queryWithNativeIndexer(params: {
     if (params.mandatoryOnly) {
       args.push('--mandatory-only')
     }
-    const raw = execFileSync(params.exePath, args, {
+    const { stdout: raw } = await execFileAsync(params.exePath, args, {
       timeout: 60000,
       encoding: 'utf8',
       windowsHide: true,
-      maxBuffer: 12 * 1024 * 1024
+      maxBuffer: 12 * 1024 * 1024,
+      signal: params.signal
     })
     const parsed = JSON.parse(raw) as NativeRegQueryResult
     if (parsed && Array.isArray(parsed.chunks)) {
@@ -126,7 +133,7 @@ function scoreText(haystack: string, tokens: string[], rawQuery: string): number
   return score
 }
 
-function tryExtractPdfText(pdfPath: string, pythonExe: string): string | null {
+async function tryExtractPdfText(pdfPath: string, pythonExe: string, signal?: AbortSignal): Promise<string | null> {
   const pyCode = `
 import sys
 p = sys.argv[1]
@@ -145,11 +152,12 @@ except Exception:
 print(txt)
 `
   try {
-    const out = execFileSync(pythonExe, ['-c', pyCode, pdfPath], {
+    const { stdout: out } = await execFileAsync(pythonExe, ['-c', pyCode, pdfPath], {
       timeout: 15000,
       encoding: 'utf8',
       windowsHide: true,
-      maxBuffer: 8 * 1024 * 1024
+      maxBuffer: 8 * 1024 * 1024,
+      signal
     })
     return out.trim() || null
   } catch {
@@ -157,7 +165,7 @@ print(txt)
   }
 }
 
-function loadChunksFromFile(filePath: string, pythonExe: string): RegulationChunk[] {
+async function loadChunksFromFile(filePath: string, pythonExe: string, signal?: AbortSignal): Promise<RegulationChunk[]> {
   const ext = extname(filePath).toLowerCase()
   const baseName = filePath.split(/[\\/]/).pop() ?? '规范文档'
 
@@ -196,7 +204,7 @@ function loadChunksFromFile(filePath: string, pythonExe: string): RegulationChun
       return []
     }
   } else if (ext === '.pdf') {
-    rawText = tryExtractPdfText(filePath, pythonExe) ?? ''
+    rawText = (await tryExtractPdfText(filePath, pythonExe, signal)) ?? ''
   }
 
   if (!rawText) return []
@@ -241,10 +249,10 @@ export function createLocalRegulationTool(params: {
       current_only: z.boolean().optional().describe('是否只返回现行有效条文'),
       mandatory_only: z.boolean().optional().describe('是否仅过滤强制性/含强约束关键词条文')
     }),
-    func: async ({ query, standard, current_only, mandatory_only }, runManager) => {
+    func: async ({ query, standard, current_only, mandatory_only }, runManager, config) => {
       const callId =
-        (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable?.toolCallId ??
-        `reg_${Date.now()}`
+        resolveToolCallId(runManager, config)
+      const signal = (config as { signal?: AbortSignal } | undefined)?.signal
 
       const folder = params.regulationFolder?.trim()
       if (!folder || !existsSync(folder)) {
@@ -254,7 +262,8 @@ export function createLocalRegulationTool(params: {
       // 优先使用内置 C# + SQLite FTS5 持久化规范搜索引擎（一次抽文本落库，毫秒级命中+单位等价+效力分级+页码定位）
       const nativeExe = findRegIndexerExe(params.pythonExe)
       if (nativeExe) {
-        const nativeRes = queryWithNativeIndexer({
+        const nativeRes = await queryWithNativeIndexer({
+          signal,
           exePath: nativeExe,
           folder,
           pythonExe: params.pythonExe,
@@ -308,7 +317,7 @@ export function createLocalRegulationTool(params: {
 
       const allChunks: RegulationChunk[] = []
       for (const f of files) {
-        allChunks.push(...loadChunksFromFile(f, params.pythonExe))
+        allChunks.push(...(await loadChunksFromFile(f, params.pythonExe, signal)))
       }
 
       const tokens = tokenizeQuery(query)

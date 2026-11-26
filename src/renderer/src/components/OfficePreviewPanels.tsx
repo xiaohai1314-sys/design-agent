@@ -1,11 +1,32 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import mammoth from 'mammoth'
 import JSZip from 'jszip'
 import { LoaderCircle, ZoomIn, ZoomOut } from 'lucide-react'
 import clsx from 'clsx'
+
+/** S4：Word 转出的 HTML 在插入页面前去掉脚本、事件属性和危险链接（mammoth 不保证输出安全） */
+function sanitizeHtml(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  doc
+    .querySelectorAll('script,iframe,object,embed,style,link,meta,base,form,frame,frameset,svg')
+    .forEach((el) => el.remove())
+  doc.querySelectorAll('*').forEach((el) => {
+    for (const attr of Array.from(el.attributes)) {
+      const name = attr.name.toLowerCase()
+      const value = attr.value.trim().toLowerCase()
+      const isUrlAttr = ['href', 'src', 'xlink:href', 'action', 'formaction', 'srcset'].includes(name)
+      const dangerousUrl =
+        value.startsWith('javascript:') ||
+        value.startsWith('vbscript:') ||
+        (value.startsWith('data:') && !value.startsWith('data:image/'))
+      if (name.startsWith('on') || (isUrlAttr && dangerousUrl)) el.removeAttribute(attr.name)
+    }
+  })
+  return doc.body.innerHTML
+}
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
@@ -186,40 +207,76 @@ function colIndexToLetter(idx: number): string {
   return result
 }
 
-function parseWorksheet(ws: XLSX.WorkSheet): SheetCellData[][] {
-  if (!ws['!ref']) return []
-  const range = XLSX.utils.decode_range(ws['!ref'])
-  const maxRow = Math.min(range.e.r, range.s.r + 300)
-  const maxCol = Math.min(range.e.c, range.s.c + 60)
-  const merges = ws['!merges'] ?? []
+function colLetterToIndex(letters: string): number {
+  let n = 0
+  for (const ch of letters.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64)
+  return n - 1
+}
+
+function parseCellRef(ref: string): { r: number; c: number } {
+  const m = /^([A-Z]+)(\d+)$/i.exec(ref.trim())
+  if (!m) return { r: 0, c: 0 }
+  return { r: Number(m[2]) - 1, c: colLetterToIndex(m[1]) }
+}
+
+/** exceljs 没有 xlsx 的 cell.w（格式化文本），按 value 的类型逐种还原显示文本 */
+function cellDisplayText(cell: ExcelJS.Cell): string {
+  const text = cell.text
+  if (text !== undefined && text !== null && String(text).trim() !== '') return String(text)
+  const v = cell.value as unknown
+  if (v && typeof v === 'object') {
+    const obj = v as Record<string, unknown>
+    if ('formula' in obj || 'sharedFormula' in obj) {
+      const result = obj.result
+      if (result !== undefined && result !== null) return String(result)
+      return `=${String(obj.formula ?? obj.sharedFormula ?? '')}`
+    }
+    if ('error' in obj) return String(obj.error ?? '')
+    if (Array.isArray(obj.richText)) {
+      return (obj.richText as Array<{ text?: string }>).map((t) => t.text ?? '').join('')
+    }
+    if ('text' in obj) return String(obj.text ?? '')
+    if (v instanceof Date) return v.toISOString()
+  }
+  return v === null || v === undefined ? '' : String(v)
+}
+
+function parseWorksheet(ws: ExcelJS.Worksheet): SheetCellData[][] {
+  const merges = (ws.model?.merges ?? []) as string[]
   const skipSet = new Set<string>()
   const spanMap = new Map<string, { rowSpan: number; colSpan: number }>()
 
-  for (const { s, e } of merges) {
-    spanMap.set(`${s.r},${s.c}`, {
-      rowSpan: e.r - s.r + 1,
-      colSpan: e.c - s.c + 1
+  for (const ref of merges) {
+    const [a, b] = ref.split(':')
+    if (!a || !b) continue
+    const start = parseCellRef(a)
+    const end = parseCellRef(b)
+    spanMap.set(`${start.r},${start.c}`, {
+      rowSpan: end.r - start.r + 1,
+      colSpan: end.c - start.c + 1
     })
-    for (let r = s.r; r <= e.r; r++) {
-      for (let c = s.c; c <= e.c; c++) {
-        if (r !== s.r || c !== s.c) skipSet.add(`${r},${c}`)
+    for (let r = start.r; r <= end.r; r++) {
+      for (let c = start.c; c <= end.c; c++) {
+        if (r !== start.r || c !== start.c) skipSet.add(`${r},${c}`)
       }
     }
   }
 
+  // 与旧实现一致：最多渲染 300 行 × 60 列
+  const maxRow = Math.min(ws.rowCount || 0, 300)
+  const maxCol = Math.min(ws.columnCount || 0, 60)
   const cells: SheetCellData[][] = []
-  for (let r = range.s.r; r <= maxRow; r++) {
+  for (let r = 0; r < maxRow; r++) {
     const row: SheetCellData[] = []
-    for (let c = range.s.c; c <= maxCol; c++) {
+    for (let c = 0; c < maxCol; c++) {
       const key = `${r},${c}`
       if (skipSet.has(key)) {
         row.push({ value: '', skip: true })
         continue
       }
-      const cell = ws[XLSX.utils.encode_cell({ r, c })]
       const span = spanMap.get(key)
       row.push({
-        value: String(cell?.w ?? cell?.v ?? ''),
+        value: cellDisplayText(ws.getRow(r + 1).getCell(c + 1)),
         rowSpan: span?.rowSpan,
         colSpan: span?.colSpan,
         skip: false
@@ -233,21 +290,40 @@ function parseWorksheet(ws: XLSX.WorkSheet): SheetCellData[][] {
 export const SheetPreviewPanel: React.FC<{ filePath: string }> = ({ filePath }) => {
   const { bytes, loading, error } = useBinaryBytes(filePath)
   const [activeSheetIdx, setActiveSheetIdx] = useState(0)
+  const [sheets, setSheets] = useState<Array<{ name: string; cells: SheetCellData[][] }>>([])
+  const [parsing, setParsing] = useState(false)
 
-  const sheets = useMemo(() => {
-    if (!bytes) return []
-    try {
-      const wb = XLSX.read(bytes, { type: 'array' })
-      return wb.SheetNames.map((name) => ({
-        name,
-        cells: parseWorksheet(wb.Sheets[name])
-      }))
-    } catch {
-      return []
+  // exceljs 的 load 是异步的，改为 effect + state（旧实现用 xlsx 同步解析）
+  useEffect(() => {
+    if (!bytes) {
+      setSheets([])
+      return
+    }
+    let cancelled = false
+    setParsing(true)
+    const workbook = new ExcelJS.Workbook()
+    const buffer = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength
+    ) as ArrayBuffer
+    workbook.xlsx
+      .load(buffer)
+      .then(() => {
+        if (cancelled) return
+        setSheets(workbook.worksheets.map((ws) => ({ name: ws.name, cells: parseWorksheet(ws) })))
+      })
+      .catch(() => {
+        if (!cancelled) setSheets([])
+      })
+      .finally(() => {
+        if (!cancelled) setParsing(false)
+      })
+    return () => {
+      cancelled = true
     }
   }, [bytes])
 
-  if (loading) {
+  if (loading || parsing) {
     return (
       <div className="flex-1 flex items-center justify-center gap-2 text-xs text-zinc-500 py-12">
         <LoaderCircle className="w-4 h-4 animate-spin text-blue-600" />
@@ -342,7 +418,7 @@ export const DocxPreviewPanel: React.FC<{ filePath: string }> = ({ filePath }) =
     mammoth
       .convertToHtml({ arrayBuffer: copy.buffer })
       .then((res) => {
-        if (!cancelled) setHtml(res.value)
+        if (!cancelled) setHtml(sanitizeHtml(res.value))
       })
       .catch((err: unknown) => {
         if (!cancelled) setParseError(err instanceof Error ? err.message : String(err))

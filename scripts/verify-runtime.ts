@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import JSZip from 'jszip'
 import * as mammoth from 'mammoth'
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
 import type { PptProposal, RuntimeInbound, RuntimeOutbound } from '../src/shared/protocol'
@@ -139,20 +139,25 @@ async function verifyStandaloneMcpManager(tempRoot: string, resourcesRoot: strin
 }
 
 async function verifyOfficeLibs(): Promise<void> {
-  // Excel XLSX roundtrip + merged cell verification
-  const ws = XLSX.utils.aoa_to_sheet([
-    ['茶室物料清单', null, '预算汇总'],
-    ['材料名称', '规格', '单价(元)'],
-    ['黑胡桃木饰面', '2440x1220x18', 680]
-  ])
-  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }]
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '清单一览')
-  const xlsxBuf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
-  const wbRead = XLSX.read(xlsxBuf, { type: 'buffer' })
-  const sheetRead = wbRead.Sheets['清单一览']
-  const rows = XLSX.utils.sheet_to_json(sheetRead, { header: 1 }) as unknown[][]
-  if (rows.length !== 3 || rows[2][0] !== '黑胡桃木饰面' || !sheetRead['!merges']?.length) {
+  // Excel XLSX roundtrip + merged cell verification（exceljs 取代已停更的 xlsx）
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('清单一览')
+  sheet.addRow(['茶室物料清单', null, '预算汇总'])
+  sheet.addRow(['材料名称', '规格', '单价(元)'])
+  sheet.addRow(['黑胡桃木饰面', '2440x1220x18', 680])
+  sheet.mergeCells('A1:B1')
+  const xlsxBuf = (await workbook.xlsx.writeBuffer()) as ArrayBuffer
+
+  const readBack = new ExcelJS.Workbook()
+  await readBack.xlsx.load(xlsxBuf)
+  const sheetRead = readBack.getWorksheet('清单一览')
+  if (!sheetRead) throw new Error('XLSX roundtrip failed')
+  const merges = (sheetRead.model?.merges ?? []) as string[]
+  if (
+    sheetRead.rowCount !== 3 ||
+    String(sheetRead.getCell('A3').value ?? '') !== '黑胡桃木饰面' ||
+    merges.length === 0
+  ) {
     throw new Error('XLSX roundtrip failed')
   }
 
@@ -173,7 +178,7 @@ async function verifyOfficeLibs(): Promise<void> {
   if (typeof mammoth.convertToHtml !== 'function') {
     throw new Error('mammoth.convertToHtml missing')
   }
-  console.log('✅ [Office Libs] xlsx + jszip + mammoth sanity checks passed')
+  console.log('✅ [Office Libs] exceljs + jszip + mammoth sanity checks passed')
 
   // DeferredToolFilter (mcp_tools + tool_search) check
   const fakeMcpTools = Array.from({ length: 18 }, (_, i) =>
@@ -407,6 +412,34 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
     throw new Error(`ZNZMO.md protection failed: writeBlocked=${writeBlocked}, editBlocked=${editBlocked}`)
   }
 
+  // 1b. 技能目录作为只读根：read_file 能读到工作区外的 SKILL.md，write_file 仍然被拦截
+  const fakeSkillsRoot = mkdtempSync(join(tmpdir(), 'design-agent-skills-'))
+  mkdirSync(join(fakeSkillsRoot, 'demo'), { recursive: true })
+  const fakeSkillMd = join(fakeSkillsRoot, 'demo', 'SKILL.md')
+  writeFileSync(fakeSkillMd, '---\nname: demo\ndescription: 只读技能测试\n---\n# Demo Skill\n', 'utf8')
+  const skillTools = createWorkspaceTools({
+    rootDir: tempRoot,
+    readOnlyRoots: [fakeSkillsRoot],
+    signal: new AbortController().signal,
+    requireApproval: async () => {},
+    recordToolData: () => {},
+    onTodosChange: () => {}
+  })
+  const skillRead = await skillTools.find((t) => t.name === 'read_file')!.invoke({ file_path: fakeSkillMd })
+  if (typeof skillRead !== 'string' || !skillRead.includes('Demo Skill')) {
+    throw new Error(`read_file could not read SKILL.md under a read-only root: ${String(skillRead).slice(0, 200)}`)
+  }
+  let skillWriteBlocked = false
+  try {
+    await skillTools.find((t) => t.name === 'write_file')!.invoke({ file_path: fakeSkillMd, content: 'hacked' })
+  } catch {
+    skillWriteBlocked = true
+  }
+  if (!skillWriteBlocked || !readFileSync(fakeSkillMd, 'utf8').includes('Demo Skill')) {
+    throw new Error('write_file must not modify files under read-only roots')
+  }
+  rmSync(fakeSkillsRoot, { recursive: true, force: true })
+
   await verifyWorkspacePathBoundary(tempRoot)
 
   // 2. 大工具结果自动外置 (.zmo/tool-results/)
@@ -475,6 +508,16 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
     !researchScoped.tools.some((t) => t.name === 'read_file')
   ) {
     throw new Error(`research subagent scoping failed: ${researchScoped.tools.map((t) => t.name).join(',')}`)
+  }
+  // 5b. 白名单里的工具名必须对应真实注册的工具（曾误写为 search_regulations）
+  const fakeRegTool = new DynamicStructuredTool({
+    name: 'retrieve_regulation_chunks',
+    description: 'regulation',
+    schema: z.object({}),
+    func: async () => 'ok'
+  })
+  if (!selectToolsForSubagentRole('research', [...pool, fakeRegTool]).tools.some((t) => t.name === 'retrieve_regulation_chunks')) {
+    throw new Error('research subagent cannot use retrieve_regulation_chunks')
   }
   const modelerScoped = selectToolsForSubagentRole('modeler', pool)
   if (!modelerScoped.tools.some((t) => t.name === 'blender__add_cube')) {
@@ -1109,7 +1152,16 @@ experimental_bearer_token = "sk-test-token"
 
   const globalsCss = readFileSync(resolve('src/renderer/src/styles/globals.css'), 'utf8')
   const appTsx = readFileSync(resolve('src/renderer/src/App.tsx'), 'utf8')
-  if (!globalsCss.includes('.app-drag-region') || !appTsx.includes('flex-1 h-full min-w-[64px] app-drag-region')) {
+  // 标题栏已拆到独立组件：拖拽热区在新文件里，同时确认 App 仍在用它
+  const titleBarTsx = readFileSync(
+    resolve('src/renderer/src/components/layout/WindowTitleBar.tsx'),
+    'utf8'
+  )
+  if (
+    !globalsCss.includes('.app-drag-region') ||
+    !titleBarTsx.includes('flex-1 h-full min-w-[64px] app-drag-region') ||
+    !appTsx.includes('<WindowTitleBar')
+  ) {
     throw new Error('Frameless window drag spacer regression detected!')
   }
 

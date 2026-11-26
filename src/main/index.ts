@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  ClipboardItem,
   dialog,
   ipcMain,
   Menu,
@@ -16,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 import {
   IPC_CHANNELS,
   type AppGeneralSettings,
+  type CcSwitchCandidate,
   type ModelSettingsState,
   type ProjectMeta,
   type SendMessagePayload,
@@ -60,6 +62,114 @@ let isQuitting = false
 let store: LocalAppStore
 let runtimeHost: AgentRuntimeHost
 const liveRuntimeThreads = new Set<string>()
+// R5：每个运行中会话当前这一轮的 requestId，runtime 意外退出时用来补发出错事件
+const liveRequestIds = new Map<string, string>()
+// M4：记住每个会话上一轮实际使用的模型与 thinking 设置，续跑时沿用
+const threadModelChoice = new Map<string, { profileId: string; thinking?: boolean }>()
+
+// ---------------- S1：发给界面的模型配置只带脱敏后的 Key ----------------
+const MASKED_KEY_PREFIX = '••••••••'
+
+function maskKey(key: string): string {
+  return key ? `${MASKED_KEY_PREFIX}${key.slice(-4)}` : ''
+}
+
+function isMaskedKey(value: unknown): boolean {
+  return typeof value === 'string' && value.startsWith(MASKED_KEY_PREFIX)
+}
+
+// ---------------- S5：CC Switch 候选的真实 Key 只保留在主进程 ----------------
+let ccSwitchCandidatesCache: CcSwitchCandidate[] = []
+
+function discoverCcSwitch(): Promise<{ candidates: CcSwitchCandidate[]; error?: string }> {
+  const py = join(resolveResourcesDir(), 'runtime', 'python', 'python.exe')
+  return discoverCcSwitchCandidates(existsSync(py) ? py : 'python')
+}
+
+async function resolveCcSwitchKey(uid: string): Promise<string> {
+  let hit = ccSwitchCandidatesCache.find((c) => c.uid === uid)
+  if (!hit?.apiKey) {
+    const res = await discoverCcSwitch()
+    ccSwitchCandidatesCache = res.candidates ?? []
+    hit = ccSwitchCandidatesCache.find((c) => c.uid === uid)
+  }
+  return hit?.apiKey ?? ''
+}
+
+/** 补齐带 ccUid 但 Key 为空的条目：Key 从主进程缓存取，不经过界面 */
+async function resolveCcSwitchEntry<T extends { apiKey: string; ccUid?: string }>(item: T): Promise<T> {
+  if (!item.ccUid) return item
+  if (item.apiKey && !isMaskedKey(item.apiKey)) return item
+  const key = await resolveCcSwitchKey(item.ccUid)
+  return key ? { ...item, apiKey: key } : item
+}
+
+async function fillCcSwitchKeys(settings: ModelSettingsState): Promise<ModelSettingsState> {
+  const profiles = await Promise.all(settings.profiles.map(resolveCcSwitchEntry))
+  const imageGen = settings.imageGen
+    ? {
+        ...(await resolveCcSwitchEntry(settings.imageGen)),
+        channels: await Promise.all((settings.imageGen.channels ?? []).map(resolveCcSwitchEntry))
+      }
+    : settings.imageGen
+  return { ...settings, profiles, imageGen }
+}
+
+function maskSecrets<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((v) => maskSecrets(v)) as unknown as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = k === 'apiKey' && typeof v === 'string' ? maskKey(v) : maskSecrets(v)
+    }
+    return out as T
+  }
+  return value
+}
+
+/** 界面回传的配置里，仍是脱敏值的 Key 用当前保存的真实值替换（数组按 id 对应，没有 id 时按位置） */
+function restoreSecrets<T>(next: T, current: unknown): T {
+  if (Array.isArray(next)) {
+    const curArr = Array.isArray(current) ? current : []
+    return next.map((item, idx) => {
+      const id = item && typeof item === 'object' ? (item as { id?: unknown }).id : undefined
+      const match =
+        id !== undefined
+          ? curArr.find((c) => c && typeof c === 'object' && (c as { id?: unknown }).id === id)
+          : curArr[idx]
+      return restoreSecrets(item, match)
+    }) as unknown as T
+  }
+  if (next && typeof next === 'object') {
+    const cur = current && typeof current === 'object' ? (current as Record<string, unknown>) : {}
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(next as Record<string, unknown>)) {
+      if (k === 'apiKey' && isMaskedKey(v)) {
+        out[k] = typeof cur.apiKey === 'string' ? cur.apiKey : ''
+      } else {
+        out[k] = restoreSecrets(v, cur[k])
+      }
+    }
+    return out as T
+  }
+  return next
+}
+
+// ---------------- S2 / S3：打开文件与外链的安全限制 ----------------
+const BLOCKED_OPEN_EXTS = new Set([
+  '.exe', '.com', '.bat', '.cmd', '.ps1', '.psm1', '.psd1', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh',
+  '.msi', '.msp', '.scr', '.lnk', '.url', '.reg', '.hta', '.cpl', '.jar', '.pif', '.application',
+  '.appref-ms', '.gadget', '.msc', '.scf', '.inf', '.sct', '.chm', '.sh'
+])
+
+function isSafeExternalUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw)
+    return url.protocol === 'http:' || url.protocol === 'https:' || url.protocol === 'mailto:'
+  } catch {
+    return false
+  }
+}
 let cadService: CadPreviewService
 let modelService: ModelPreviewService
 let mcpManager: McpConnectorManager
@@ -218,7 +328,8 @@ function createMainWindow(): void {
     backgroundColor: '#f8f9fb',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // S4：preload 只用到 contextBridge / ipcRenderer / webUtils，可以在沙箱中运行
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -238,8 +349,15 @@ function createMainWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url)
+    // S3：只把 http / https / mailto 交给系统打开，file:、ms-msdt: 等协议一律拒绝
+    if (isSafeExternalUrl(details.url)) void shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // 主窗口不允许被导航到其他页面（例如点击了模型输出中的链接）
+    if (url === mainWindow?.webContents.getURL()) return
+    event.preventDefault()
+    if (isSafeExternalUrl(url)) void shell.openExternal(url)
   })
 
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
@@ -250,9 +368,10 @@ function createMainWindow(): void {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.handle(IPC_CHANNELS.ModelsGetSettings, () => store.getModelSettings())
-  ipcMain.handle(IPC_CHANNELS.ModelsSaveSettings, (_e, settings: ModelSettingsState) => {
+  ipcMain.handle(IPC_CHANNELS.ModelsGetSettings, () => maskSecrets(store.getModelSettings()))
+  ipcMain.handle(IPC_CHANNELS.ModelsSaveSettings, async (_e, incoming: ModelSettingsState) => {
     const current = store.getModelSettings()
+    const settings = restoreSecrets(await fillCcSwitchKeys(incoming), current)
     const requestedFolders: Array<[string | undefined, string | undefined]> = [
       [settings.regulation?.folderPath, current.regulation?.folderPath],
       [settings.inspiration?.folderPath, current.inspiration?.folderPath],
@@ -267,20 +386,44 @@ function registerIpcHandlers(): void {
         throw new Error(`模型设置目录必须通过系统文件夹选择器选中：${folder}`)
       }
     }
-    return store.saveModelSettings(settings)
+    return maskSecrets(store.saveModelSettings(settings))
   })
-  ipcMain.handle(IPC_CHANNELS.ModelsDiscoverCcSwitch, () => {
-    const py = join(resolveResourcesDir(), 'runtime', 'python', 'python.exe')
-    return discoverCcSwitchCandidates(existsSync(py) ? py : 'python')
+  ipcMain.handle(IPC_CHANNELS.ModelsDiscoverCcSwitch, async () => {
+    const res = await discoverCcSwitch()
+    ccSwitchCandidatesCache = res.candidates ?? []
+    // 回传界面时抹掉真实 Key，只保留“是否存在”与脱敏展示值
+    return {
+      ...res,
+      candidates: ccSwitchCandidatesCache.map((c) => ({
+        ...c,
+        apiKey: '',
+        hasKey: Boolean(c.apiKey?.trim())
+      }))
+    }
   })
   ipcMain.handle(
     IPC_CHANNELS.ModelsTestConnection,
-    (_e, profile: ModelSettingsState['profiles'][number]) => testModelProfileConnection(profile)
+    async (_e, profile: ModelSettingsState['profiles'][number]) => {
+      let target = profile
+      if (profile.ccUid && (!profile.apiKey || isMaskedKey(profile.apiKey))) {
+        const key = await resolveCcSwitchKey(profile.ccUid)
+        if (key) target = { ...profile, apiKey: key }
+      }
+      return testModelProfileConnection(
+        restoreSecrets(
+          target,
+          store.getModelSettings().profiles.find((p) => p.id === profile.id)
+        )
+      )
+    }
   )
   ipcMain.handle(
     IPC_CHANNELS.ModelsTestImageChannel,
-    (_e, channel: ImageGenChannel, level: ImageChannelTestLevel) =>
-      testImageChannelConnection(channel, level)
+    (_e, channel: ImageGenChannel, level: ImageChannelTestLevel) => {
+      const saved = store.getModelSettings().imageGen as { channels?: ImageGenChannel[]; apiKey?: string } | undefined
+      const savedChannel = saved?.channels?.find((c) => c.id === channel.id) ?? { apiKey: saved?.apiKey ?? '' }
+      return testImageChannelConnection(restoreSecrets(channel, savedChannel), level)
+    }
   )
   ipcMain.handle(IPC_CHANNELS.ModelsGetClipModelStatus, (_e, modelDir: string) =>
     getClipModelStatus(
@@ -686,9 +829,15 @@ function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.ShellOpenPath, (_e, targetPath: string) =>
-    shell.openPath(assertAuthorizedReadPath(targetPath))
-  )
+  ipcMain.handle(IPC_CHANNELS.ShellOpenPath, (_e, targetPath: string) => {
+    const authorized = assertAuthorizedReadPath(targetPath)
+    // S2：可执行文件与脚本不直接运行（否则会绕过 execute 的审批），改为在资源管理器中定位
+    if (BLOCKED_OPEN_EXTS.has(extname(authorized).toLowerCase())) {
+      shell.showItemInFolder(authorized)
+      return '出于安全考虑，可执行文件和脚本不会被直接打开，已在资源管理器中定位该文件。'
+    }
+    return shell.openPath(authorized)
+  })
   ipcMain.handle(IPC_CHANNELS.ShellShowItemInFolder, (_e, targetPath: string) => {
     shell.showItemInFolder(assertAuthorizedReadPath(targetPath))
   })
@@ -725,13 +874,19 @@ function registerIpcHandlers(): void {
     }
   })
 
-  ipcMain.handle(IPC_CHANNELS.ClipboardWriteImage, (_e, filePath: string) => {
+  ipcMain.handle(IPC_CHANNELS.ClipboardWriteImage, async (_e, filePath: string) => {
     try {
       filePath = assertAuthorizedReadPath(filePath)
       if (!existsSync(filePath)) return { ok: false, error: '图片不存在' }
       const img = nativeImage.createFromPath(filePath)
       if (img.isEmpty()) return { ok: false, error: '无法解析图片格式' }
-      clipboard.writeImage(img)
+      // Electron 45 起 clipboard 改为 W3C 风格的异步 API，旧的 writeImage 已移除
+      const pngBuffer = img.toPNG()
+      const png = pngBuffer.buffer.slice(
+        pngBuffer.byteOffset,
+        pngBuffer.byteOffset + pngBuffer.byteLength
+      ) as ArrayBuffer
+      await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })])
       return { ok: true }
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
@@ -872,6 +1027,8 @@ function registerIpcHandlers(): void {
     })
 
     liveRuntimeThreads.add(task.id)
+    liveRequestIds.set(task.id, requestId)
+    threadModelChoice.set(task.id, { profileId: modelProfile.id, thinking: payload.thinking })
     runtimeHost.send({
       type: 'chat',
       requestId,
@@ -918,7 +1075,9 @@ function registerIpcHandlers(): void {
     const requestId = lastAssistant?.requestId || randomUUID()
 
     const modelSettings = store.getModelSettings()
+    const previousChoice = threadModelChoice.get(threadId)
     const modelProfile =
+      (previousChoice && modelSettings.profiles.find((p) => p.id === previousChoice.profileId)) ??
       modelSettings.profiles.find((p) => p.id === modelSettings.activeProfileId) ??
       modelSettings.profiles[0]
 
@@ -939,6 +1098,7 @@ function registerIpcHandlers(): void {
     const enabledMcpSpecs = await mcpManager.getEnabledSpecsWithHostState()
     store.clearPendingInteraction(threadId)
     liveRuntimeThreads.add(threadId)
+    liveRequestIds.set(threadId, requestId)
     runtimeHost.send({
       type: 'resume_suspended_turn',
       requestId,
@@ -947,7 +1107,7 @@ function registerIpcHandlers(): void {
       projectId: task.projectId,
       transcriptPath: store.getTranscriptPath(task.id),
       mcpServers: enabledMcpSpecs,
-      thinking: true,
+      thinking: previousChoice?.thinking ?? true,
       permissionMode: store.getPermissionMode(),
       modelProfile,
       imageGenConfig: modelSettings.imageGen,
@@ -965,9 +1125,7 @@ function registerIpcHandlers(): void {
     (_e, payload: { threadId: string; decision: AgentDecision }) => {
       const task = requireKnownTask(payload.threadId)
       assertWorkspaceRoot(task.rootDir)
-      if (payload.decision.type === 'approve' && payload.decision.scope === 'all') {
-        store.setPermissionMode('auto')
-      }
+      // R10：「全部允许」只对当前这一轮生效（由 runtime 按轮处理），不再改写全局权限设置
       if (!liveRuntimeThreads.has(payload.threadId)) {
         void dispatchSuspendedResume(payload.threadId, { kind: 'interrupt', decision: payload.decision })
         return
@@ -1085,6 +1243,7 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
 
     if (event.type === 'done' || event.type === 'aborted' || event.type === 'error') {
       liveRuntimeThreads.delete(event.threadId)
+      liveRequestIds.delete(event.threadId)
     }
 
     // 当隶属于某个「项目空间」的会话本轮完成时，自动触发后台记忆蒸馏（Distiller）
@@ -1136,6 +1295,26 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
     }
   })
 
+  runtimeHost.on('crashed', () => {
+    // R5：runtime 意外退出，把所有仍在运行的会话标记为出错并通知界面
+    for (const threadId of [...liveRuntimeThreads]) {
+      const event: RuntimeOutbound = {
+        type: 'error',
+        requestId: liveRequestIds.get(threadId) ?? randomUUID(),
+        threadId,
+        kind: 'runtime-crashed',
+        message: 'Agent runtime exited unexpectedly',
+        userMessage: '智能体进程意外退出，本轮已中断。已保存的进度不会丢失，可以直接继续对话。'
+      }
+      store.applyRuntimeEventToTranscript(event)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.AgentEvent, event)
+      }
+    }
+    liveRuntimeThreads.clear()
+    liveRequestIds.clear()
+  })
+
   runtimeHost.ensureStarted()
   registerIpcHandlers()
   createMainWindow()
@@ -1171,5 +1350,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true
+  store?.flushTranscripts()
   runtimeHost?.dispose()
 })

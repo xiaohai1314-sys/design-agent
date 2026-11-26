@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
+import { resolveToolCallId } from './callId'
 import type {
   AskImageEditToolData,
   GenerateImageToolData,
@@ -71,14 +72,13 @@ export function createImageTools(params: {
       image_path: z.string().min(1).describe('待用户标注的本机底图路径（绝对路径或相对工作区路径）'),
       hint: z.string().min(1).describe('展示在编辑器顶部的简短引导提示，如“请用画笔圈出需要更换材质的沙发区域”')
     }),
-    func: async ({ image_path, hint }, runManager) => {
+    func: async ({ image_path, hint }, runManager, config) => {
       const resolved = resolveLocalFile(params.rootDir, image_path)
       if (!existsSync(resolved)) {
         throw new Error(`无法打开标注底图，文件不存在：${resolved}`)
       }
       const callId =
-        (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable?.toolCallId ??
-        `imgedit_${Date.now()}`
+        resolveToolCallId(runManager, config)
 
       const answer = await params.waitForImageEdit(callId, resolved, hint)
       if (answer.action === 'cancel') {
@@ -184,10 +184,9 @@ export function createImageTools(params: {
         image_name: z.string().optional().describe('输出图片文件名（不含扩展名，如“茶室概念意向图_01”）'),
         size: z.string().optional().describe('图片尺寸，如 1024x1024、1536x1024 或 1024x768')
       }),
-      func: async ({ prompt, image_name, size }, runManager) => {
+      func: async ({ prompt, image_name, size }, runManager, config) => {
         const callId =
-          (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable?.toolCallId ??
-          `genimg_${Date.now()}`
+          resolveToolCallId(runManager, config)
 
         const safeName = (image_name || `render_${Date.now()}`)
           .replace(/[<>:"/\\|?*]/g, '_')
@@ -234,14 +233,13 @@ export function createImageTools(params: {
         image_name: z.string().optional().describe('输出文件名（不含扩展名）'),
         size: z.string().optional().describe('输出尺寸，如 1024x1024')
       }),
-      func: async ({ reference_image_path, prompt, image_name, size }, runManager) => {
+      func: async ({ reference_image_path, prompt, image_name, size }, runManager, config) => {
         const refPath = resolveLocalFile(params.rootDir, reference_image_path)
         if (!existsSync(refPath)) {
           throw new Error(`参考底图不存在：${refPath}`)
         }
         const callId =
-          (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable?.toolCallId ??
-          `editimg_${Date.now()}`
+          resolveToolCallId(runManager, config)
 
         const safeName = (image_name || `edit_${Date.now()}`)
           .replace(/[<>:"/\\|?*]/g, '_')

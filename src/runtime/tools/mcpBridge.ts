@@ -1,9 +1,13 @@
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
 import type { RuntimeMcpServerSpec } from '@shared/protocol'
 import type { ApprovalGate } from './workspaceTools'
+import { resolveToolCallId } from './callId'
 
 export interface ConnectedMcpBundle {
   tools: DynamicStructuredTool[]
@@ -58,12 +62,15 @@ function jsonSchemaToZodObject(inputSchema?: Record<string, unknown>): z.ZodObje
   return z.object(shape).passthrough()
 }
 
+// 名称看起来像密钥的环境变量不传给第三方 MCP 子进程（连接器自身需要的变量应写在 spec.env 里显式传入）
+const SECRET_ENV_RE = /(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|PRIVATE_KEY)/i
+
 function buildCleanMcpEnv(extra?: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === 'string' && k !== 'NODE_OPTIONS') {
-      out[k] = v
-    }
+    if (typeof v !== 'string' || k === 'NODE_OPTIONS') continue
+    if (SECRET_ENV_RE.test(k)) continue
+    out[k] = v
   }
   for (const [k, v] of Object.entries(extra ?? {})) {
     if (typeof v === 'string') out[k] = v
@@ -100,9 +107,28 @@ export async function checkSingleMcpServer(
   }
 }
 
+/** 把 MCP 返回的图片落盘，只把路径交给模型，避免大段 base64 文本挤占上下文 */
+function persistMcpImage(imageDir: string | undefined, data: string, mimeType?: string): string | null {
+  if (!imageDir || !data) return null
+  try {
+    mkdirSync(imageDir, { recursive: true })
+    const ext = mimeType?.includes('jpeg') || mimeType?.includes('jpg') ? 'jpg' : mimeType?.includes('webp') ? 'webp' : 'png'
+    const filePath = join(imageDir, `mcp_${Date.now()}_${randomUUID().slice(0, 6)}.${ext}`)
+    writeFileSync(filePath, Buffer.from(data, 'base64'))
+    return filePath.replace(/\\/g, '/')
+  } catch {
+    return null
+  }
+}
+
+type McpConnectResult =
+  | { ok: true; spec: RuntimeMcpServerSpec; client: Client; tools: DynamicStructuredTool[]; prompt: string }
+  | { ok: false; spec: RuntimeMcpServerSpec; reason: string }
+
 export async function connectMcpServers(
   specs: RuntimeMcpServerSpec[],
-  requireApproval: ApprovalGate
+  requireApproval: ApprovalGate,
+  options: { imageDir?: string } = {}
 ): Promise<ConnectedMcpBundle> {
   const clients: Client[] = []
   const tools: DynamicStructuredTool[] = []
@@ -110,40 +136,44 @@ export async function connectMcpServers(
   const failedLines: string[] = []
   const failedServers: RuntimeMcpServerSpec[] = []
 
-  for (const spec of specs) {
+  // 各连接器并行握手（原先串行，每个最长 12 秒）
+  const connectOne = async (spec: RuntimeMcpServerSpec): Promise<McpConnectResult> => {
+    let transport: StdioClientTransport | null = null
+    let client: Client | null = null
+    let timer: NodeJS.Timeout | undefined
     try {
-      const transport = new StdioClientTransport({
+      transport = new StdioClientTransport({
         command: spec.command,
         args: spec.args,
         env: buildCleanMcpEnv(spec.env),
         stderr: 'pipe'
       })
-      const client = new Client({ name: 'design-agent-runtime', version: '1.0.0' })
+      client = new Client({ name: 'design-agent-runtime', version: '1.0.0' })
       await Promise.race([
         client.connect(transport),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('连接超时')), 12000))
+        new Promise((_, rej) => {
+          timer = setTimeout(() => rej(new Error('连接超时')), 12000)
+        })
       ])
-      clients.push(client)
-
+      clearTimeout(timer)
       const listed = await client.listTools()
-      serverPrompts.push(`- **${spec.name}** (${spec.label})：${spec.description}（已就绪，共 ${listed.tools.length} 个工具）`)
+      const connected = client
+      const serverTools: DynamicStructuredTool[] = []
 
       for (const mcpTool of listed.tools) {
         // 严格采用原版命名规则：<server>__<tool>，例如 sketchup__eval_ruby / blender__execute_blender_code
         const fullToolName = `${spec.name}__${mcpTool.name}`
         const schema = jsonSchemaToZodObject(mcpTool.inputSchema as Record<string, unknown>)
 
-        tools.push(
+        serverTools.push(
           new DynamicStructuredTool({
             name: fullToolName,
             description: `[${spec.label}] ${mcpTool.description ?? mcpTool.name}`,
             schema,
-            func: async (args, runManager) => {
-              const callId =
-                (runManager as unknown as { configurable?: { toolCallId?: string } })?.configurable
-                  ?.toolCallId ?? `mcp_${Date.now()}`
+            func: async (args, runManager, config) => {
+              const callId = resolveToolCallId(runManager, config)
               await requireApproval(fullToolName, args as Record<string, unknown>, callId)
-              const result = await client.callTool({
+              const result = await connected.callTool({
                 name: mcpTool.name,
                 arguments: args as Record<string, unknown>
               })
@@ -151,6 +181,12 @@ export async function connectMcpServers(
               const texts = contentArr
                 .map((c: any) => {
                   if (c.type === 'text') return String(c.text ?? '')
+                  if (c.type === 'image' && typeof c.data === 'string') {
+                    const saved = persistMcpImage(options.imageDir, c.data, c.mimeType)
+                    return saved
+                      ? `[图片已保存：${saved}，需要查看时可用 read_file 读取]`
+                      : '[返回了一张图片，但保存失败]'
+                  }
                   return JSON.stringify(c)
                 })
                 .join('\n')
@@ -162,33 +198,60 @@ export async function connectMcpServers(
           })
         )
       }
+      return {
+        ok: true,
+        spec,
+        client: connected,
+        tools: serverTools,
+        prompt: `- **${spec.name}** (${spec.label})：${spec.description}（已就绪，共 ${listed.tools.length} 个工具）`
+      }
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err)
-      const prevHost = spec.hostState
-      const state =
-        prevHost?.state === 'plugin-missing' || prevHost?.state === 'host-not-running'
-          ? prevHost.state
-          : 'handshake-failed'
-      const attribution =
-        state === 'plugin-missing'
-          ? prevHost?.reason || `${spec.label} 宿主插件未安装或未启用`
-          : state === 'host-not-running'
-            ? prevHost?.reason || `${spec.label} 宿主软件未启动`
-            : prevHost?.hostRunning
-              ? `${spec.label} 进程运行中，但 MCP 端口握手失败/超时`
-              : `${spec.label} MCP 握手失败（${reason}）`
-
-      failedLines.push(`- ${spec.name} (${spec.label})：连接失败 [hostState=${state}] — ${attribution}（详情：${reason}）`)
-      failedServers.push({
-        ...spec,
-        hostState: {
-          state,
-          hostRunning: prevHost?.hostRunning,
-          pluginInstalled: prevHost?.pluginInstalled,
-          reason: attribution
-        }
-      })
+      clearTimeout(timer)
+      // 握手失败时关闭连接，避免残留 MCP 子进程
+      try {
+        if (client) await client.close()
+        else await transport?.close()
+      } catch {
+        // ignore
+      }
+      return { ok: false, spec, reason: err instanceof Error ? err.message : String(err) }
     }
+  }
+
+  const results = await Promise.all(specs.map((spec) => connectOne(spec)))
+
+  for (const res of results) {
+    if (res.ok) {
+      clients.push(res.client)
+      tools.push(...res.tools)
+      serverPrompts.push(res.prompt)
+      continue
+    }
+    const { spec, reason } = res
+    const prevHost = spec.hostState
+    const state =
+      prevHost?.state === 'plugin-missing' || prevHost?.state === 'host-not-running'
+        ? prevHost.state
+        : 'handshake-failed'
+    const attribution =
+      state === 'plugin-missing'
+        ? prevHost?.reason || `${spec.label} 宿主插件未安装或未启用`
+        : state === 'host-not-running'
+          ? prevHost?.reason || `${spec.label} 宿主软件未启动`
+          : prevHost?.hostRunning
+            ? `${spec.label} 进程运行中，但 MCP 端口握手失败/超时`
+            : `${spec.label} MCP 握手失败（${reason}）`
+
+    failedLines.push(`- ${spec.name} (${spec.label})：连接失败 [hostState=${state}] — ${attribution}（详情：${reason}）`)
+    failedServers.push({
+      ...spec,
+      hostState: {
+        state,
+        hostRunning: prevHost?.hostRunning,
+        pluginInstalled: prevHost?.pluginInstalled,
+        reason: attribution
+      }
+    })
   }
 
   const promptSections: string[] = []
