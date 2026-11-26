@@ -157,6 +157,6 @@ export function composeFeatureSubmission(
     title,
     text: sections.join('\n\n'),
     attachments: numberedAttachments.map(({ number: _n, ...att }) => att),
-    sceneParam: { toolTitle: feature.title }
+    sceneParam: { toolTitle: feature.title, featureCode: feature.featureCode }
   }
 }
