@@ -2,7 +2,7 @@
 
 空间设计智能体桌面工作台：面向建筑、室内、景观设计师的 Windows 桌面应用。智能体运行在独立进程中，通过 MCP 连接本机的 SketchUp、Blender、3ds Max、Rhino、AutoCAD 等设计软件，并内置 CAD 图纸解析、规范检索、出图提示词改写、汇报文档（PPT / Word / Excel / PDF）等技能。
 
-> 代码评审报告与修复记录见 [`docs/review.md`](docs/review.md)。
+> 本项目为**个人自用**，不对外分发。代码评审报告、修复记录与当前状态见 [`docs/review.md`](docs/review.md)。
 
 ## 功能概览
 
@@ -64,6 +64,7 @@ API Key 保存在用户数据目录的 `model-settings.json` 中，系统支持�
 | `npm run check:resources` | 检查 `resources/` 下的内置运行资源 |
 | `npm run pack:resources` | 把内置运行资源打成 `dist-resources/*.tar.gz` |
 | `npm run fetch:resources` | 从 `resources-bundle.json` 配置的地址下载并解压运行资源 |
+| `npm run build:runtime` | 从源码编译 `reg-indexer.exe` 与 `design_native.dll`（需要 .NET SDK 10 与 g++） |
 | `npm run dist:win` | 构建并打包 Windows 安装包（输出到 `dist/`） |
 
 ## 运行资源（未纳入 Git）
@@ -141,14 +142,25 @@ npm run dist:win
 
 `resources/runtime/reg-indexer.exe` 与 `design_native.dll` 可以从源码重建（`npm run build:runtime`，需要 .NET SDK 10 与 g++）；其余资源（Python/Node 运行时、连接器依赖、LibreDWG、cua-driver）只能从资源包获取。
 
+## 安全相关的默认行为
+
+| 项目 | 当前行为 | 调整位置 |
+|---|---|---|
+| API Key | 用 `safeStorage` 加密保存；界面只拿到脱敏值，从 CC Switch / Claude / Codex 导入的 Key 只留在主进程 | `src/main/store.ts`、`src/main/index.ts` |
+| 写文件、执行命令、生图、MCP 工具 | 默认逐次审批；可切到“自动”模式，或在审批时选“本轮全部允许”（只对当前这一轮生效） | 界面右下角权限模式 |
+| 写项目记忆（`remember`） | 自用版本不审批 | `src/runtime/index.ts` 的 `gatedToolNames` |
+| 打开文件 | 可执行文件与脚本（`.exe`、`.bat`、`.ps1` 等）不直接运行，改为在资源管理器中定位 | `src/main/index.ts` 的 `BLOCKED_OPEN_EXTS` |
+| 外链 | 只允许 `http`、`https`、`mailto`，主窗口不会被导航到其他页面 | `src/main/index.ts` |
+| 渲染进程 | 开启 `sandbox`；打包版注入 CSP，允许从 `https:` 加载脚本、样式、字体和图片，`fetch` / XHR 只能访问本地 | `electron.vite.config.ts` |
+
 ## 打包
 
 ```bash
 npm run dist:win
 ```
 
-`electron-builder.yml` 会把 `resources/skills`、`presets`、`regulations`、`mcp`、`runtime` 作为 extraResources 打进安装包。**发布前请先阅读 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)**：部分内置技能与依赖的许可证限制再分发。
+`electron-builder.yml` 会把 `resources/skills`、`presets`、`regulations`、`mcp`、`runtime` 作为 extraResources 打进安装包。安装包只供自己的机器使用；如果打算给别人，请先阅读 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)：部分内置技能与依赖的许可证限制再分发。
 
 ## 许可证
 
-本项目尚未声明许可证。第三方组件的许可情况见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
+本项目为个人自用，未声明许可证。第三方组件的许可情况见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
