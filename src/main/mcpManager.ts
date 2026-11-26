@@ -188,6 +188,18 @@ export class McpConnectorManager {
     for (const [k, v] of Object.entries(raw.env ?? {})) {
       env[k] = expandVars(v)
     }
+    // 连接器自带的 pywin32 是便携布局，win32/lib 与 pywin32_system32 不在默认搜索路径上
+    if (command === this.pythonExe) {
+      const pyLib = join(selfDir, 'lib')
+      const win32Lib = join(pyLib, 'win32', 'lib')
+      const pywin32Sys = join(pyLib, 'pywin32_system32')
+      if (existsSync(win32Lib)) {
+        env.PYTHONPATH = [env.PYTHONPATH, win32Lib].filter(Boolean).join(';')
+      }
+      if (existsSync(pywin32Sys)) {
+        env.PATH = [pywin32Sys, env.PATH ?? process.env.PATH ?? ''].filter(Boolean).join(';')
+      }
+    }
 
     return {
       name,

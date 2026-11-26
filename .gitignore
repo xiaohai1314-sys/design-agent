@@ -23,3 +23,7 @@ tools/*/obj/
 .DS_Store
 Thumbs.db
 .design-agent-reg-index.db*
+dist-resources/
+
+# 本地凭据，切勿提交
+gh-token.txt

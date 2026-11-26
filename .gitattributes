@@ -1,0 +1,3 @@
+# Windows 批处理用 LF 换行会让 cmd 解析出错，固定检出为 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf

@@ -11,6 +11,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test:runtime": "tsx --tsconfig tsconfig.node.json scripts/verify-runtime.ts",
     "check:resources": "node scripts/check-resources.mjs",
+    "pack:resources": "node scripts/pack-resources.mjs",
+    "fetch:resources": "node scripts/fetch-resources.mjs",
     "build:runtime": "node scripts/build-runtime.mjs",
     "dist:win": "npm run build:runtime && npm run build && electron-builder --win --config electron-builder.yml"
   },

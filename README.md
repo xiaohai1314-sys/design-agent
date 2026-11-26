@@ -37,12 +37,14 @@ tools/        RegIndexerCs（C# 规范索引器）、native-core（C++ 原生库
 - Node.js 22 及以上、npm
 - 可选：Python 3.10+（未放置内置 Python 时，CAD 解析等技能会使用系统 Python）
 - 可选：LibreOffice（部分文档技能用于格式转换与渲染）
+- 可选：.NET SDK 10 与 MinGW（g++），从源码编译 `reg-indexer.exe` / `design_native.dll` 时需要
 - 使用对应连接器时，需要本机已安装相应设计软件及其插件（见下文）
 
 ## 快速开始
 
 ```bash
 npm install
+npm run fetch:resources   # 首次或换机器时：拉取内置运行资源（见「运行资源」）
 npm run check:resources   # 检查内置运行资源是否齐全（缺失时会列出受影响的功能）
 npm run dev               # 开发模式
 ```
@@ -60,6 +62,8 @@ API Key 保存在用户数据目录的 `model-settings.json` 中，系统支持�
 | `npm run typecheck` | 主进程与界面两套 TypeScript 类型检查 |
 | `npm run test:runtime` | 端到端测试（需先 `npm run build`，测试会启动 `out/main/runtime.js`） |
 | `npm run check:resources` | 检查 `resources/` 下的内置运行资源 |
+| `npm run pack:resources` | 把内置运行资源打成 `dist-resources/*.tar.gz` |
+| `npm run fetch:resources` | 从 `resources-bundle.json` 配置的地址下载并解压运行资源 |
 | `npm run dist:win` | 构建并打包 Windows 安装包（输出到 `dist/`） |
 
 ## 运行资源（未纳入 Git）
@@ -80,6 +84,62 @@ API Key 保存在用户数据目录的 `model-settings.json` 中，系统支持�
 | `resources/mcp/computer-use/cua-driver.exe` | 电脑操控驱动 | computer-use 连接器不可用 |
 
 各设计软件还需要安装宿主侧插件：SketchUp 扩展、Blender 插件 `blender_mcp.py`、3ds Max 插件包、Rhino 的 Rhino-MCP-Platform（可在设置中一键安装的会有提示）。
+
+### 用资源包在多台机器间同步
+
+这些资源不在 Git 里，换机器时用资源包还原：
+
+```bash
+# 1. 在一台已备齐资源的机器上打包，输出 dist-resources/design-agent-resources-v*.tar.gz
+npm run pack:resources
+
+# 2. 把压缩包上传到 GitHub Release（私有仓库的 Release 同样可用），
+#    将下载地址与 sha256 填进仓库根目录的 resources-bundle.json
+
+# 3. 在新机器 clone 之后（私有仓库需先在仓库根目录放好 gh-token.txt，见下文）
+npm run fetch:resources
+npm run check:resources   # 应显示 11 项全部就绪
+```
+
+`resources-bundle.json` 默认指向私有仓库 `xiaohai1314-sys/design-agent-resources` 的 Release 资产。私有仓库不能直接用 `releases/download/` 直链（带令牌也会 404），脚本走的是 API 资产端点 `https://api.github.com/repos/{owner}/{repo}/releases/assets/{id}`，需要令牌：在 <https://github.com/settings/personal-access-tokens/new> 新建 Fine-grained token，只授权 `design-agent-resources` 一个仓库、Repository permissions → Contents 选 **Read-only**，然后把令牌写进仓库根目录的 `gh-token.txt`（只有一行，已被 `.gitignore` 忽略），或用 `GH_TOKEN` 环境变量。重新上传资源包后资产 ID 会变，需要同步更新 `resources-bundle.json` 里的 `url`。
+
+也可以临时指定地址，不写配置文件：
+
+```bash
+RESOURCES_BUNDLE_URL=<地址> npm run fetch:resources
+```
+
+`RESOURCES_BUNDLE_URL` 支持 `http(s)://` 地址，也支持本地路径（U 盘、局域网共享或离线校验时用）：
+
+```bash
+RESOURCES_BUNDLE_URL=dist-resources/design-agent-resources-v1.0.0.tar.gz npm run fetch:resources
+```
+
+网盘（115、百度网盘等）的分享链接不能直接填 —— 那类页面需要登录，`fetch` 拿到的是 HTML 而不是文件。用法是先在浏览器里把资源包下载到本地，再按上面的本地路径方式指定。
+
+### 从源码编译
+
+`npm run dist:win` 会先编译 C# 与 C++ 原生组件，再打包安装包。需要以下工具：
+
+| 工具 | winget 包 | 用途 |
+|---|---|---|
+| Node.js | `OpenJS.NodeJS.LTS` | 构建前端与主进程 |
+| .NET SDK 10 | `Microsoft.DotNet.SDK.10` | 编译 C# 的 `reg-indexer.exe` |
+| MinGW（WinLibs） | `BrechtSanders.WinLibs.POSIX.UCRT` | 编译 C++ 的 `design_native.dll` |
+
+.NET 要看的是 `dotnet --list-sdks` 里有没有 10.x，只装 .NET Runtime 时 `dotnet` 命令也在，但编译 `reg-indexer` 会失败。C# 工程目标框架是 `net10.0-windows10.0.19041.0`，Windows 相关引用包由 NuGet 还原，不需要 Visual Studio 或 Windows SDK。
+
+打包时 electron-builder 要下载 Electron 与签名工具，直连 GitHub 经常中断，可以改用镜像：
+
+```cmd
+set "ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/"
+set "ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/"
+npm run dist:win
+```
+
+中途失败直接重跑，已下载的部分有缓存。
+
+`resources/runtime/reg-indexer.exe` 与 `design_native.dll` 可以从源码重建（`npm run build:runtime`，需要 .NET SDK 10 与 g++）；其余资源（Python/Node 运行时、连接器依赖、LibreDWG、cua-driver）只能从资源包获取。
 
 ## 打包
 
