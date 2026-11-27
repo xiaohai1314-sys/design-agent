@@ -298,6 +298,11 @@ def source_cache_key(source: Path) -> str:
     return hashlib.sha256(material.encode()).hexdigest()[:24]
 
 
+# 遍历结果的缓存按内容寻址、不随代码变化：判定逻辑（图框、单位、图层）改了就加一，
+# 否则升级后同一张图还会拿到旧结果。
+TRAVERSAL_CACHE_VERSION = 2
+
+
 def result_path(key: str | None, layout_id: str, kind: str) -> Path | None:
     """没有缓存键或缓存目录建不出来（只读磁盘）时返回 None，调用方照常现算、不存盘。"""
     if not key:
@@ -306,7 +311,7 @@ def result_path(key: str | None, layout_id: str, kind: str) -> Path | None:
         root = cache_root()
     except OSError:
         return None
-    return root / f"{key}.{re.sub(r'[^0-9A-Za-z_-]', '_', layout_id)}.{kind}.json"
+    return root / f"{key}.v{TRAVERSAL_CACHE_VERSION}.{re.sub(r'[^0-9A-Za-z_-]', '_', layout_id)}.{kind}.json"
 
 
 def load_result(path: Path):
@@ -950,22 +955,77 @@ def coordinate_quantile_inliers(boxes):
     return inliers, outliers
 
 
-MAX_FRAMES = 40
+MAX_FRAMES = 80
 
 
-def organize_frames(raw_boxes, reference, layout_id):
+def titled_frame_boxes(boxes, texts):
+    """带图名（“一层平面图”“屋顶层平面图”）的闭合矩形，按包含关系只留最外层。
+
+    天正出图常把几十个图幅平铺在同一张图纸边框里：按包含关系它们全是「嵌套图框」，
+    会被当成内边框丢掉；而它们各自带图名，这正是图幅本身。包住两个以上带图名框的矩形
+    （图纸边框、图册封面）不是某一个图幅，先排除掉。
+    """
+    title_texts = [text for text in texts if text.get("anchor") and DRAWING_TITLE_PATTERN.search(text["text"])]
+    if not title_texts:
+        return []
+    titled = [box for box in boxes if any(point_in_bbox(text["anchor"], box) for text in title_texts)]
+    if len(titled) < 2:
+        return titled
+    titled.sort(key=bbox_area, reverse=True)
+    leaves = [box for box in titled if sum(1 for other in titled if other is not box and box_contains(box, other, 0.01)) < 2]
+    kept = []
+    for box in leaves:  # 已按面积从大到小，内边框这种被包住的就不再收
+        if not any(box_contains(other, box, 0.01) for other in kept):
+            kept.append(box)
+    return kept
+
+
+def reading_order_sorted(boxes):
+    """按阅读顺序（先上后下、先左后右）排；行高取中位数，跨行的图幅不会被排串。"""
+    heights = sorted(box[3] - box[1] for box in boxes)
+    row_height = heights[len(heights) // 2] if heights else 1.0
+    top_y = max((bbox_center(box)[1] for box in boxes), default=0.0)
+
+    def key(box):
+        center_x, center_y = bbox_center(box)
+        return (round((top_y - center_y) / max(row_height, 1e-9)), center_x)
+
+    return sorted(boxes, key=key)
+
+
+def build_frames(ordered, layout_id):
+    frames, ids = [], {}
+    for index, (box, parent) in enumerate(ordered[:MAX_FRAMES], start=1):
+        ids[id(box)] = f"{layout_id}:frame-{index}"
+        frame = {"id": ids[id(box)], "bbox": box}
+        if parent is not None and id(parent) in ids:
+            frame["within"] = ids[id(parent)]
+        frames.append(frame)
+    return frames
+
+
+def organize_frames(raw_boxes, reference, layout_id, texts=None):
     """去重、按包含关系分出顶层与嵌套图框，顶层按阅读顺序（先上后下、先左后右）编号。
 
     面积门槛以剔除离群后的主体范围为参照：若拿含离群点的全证据范围，一处飞到远处的文字就能把参照面积放大
     几十倍，真实图幅全被当成小框滤掉。由大到小处理，父框是否保留在处理子框前已确定：顶层框须不小于最大
     顶层框的 1/8（去掉孤立小方框），嵌套框须占父框 25% 以上（内边框这类）；房间轮廓、表格格子等不算图框。
+
+    给了 texts 时先看有没有带图名的框：有两个以上就按它们分幅（一张图纸里平铺多个图幅的常见出图方式），
+    没有就退回包含关系。
     """
-    minimum_area = bbox_area(reference) * 0.005 if reference else 0.0
     unique = {}
     for box in raw_boxes:
-        if bbox_area(box) >= minimum_area:
-            unique.setdefault(tuple(round(value, 1) for value in box), box)
-    boxes = sorted(unique.values(), key=bbox_area, reverse=True)
+        unique.setdefault(tuple(round(value, 1) for value in box), box)
+    all_boxes = list(unique.values())
+
+    if texts:
+        titled = titled_frame_boxes(all_boxes, texts)
+        if len(titled) >= 2:
+            return build_frames([(box, None) for box in reading_order_sorted(titled)], layout_id)
+
+    minimum_area = bbox_area(reference) * 0.005 if reference else 0.0
+    boxes = sorted((box for box in all_boxes if bbox_area(box) >= minimum_area), key=bbox_area, reverse=True)
 
     kept, top_level, nested = set(), [], []
     for index, box in enumerate(boxes):
@@ -979,27 +1039,12 @@ def organize_frames(raw_boxes, reference, layout_id):
             nested.append((box, parent))
             kept.add(id(box))
 
-    heights = sorted(box[3] - box[1] for box in top_level)
-    row_height = heights[len(heights) // 2] if heights else 1.0
-    top_y = max((bbox_center(box)[1] for box in top_level), default=0.0)
+    ordered = [(box, None) for box in reading_order_sorted(top_level)]
+    for owner in top_level:
+        children = [box for box, parent in nested if parent is owner]
+        ordered.extend((box, owner) for box in reading_order_sorted(children))
+    return build_frames(ordered, layout_id)
 
-    def reading_order(box):
-        center_x, center_y = bbox_center(box)
-        return (round((top_y - center_y) / max(row_height, 1e-9)), center_x)
-
-    top_level.sort(key=reading_order)
-    ordered = [(box, None) for box in top_level]
-    for parent in top_level:
-        ordered.extend(sorted(((box, owner) for box, owner in nested if owner is parent), key=lambda item: reading_order(item[0])))
-
-    frames, ids = [], {}
-    for index, (box, parent) in enumerate(ordered[:MAX_FRAMES], start=1):
-        ids[id(box)] = f"{layout_id}:frame-{index}"
-        frame = {"id": ids[id(box)], "bbox": box}
-        if parent is not None and id(parent) in ids:
-            frame["within"] = ids[id(parent)]
-        frames.append(frame)
-    return frames
 
 
 TITLE_FIELD_GRID = 0.015
@@ -1158,7 +1203,7 @@ def collect_layout(spec):
     subject_bounds = aggregate_boxes(inliers) or evidence_bounds
     native_bounds = None if evidence_bounds else native_extents(spec.layout)
 
-    frames = organize_frames(frame_boxes, subject_bounds or native_bounds, spec.id)
+    frames = organize_frames(frame_boxes, subject_bounds or native_bounds, spec.id, texts)
     label_sheets(frames, texts)
     render_bounds, render_source = select_render_bounds(inliers, evidence_boxes, frames, subject_bounds, native_bounds)
     heights = [item["height"] for item in texts]

@@ -184,7 +184,11 @@ def main():
                 continue
             if region and not cad_core.point_in_bbox(item["anchor"], region):
                 continue
-            texts.append({"text": item["text"], "anchor": (item["anchor"][0] * scale, item["anchor"][1] * scale), "height": item.get("height", 0), "layer": item["layer"]})
+            # anchor 是文字的左下角插入点，贴着墙时可能落在墙的另一侧；房间归属一律用包围盒中心
+            anchor = (item["anchor"][0] * scale, item["anchor"][1] * scale)
+            box = item.get("bbox")
+            point = (((box[0] + box[2]) / 2) * scale, ((box[1] + box[3]) / 2) * scale) if box else anchor
+            texts.append({"text": item["text"], "anchor": anchor, "point": point, "height": item.get("height", 0), "layer": item["layer"]})
 
         options = {
             "storey_height": args.height,

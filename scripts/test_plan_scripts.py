@@ -487,6 +487,99 @@ def test_codecheck_uncovered():
         check("判定里出现门洞宽度", "门洞宽度" in forced.stdout, True)
 
 
+def test_frames_tiled_sheet():
+    section("图幅：一张图纸里平铺多个带图名的图幅")
+    import cad_core
+
+    outer = [0, 0, 100000, 60000]
+    f1, f2, f3 = [1000, 1000, 30000, 20000], [35000, 1000, 65000, 20000], [1000, 25000, 30000, 50000]
+    boxes = [outer, f1, f2, f3]
+    texts = [
+        {"text": "一层平面图", "anchor": [2000, 1500], "height": 300},
+        {"text": "二层平面图", "anchor": [36000, 1500], "height": 300},
+        {"text": "南立面图", "anchor": [2000, 25500], "height": 300},
+    ]
+    frames = cad_core.organize_frames(boxes, outer, "model", texts)
+    check("平铺图幅：按图名分出 3 个", len(frames), 3)
+    check("不含整张图纸边框", any(frame["bbox"] == outer for frame in frames), False)
+    check("编号按阅读顺序（先上后下、先左后右）", [frame["bbox"] for frame in frames], [f3, f1, f2])
+
+    plain = cad_core.organize_frames(boxes, outer, "model", [])
+    check("没有图名时退回包含关系（只剩图纸边框）", len(plain), 1)
+
+
+def test_text_point():
+    section("房间名定位：用文字包围盒中心，不用左下角插入点")
+    import plan_core
+
+    check("有中心点时用中心", plan_core.text_point({"text": "卧室", "anchor": [1000, 2000], "point": [1300, 2150]}), (1300, 2150))
+    check("没有时退回 anchor", plan_core.text_point({"text": "卧室", "anchor": [1, 2]}), (1, 2))
+
+
+def test_room_regions():
+    section("房间轮廓：从房间名泛洪取被墙围住的那一片")
+    import plan_core
+
+    def hwall(y, x0, x1):
+        return {"base": {"d": (1.0, 0.0), "n": (0.0, 1.0), "offset": y}, "t0": x0, "t1": x1, "thickness": 200}
+
+    def vwall(x, y0, y1):
+        return {"base": {"d": (0.0, 1.0), "n": (-1.0, 0.0), "offset": -x}, "t0": y0, "t1": y1, "thickness": 200}
+
+    label = [{"text": "卧室", "anchor": (2000, 1500), "height": 300, "layer": "ROOM"}]
+
+    # 8000×3000 的一整间，中间只有半截隔墙（y 1000–2000）：两半连通，应该算作一间
+    open_mid = [hwall(0, 0, 8000), hwall(3000, 0, 8000), vwall(0, 0, 3000), vwall(8000, 0, 3000), vwall(4000, 1000, 2000)]
+    rooms = plan_core.rooms_from_labels(label, open_mid, plan_core.DEFAULTS)
+    check("连通的两半算一间", len(rooms), 1)
+    check("来源是泛洪", rooms[0]["source"], "inferred-region")
+    check("面积是整间 7800×2800", round(plan_core.polygon_area(rooms[0]["polygon"]) / 1e6, 2), 21.84)
+    check("置信度高", plan_core.room_confidence(rooms[0], 21.84), "high")
+
+    # 隔墙画通到底：两半各自成间，只取房间名所在的那半
+    closed_mid = open_mid[:4] + [vwall(4000, 0, 3000)]
+    rooms2 = plan_core.rooms_from_labels(label, closed_mid, plan_core.DEFAULTS)
+    check("整道隔墙分开：取左半间 3800×2800", round(plan_core.polygon_area(rooms2[0]["polygon"]) / 1e6, 2), 10.64)
+
+    # 顶墙只画了一半（隔断没画）：泛洪漏到图框外面，退回矩形并标低置信度
+    leaking = [hwall(0, 0, 8000), hwall(3000, 0, 4000), vwall(0, 0, 3000), vwall(8000, 0, 3000)]
+    rooms3 = plan_core.rooms_from_labels(label, leaking, plan_core.DEFAULTS)
+    check("漏出去时退回矩形", rooms3[0]["source"], "inferred-rect")
+    check("矩形按最近的墙取 7800×2800", round(plan_core.polygon_area(rooms3[0]["polygon"]) / 1e6, 2), 21.84)
+    check("置信度判低", plan_core.room_confidence(rooms3[0], 21.84, rooms3[0].get("enclosed")), "low")
+
+    regions = plan_core.room_regions(open_mid, plan_core.DEFAULTS)
+    area, touches_edge = regions.probe((2000, 1500))
+    check("泛洪区域不碰边界", touches_edge, False)
+    check("泛洪面积扣掉了中间那截隔墙", round(area / 1e6, 1), 21.6)
+
+    # L 形房间：6000×6000 缺掉右上角 3000×3000，轮廓要跟着拐，不能退回包围盒
+    l_shape = [hwall(0, 0, 6000), vwall(6000, 0, 3000), hwall(3000, 3000, 6000), vwall(3000, 3000, 6000), hwall(6000, 0, 3000), vwall(0, 0, 6000)]
+    rooms4 = plan_core.rooms_from_labels([{"text": "客厅", "anchor": (1500, 1500), "height": 300, "layer": "ROOM"}], l_shape, plan_core.DEFAULTS)
+    poly = rooms4[0]["polygon"]
+    check("L 形房间面积", round(plan_core.polygon_area(poly) / 1e6, 2), 24.64)
+    check("L 形轮廓是 6 个顶点", len(poly), 6)
+    check("L 形包围盒会比实际大（对照）", round((max(p[0] for p in poly) - min(p[0] for p in poly)) * (max(p[1] for p in poly) - min(p[1] for p in poly)) / 1e6, 2), 33.64)
+
+
+def test_codecheck_low_coverage():
+    section("规范初查：房间只占外包面积一半以下时不判定")
+    plan = bedroom_plan()
+    plan["bounds"] = {"width": 20000, "depth": 20000}  # 400㎡ 的图里只有一间 12㎡ 的房间
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "sparse.plan.json")
+        Path(path).write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "plan_codecheck.py"), "--plan", path, "--no-image"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        check("退出码为 2", proc.returncode, 2)
+        check("说明房间占比过低", "只占外包面积" in proc.stdout, True)
+        check("没有给出判定", "不满足" not in proc.stdout, True)
+
+
 def test_extract_columns_and_codes():
     section("实测图纸回归：柱断墙线 / 门窗同图层 / 门窗编号 / 非房间名文字")
     import plan_core
@@ -548,6 +641,10 @@ def main():
     test_room_confidence()
     test_building_type()
     test_codecheck_uncovered()
+    test_frames_tiled_sheet()
+    test_text_point()
+    test_room_regions()
+    test_codecheck_low_coverage()
 
     print(f"\n通过 {len(PASS)}，失败 {len(FAIL)}")
     if FAIL:

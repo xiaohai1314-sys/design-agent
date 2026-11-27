@@ -587,11 +587,19 @@ def is_label(text, layer=None):
     return bool(HAS_WORD_RE.search(t))
 
 
+def text_point(text):
+    """文字的包围盒中心；没有 bbox 时退回插入点。
+
+    anchor 是文字的左下角，贴着墙写的房间名用 anchor 判断会落到墙的另一侧，房间就缩成一条窄缝。
+    """
+    return tuple(text.get("point") or text["anchor"])
+
+
 def rooms_from_polygons(polys, texts):
     rooms = []
     for poly in polys:
         pts = poly["points"]
-        inside = [t for t in texts if point_in_polygon(t["anchor"], pts)]
+        inside = [t for t in texts if point_in_polygon(text_point(t), pts)]
         labels = sorted((t for t in inside if is_label(t["text"], t.get("layer"))), key=lambda t: -float(t.get("height") or 0))
         area_texts = [parse_area_text(t["text"]) for t in inside]
         area_texts = [a for a in area_texts if a is not None]
@@ -624,14 +632,17 @@ def edge_coverage(bounds, supports):
     return covered / total if total else 0.0
 
 
-def rooms_from_labels(texts, walls, cfg):
-    """图上没有房间轮廓时：从房间名文字向四个方向找最近的墙内皮，得到一个矩形（仅适用于正交户型）。"""
+def rooms_from_rectangles(texts, walls, cfg, regions=None):
+    """退路：从房间名文字向四个方向找最近的墙内皮，得到一个矩形（仅适用于正交户型）。
+
+    只在泛洪找不到围合区域时用（敞开的大厅、隔断没画），结果一定标成低置信度。
+    """
     rooms = []
     axis = [w for w in walls if abs(w["base"]["d"][0]) > 0.999 or abs(w["base"]["d"][1]) > 0.999]
     for t in texts:
         if not is_label(t["text"], t.get("layer")):
             continue
-        x, y = t["anchor"]
+        x, y = text_point(t)
         bounds = {"left": None, "right": None, "down": None, "up": None}
         supports = {}
         for w in axis:
@@ -657,7 +668,7 @@ def rooms_from_labels(texts, walls, cfg):
         if None in bounds.values():
             continue
         poly = [(bounds["left"], bounds["down"]), (bounds["right"], bounds["down"]), (bounds["right"], bounds["up"]), (bounds["left"], bounds["up"])]
-        near = [parse_area_text(o["text"]) for o in texts if point_in_polygon(o["anchor"], poly)]
+        near = [parse_area_text(o["text"]) for o in texts if point_in_polygon(text_point(o), poly)]
         near = [a for a in near if a is not None]
         key = tuple(round(v) for v in (bounds["left"], bounds["down"], bounds["right"], bounds["up"]))
         same = next((r for r in rooms if r["_key"] == key), None)
@@ -673,6 +684,8 @@ def rooms_from_labels(texts, walls, cfg):
                 "label_area_m2": near[0] if near else None,
                 "source": "inferred-rect",
                 "support": edge_coverage(bounds, supports),
+                "seed": (x, y),
+                "enclosed": False,
                 "_key": key,
             }
         )
@@ -684,14 +697,262 @@ def rooms_from_labels(texts, walls, cfg):
 CONFIDENCE_LABELS = {"high": "高", "medium": "中", "low": "低"}
 
 
-def room_confidence(room, area):
+def simplify_line(points, tolerance):
+    """Douglas-Peucker：把折线拉到容差以内，只保留拐点。"""
+    if len(points) < 3:
+        return list(points)
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        a, b = stack.pop()
+        if b <= a + 1:
+            continue
+        ax, ay = points[a]
+        bx, by = points[b]
+        dx, dy = bx - ax, by - ay
+        length = math.hypot(dx, dy)
+        best, index = -1.0, -1
+        for k in range(a + 1, b):
+            px, py = points[k]
+            if length < 1e-9:
+                distance = math.hypot(px - ax, py - ay)
+            else:
+                distance = abs(dy * (px - ax) - dx * (py - ay)) / length
+            if distance > best:
+                best, index = distance, k
+        if best > tolerance:
+            keep[index] = True
+            stack.append((a, index))
+            stack.append((index, b))
+    return [point for point, kept in zip(points, keep) if kept]
+
+
+def simplify_closed(points, tolerance):
+    """闭合折线：从离起点最远的点切开，两段分别简化后接回去。"""
+    if len(points) < 5:
+        return points
+    far = max(range(1, len(points)), key=lambda k: math.dist(points[k], points[0]))
+    head = simplify_line(points[: far + 1], tolerance)
+    tail = simplify_line(points[far:] + [points[0]], tolerance)
+    return head[:-1] + tail[:-1]
+
+
+class RoomRegions:
+    """把墙当障碍做一次栅格连通标记，从房间名位置泛洪得到被墙围住的那一片。
+
+    「四面都有墙」验证不了「这片空间真是一个房间」：窗户、阳台栏杆、飘窗台常画成几条平行长线，
+    向四周找最近墙内皮围出来的可能只是条缝。泛洪得到的是真正连通的那一片，轮廓贴合墙体，
+    走廊和 L 形空间也能算对 —— 墙线在门窗洞口处是连续的（洞口挂在墙上），不会从门口漏过去。
+    """
+
+    def __init__(self, walls, cfg, max_cells=600000):
+        self.ok = False
+        corners = []
+        for wall in walls:
+            for t in (wall["t0"], wall["t1"]):
+                corners.append(piece_point(wall["base"], t))
+        if not corners:
+            return
+        self.x0 = min(p[0] for p in corners)
+        self.y0 = min(p[1] for p in corners)
+        width = max(p[0] for p in corners) - self.x0
+        height = max(p[1] for p in corners) - self.y0
+        if width <= 0 or height <= 0:
+            return
+        self.cell = max(50.0, math.sqrt(width * height / max_cells))
+        self.cols = int(width / self.cell) + 3
+        self.rows = int(height / self.cell) + 3
+        self.grid = [0] * (self.cols * self.rows)  # 0 未访问，-1 墙，>0 区域编号
+        self.areas, self.touches, self.cells = {}, {}, {}
+        self._outlines = {}
+        self._block(walls)
+        self._label()
+        self.ok = True
+
+    def _block(self, walls):
+        cell, cols, rows, x0, y0 = self.cell, self.cols, self.rows, self.x0, self.y0
+        for wall in walls:
+            base = wall["base"]
+            half = max(wall["thickness"] / 2, cell * 0.5)
+            a, c = piece_point(base, wall["t0"]), piece_point(base, wall["t1"])
+            i0 = max(0, int((min(a[0], c[0]) - half - x0) / cell))
+            i1 = min(cols - 1, int((max(a[0], c[0]) + half - x0) / cell))
+            j0 = max(0, int((min(a[1], c[1]) - half - y0) / cell))
+            j1 = min(rows - 1, int((max(a[1], c[1]) + half - y0) / cell))
+            for j in range(j0, j1 + 1):
+                py = y0 + (j + 0.5) * cell
+                for i in range(i0, i1 + 1):
+                    index = j * cols + i
+                    if self.grid[index]:
+                        continue
+                    px = x0 + (i + 0.5) * cell
+                    along = px * base["d"][0] + py * base["d"][1]
+                    across = abs(px * base["n"][0] + py * base["n"][1] - base["offset"])
+                    if across <= half and wall["t0"] - half <= along <= wall["t1"] + half:
+                        self.grid[index] = -1
+
+    def _label(self):
+        cols, rows, grid = self.cols, self.rows, self.grid
+        label = 0
+        for start in range(len(grid)):
+            if grid[start]:
+                continue
+            label += 1
+            grid[start] = label
+            queue = [start]
+            members, edge = [], False
+            while queue:
+                index = queue.pop()
+                members.append(index)
+                i, j = index % cols, index // cols
+                if i == 0 or j == 0 or i == cols - 1 or j == rows - 1:
+                    edge = True
+                for step in (1, -1, cols, -cols):
+                    if (step == 1 and i == cols - 1) or (step == -1 and i == 0):
+                        continue
+                    nxt = index + step
+                    if 0 <= nxt < len(grid) and not grid[nxt]:
+                        grid[nxt] = label
+                        queue.append(nxt)
+            self.areas[label] = len(members) * self.cell * self.cell
+            self.touches[label] = edge
+            self.cells[label] = members
+
+    def label_at(self, point):
+        if not self.ok:
+            return 0
+        i = int((point[0] - self.x0) / self.cell)
+        j = int((point[1] - self.y0) / self.cell)
+        if not (0 <= i < self.cols and 0 <= j < self.rows):
+            return 0
+        value = self.grid[j * self.cols + i]
+        if value > 0:
+            return value
+        # 名字正好压在墙线上：取周围一圈里最大的那块
+        best = 0
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                ni, nj = i + di, j + dj
+                if 0 <= ni < self.cols and 0 <= nj < self.rows:
+                    candidate = self.grid[nj * self.cols + ni]
+                    if candidate > 0 and (best == 0 or self.areas[candidate] > self.areas[best]):
+                        best = candidate
+        return best
+
+    def probe(self, point):
+        """(面积 mm², 是否碰到边界)；点落在墙里时返回 None。"""
+        label = self.label_at(point)
+        return (self.areas[label], self.touches[label]) if label else None
+
+    def outline(self, point):
+        """房间轮廓：沿格子边界描一圈再拉直；同一区域只描一次。"""
+        label = self.label_at(point)
+        if not label:
+            return None
+        if label not in self._outlines:
+            self._outlines[label] = {
+                "polygon": self._trace(self.cells[label]),
+                "area": self.areas[label],
+                "enclosed": not self.touches[label],
+                "key": label,
+            }
+        return self._outlines[label]
+
+    def _trace(self, members):
+        cols, rows, grid = self.cols, self.rows, self.grid
+        edges = {}
+        for index in members:
+            i, j = index % cols, index // cols
+            label = grid[index]
+            if j == 0 or grid[index - cols] != label:
+                edges[(i, j)] = (i + 1, j)
+            if i == cols - 1 or grid[index + 1] != label:
+                edges[(i + 1, j)] = (i + 1, j + 1)
+            if j == rows - 1 or grid[index + cols] != label:
+                edges[(i + 1, j + 1)] = (i, j + 1)
+            if i == 0 or grid[index - 1] != label:
+                edges[(i, j + 1)] = (i, j)
+        if not edges:
+            return []
+        # 区域里可能有独立墙垛（内岛），边界会分成外轮廓和若干个洞；房间只取最大的那个外轮廓
+        loops, remaining = [], dict(edges)
+        while remaining:
+            start = next(iter(remaining))
+            loop, cursor = [start], start
+            while True:
+                cursor = remaining.pop(cursor, None)
+                if cursor is None or cursor == start:
+                    break
+                loop.append(cursor)
+            loops.append(loop)
+        if not loops:
+            return []
+        loop = max(loops, key=lambda points: abs(polygon_area(points)))
+        points = [(self.x0 + i * self.cell, self.y0 + j * self.cell) for i, j in loop]
+        return simplify_closed(points, self.cell * 1.5)
+
+
+def room_regions(walls, cfg, max_cells=600000):
+    regions = RoomRegions(walls, cfg, max_cells)
+    return regions if regions.ok else None
+
+
+def rooms_from_labels(texts, walls, cfg):
+    """图上没有房间轮廓时：从房间名泛洪，取被墙围住的那一片作为房间轮廓。
+
+    泛洪找不到围合区域（敞开的大厅、隔断没画）的，退回「向四周找最近墙内皮」的矩形，并标成低置信度。
+    """
+    regions = room_regions(walls, cfg)
+    rooms, by_region = [], {}
+    for text in texts:
+        if not is_label(text["text"], text.get("layer")):
+            continue
+        seed = text_point(text)
+        region = regions.outline(seed) if regions else None
+        if not region or not region["enclosed"] or len(region["polygon"]) < 3:
+            continue
+        same = by_region.get(region["key"])
+        if same:
+            # 同一片空间里有多个名字（如“教室”+“储藏”）：合并名称，不重复计面积
+            if text["text"].strip() not in same["name"].split("/"):
+                same["name"] = f"{same['name']}/{text['text'].strip()}"
+            continue
+        poly = region["polygon"]
+        near = [parse_area_text(other["text"]) for other in texts if point_in_polygon(text_point(other), poly)]
+        near = [value for value in near if value is not None]
+        room = {
+            "name": text["text"].strip(),
+            "polygon": poly,
+            "label_area_m2": near[0] if near else None,
+            "source": "inferred-region",
+            "support": 1.0,
+            "seed": seed,
+            "enclosed": True,
+        }
+        by_region[region["key"]] = room
+        rooms.append(room)
+
+    existing = [room["polygon"] for room in rooms]
+    for room in rooms_from_rectangles(texts, walls, cfg, regions):
+        if any(point_in_polygon(room["seed"], poly) for poly in existing):
+            continue
+        rooms.append(room)
+    return rooms
+
+
+def room_confidence(room, area, enclosed=None):
     """房间面积的可信度。
 
-    高：轮廓是图上画出来的闭合多段线，或推断矩形四面都被墙围住，或算出的面积与图上标注差 2% 以内。
+    高：轮廓是图上画出来的闭合多段线，或推断矩形四面都被墙围住、泛洪出的区域与它面积相当，
+        或算出的面积与图上标注差 2% 以内。
     中：从房间名推断的矩形，墙体基本围合（70%–95%），或没有图上标注可以对照。
-    低：推断矩形没被墙围住（敞开的大厅、L 形走廊、隔断没画），或与图上标注差 10% 以上。
+    低：推断矩形没被墙围住（敞开的大厅、L 形走廊、隔断没画）、泛洪区域与矩形差 25% 以上
+        （只圈住一条缝，或把邻居吞了），或与图上标注差 10% 以上。
     """
     if room["source"] == "polyline":
+        base = "high"
+    elif room["source"] == "inferred-region":
         base = "high"
     else:
         support = room.get("support")
@@ -702,6 +963,8 @@ def room_confidence(room, area):
         elif support >= 0.7:
             base = "medium"
         else:
+            base = "low"
+        if enclosed is False:
             base = "low"
     label = room.get("label_area_m2")
     if label:
@@ -733,7 +996,10 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
         raise ValueError("墙体图层上没有可用的线段")
     pieces = dedupe_pieces(pair_wall_lines(lines, cfg), cfg)
     if not pieces:
-        raise ValueError("没有找到成对的平行墙线（墙厚范围 %s–%s）" % (cfg["min_wall_thickness"], cfg["max_wall_thickness"]))
+        raise ValueError(
+            "没有找到成对的平行墙线（墙厚范围 %s–%s mm）。这张图可能不是平面图（总平面、详图、立面），"
+            "也可能墙体画在别的图层或用了别的画法，可以用 --wall-layer 指定图层再试。" % (r(cfg["min_wall_thickness"]), r(cfg["max_wall_thickness"]))
+        )
     columns = [bbox_of(rec["points"]) for rec in records_by_role.get("column", []) if rec.get("closed") and len(rec["points"]) >= 3]
     # 同一根柱子常由外框、填充多条记录组成：按包围盒去重
     columns = list({tuple(round(v) for v in b): b for b in columns}.values())
@@ -775,7 +1041,7 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
                 continue
             if abs(c["width"] - width) > max(80.0, width * CODE_WIDTH_TOL):
                 continue
-            dist = math.dist(c["anchor"], center)
+            dist = math.dist(text_point(c), center)
             if dist > max(2500.0, width):
                 continue
             if best is None or dist < best[0]:
@@ -830,7 +1096,7 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
     polys = [rec for rec in records_by_role.get("room", []) if rec.get("closed") and len(rec["points"]) >= 3 and polygon_area(rec["points"]) > 1e5]
     rooms = rooms_from_polygons(polys, texts) if polys else rooms_from_labels(texts, walls, cfg)
     if not polys and rooms:
-        assumptions.append("图上没有房间轮廓线，房间是从房间名文字向四周找最近墙内皮推断出的矩形（只适用于正交户型），请核对。")
+        assumptions.append("图上没有房间轮廓线，房间是从房间名出发、取被墙围住的那一片泛洪出来的；泛洪没围住的（敞开的大厅、隔断没画）退回「向四周找最近墙内皮」的矩形，并标为低置信度，请核对。")
     if not rooms:
         warnings.append("没有识别到房间：既没有闭合的房间轮廓线，也没能从房间名推断出矩形。可以在 plan.json 里手动补 rooms。")
     out_rooms = []
@@ -843,7 +1109,7 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
             "polygon": [rp(p) for p in poly],
             "area_m2": round(area, 2),
             "source": room["source"],
-            "confidence": room_confidence(room, area),
+            "confidence": room_confidence(room, area, room.get("enclosed")),
         }
         if room["label_area_m2"] is not None:
             item["label_area_m2"] = room["label_area_m2"]
@@ -854,9 +1120,17 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
     # 自检
     low_rooms = [x for x in out_rooms if x["confidence"] == "low"]
     if any(x["source"] == "inferred-rect" for x in out_rooms):
-        assumptions.append("房间面积置信度：高 = 闭合轮廓、四面被墙围住或与图上标注一致；中 = 从房间名推断的矩形且基本围合；低 = 推断矩形没被墙围住或与图上标注差 10% 以上。")
+        assumptions.append("房间面积置信度：高 = 闭合轮廓、泛洪出的房间四面被墙围住、或与图上标注一致；中 = 从房间名推断且基本围合；低 = 泛洪没围住（退回了矩形）、或与图上标注差 10% 以上。")
     if low_rooms:
         warnings.append("以下房间的面积置信度低，算量和报价前请人工核对轮廓：" + "、".join("%s %s㎡" % (x["name"], x["area_m2"]) for x in low_rooms))
+    footprint = ((max(p[0] for p in all_pts) - ox) * (max(p[1] for p in all_pts) - oy)) / 1e6
+    room_area = sum(x["area_m2"] for x in out_rooms)
+    if footprint > 0 and room_area < footprint * 0.5:
+        warnings.append(
+            "识别到的房间合计 %s㎡，只占外包面积 %s㎡ 的 %d%%：可能有房间没识别出来，或者墙体识别不完整。"
+            "这个比例明显偏低时，房间数据不要直接用于算量和报价，先对照图面核对。"
+            % (round(room_area, 2), round(footprint, 2), round(room_area / footprint * 100))
+        )
     checks = []
     for room in out_rooms:
         if "label_area_m2" in room:

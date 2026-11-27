@@ -39,7 +39,7 @@ BUILDING_TYPES = {
     "education": ("教育（学校）", re.compile(r"教室|实验室|图书|阅览|音乐|美术|舞蹈|报告厅|多功能厅|教师办公", re.I)),
     "office": ("办公", re.compile(r"办公|会议|前台|接待|洽谈|档案", re.I)),
     "medical": ("医疗", re.compile(r"病房|诊室|手术|护士站|药房|候诊|处置|治疗", re.I)),
-    "commercial": ("商业", re.compile(r"营业厅|商铺|店铺|收银|超市|餐饮|包间|展示", re.I)),
+    "commercial": ("商业", re.compile(r"商业|商铺|营业|店铺|收银|超市|餐饮|包间|展示|店面", re.I)),
     "industrial": ("工业", re.compile(r"车间|厂房|仓库|生产线", re.I)),
 }
 
@@ -77,6 +77,20 @@ def room_type(name):
         if pattern.search(name or ""):
             return key
     return "other"
+
+
+def room_coverage(plan):
+    """房间合计面积占外包面积的比例。
+
+    正常平面里房间要占掉大半外包面积；明显偏低说明房间没识别全或墙体识别不完整，
+    这时的面积类检查全是拿错数在判，不如不判。
+    """
+    rooms = plan.get("rooms", [])
+    bounds = plan.get("bounds", {})
+    footprint = float(bounds.get("width", 0) or 0) * float(bounds.get("depth", 0) or 0) / 1e6
+    if footprint <= 0 or not rooms:
+        return None
+    return sum(float(room.get("area_m2", 0) or 0) for room in rooms) / footprint
 
 
 def is_wet(name):

@@ -10,7 +10,8 @@
 - 规则文件用 building_types 声明适用范围。图上判断出的建筑类型不在范围内时不做判定，只出一份说明为什么没判的报告：
   拿住宅限值去判教室、病房，报出来的「不满足」全是误报，比不判更糟。建筑类型按房间名猜，猜不出时用 --building-type 指定。
 - 输出 <图名>.codecheck.md（问题清单）、同名 .json、同名 .png（问题位置用红圈编号标在平面上）。
-- 退出码：0 = 全部满足或只有“需注意”；1 = 有“不满足”项；2 = 规则库不覆盖这个建筑类型，未做判定。
+- 退出码：0 = 全部满足或只有“需注意”；1 = 有“不满足”项；
+  2 = 未做判定（规则库不覆盖这个建筑类型，或识别到的房间只占外包面积一半以下，先核对房间）。
 """
 import argparse
 import json
@@ -213,6 +214,44 @@ def render_uncovered(plan_path, plan, rules, building_type, covered_types):
     return "\n".join(lines) + "\n"
 
 
+def render_unreliable(plan_path, plan, coverage):
+    rooms = plan.get("rooms", [])
+    bounds = plan.get("bounds", {})
+    footprint = float(bounds.get("width", 0) or 0) * float(bounds.get("depth", 0) or 0) / 1e6
+    total = sum(float(room.get("area_m2", 0) or 0) for room in rooms)
+    lines = [
+        f"# 规范初查：{Path(plan_path).name}",
+        "",
+        f"> 识别到的房间合计 {total:.2f}㎡，只占外包面积 {footprint:.2f}㎡ 的 {coverage * 100:.0f}%，**没有做判定**。",
+        "",
+        "房间没识别全、或墙体识别不完整时，面积类检查是拿错数在判，门窗和采光也挂在错的房间上，"
+        "报出来的「不满足」基本都是误报，比不判更糟。",
+        "",
+        "## 怎么继续",
+        "",
+        "- 先看 `plan_extract.py` 输出的「需确认 / 警告」：有没有房间名没识别到、房间轮廓是不是只圈住一条缝；",
+        "- 图上如果有房间轮廓线，用 `--room-layer` 指定图层再提取一次，房间面积会比从房间名推断可靠得多；",
+        "- 房间数据核对无误后重跑本命令。",
+        "",
+        "## 识别到的房间（未做判定）",
+        "",
+        "| 房间 | 面积㎡ | 置信度 | 依据 |",
+        "|---|---|---|---|",
+    ]
+    for room in rooms:
+        lines.append(
+            "| %s | %s | %s | %s |"
+            % (
+                room.get("name", ""),
+                room.get("area_m2", ""),
+                CONFIDENCE_LABELS.get(room.get("confidence"), "—"),
+                "轮廓线" if room.get("source") == "polyline" else "从房间名推断",
+            )
+        )
+    lines += ["", "## 未检查的内容", "", "- 本工具的全部检查项（见上）。"]
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description="plan.json 规范初查")
     parser.add_argument("--plan", required=True)
@@ -258,6 +297,20 @@ def main():
         kind = "没能从房间名判断出建筑类型" if building_type == "unknown" else f"这份图判断为「{pg.building_type_label(building_type)}」"
         print(f"- {kind}，规则库「{rules.get('name', '')}」只适用于{covered}，没有做判定。")
         print("- 判断错了就用 --building-type 指定；要查这类建筑请准备对应的规则库（报告里写了怎么加）。")
+        sys.exit(2)
+
+    coverage = pg.room_coverage(plan)
+    if coverage is not None and coverage < 0.5:
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(render_unreliable(plan_path, plan, coverage), encoding="utf-8")
+        md_path.with_suffix(".json").write_text(
+            json.dumps({"rules": rules.get("name"), "building_type": building_type, "covered": True, "room_coverage": round(coverage, 3), "findings": []}, ensure_ascii=False, indent=1),
+            encoding="utf-8",
+        )
+        print(f"# 规范初查：{plan_path.name}")
+        print(f"- 已写入 {md_path.resolve()}")
+        print(f"- 识别到的房间只占外包面积的 {coverage * 100:.0f}%，房间没识别全或墙体识别不完整，没有做判定。")
+        print("- 先核对房间（plan_extract 的「需确认 / 警告」），有房间轮廓线时用 --room-layer 指定后重提。")
         sys.exit(2)
 
     findings = check(plan, rules, args.ceiling_height)
