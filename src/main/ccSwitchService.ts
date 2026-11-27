@@ -520,6 +520,24 @@ const VISION_PROBE_BLUE =
   'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR4nGOQs7lDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAEyE2D2G6f7QAAAAAElFTkSuQmCC'
 
 /**
+ * 判断测活回答是否真的“看见”了两张图：
+ * - 先排除“看不到图 / 无法判断”这类回答（纯文本模型常这样说，而且会顺带提到红色、蓝色）；
+ * - 再要求回答很短，且第一个颜色是红、第二个颜色是蓝（顺序对才算，防止蒙）。
+ */
+export function visionProbeAnswerOk(answer: string): boolean {
+  const text = answer.trim()
+  if (!text || text.length > 40) return false
+  if (/无法|不能|看不|没有图|未提供|抱歉|sorry|cannot|can't|unable|no image|not able/i.test(text)) return false
+  const colors = [...text.matchAll(/红|蓝|绿|黄|黑|白|灰|紫|橙|粉|\b(red|blue|green|yellow|black|white|gr[ae]y|purple|orange|pink)\b/gi)].map((m) =>
+    m[0].toLowerCase()
+  )
+  if (colors.length < 2) return false
+  const isRed = (c: string): boolean => c === '红' || c === 'red'
+  const isBlue = (c: string): boolean => c === '蓝' || c === 'blue'
+  return isRed(colors[0]) && isBlue(colors[1])
+}
+
+/**
  * 视觉模型测活：先按普通对话测通接口，再发一红一蓝两张小图要求按顺序说出颜色。
  * 只通过第一步说明 Key、地址可用但模型不能看图（例如把 deepseek-chat 填成了视觉模型）。
  */
@@ -569,7 +587,7 @@ export async function testVisionProfileConnection(
     const text = (typeof res.content === 'string' ? res.content : JSON.stringify(res.content)).trim()
     const latencyMs = base.latencyMs + (Date.now() - started)
     const adapted = base.resolvedBaseUrl ? `（地址已自动适配为 ${base.resolvedBaseUrl}）` : ''
-    if (/红|red/i.test(text) && /蓝|blue/i.test(text)) {
+    if (visionProbeAnswerOk(text)) {
       return { ok: true, visionSupported: true, ...resolved, latencyMs, detail: `能看图：两张测试图都认对了（回答：${text.slice(0, 30)}）${adapted}` }
     }
     return {

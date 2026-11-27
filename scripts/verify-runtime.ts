@@ -14,7 +14,7 @@ import { applyPptProposalToFile } from '../src/main/pptPatcher'
 import { CadPreviewService } from '../src/main/cadService'
 import { McpConnectorManager } from '../src/main/mcpManager'
 import { ModelPreviewService } from '../src/main/modelService'
-import { parseCcSwitchRow, parseCodexTomlConfig, testModelProfileConnection } from '../src/main/ccSwitchService'
+import { parseCcSwitchRow, parseCodexTomlConfig, testModelProfileConnection, visionProbeAnswerOk } from '../src/main/ccSwitchService'
 import { LocalAppStore } from '../src/main/store'
 import {
   FEATURE_CATALOG,
@@ -480,6 +480,25 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
   const visionModel = { ...textOnly, model: 'gpt-4o' }
   if (resolveVisionProfile({ modelProfile: visionModel })?.model !== 'gpt-4o') {
     throw new Error('主模型支持视觉时应退回主模型')
+  }
+  // 子智能体换了模型时，不沿用主模型的看图设置：主模型能看图、子模型是纯文本，子智能体读图要走转述
+  const mainSees = { ...textOnly, model: 'my-mm-main', supportsVision: true, subagentModel: 'deepseek-chat' }
+  if (profileSeesImages(subagentModelProfile(mainSees))) {
+    throw new Error('子智能体换成纯文本模型后不应被当作能看图')
+  }
+  if (!profileSeesImages(subagentModelProfile({ ...mainSees, subagentModel: 'my-mm-main' }))) {
+    throw new Error('子智能体与主模型相同时应沿用主模型的看图设置')
+  }
+  // 看图测活的判定：拒答里顺带提到颜色、顺序颠倒、回答冗长都不算通过
+  for (const [answer, want] of [
+    ['红色，蓝色', true],
+    ['red, blue', true],
+    ['我无法查看图片，不能判断是红色还是蓝色', false],
+    ['抱歉，我看不到图片', false],
+    ['蓝色，红色', false],
+    ['The images are rendered in blue', false]
+  ] as const) {
+    if (visionProbeAnswerOk(answer) !== want) throw new Error(`visionProbeAnswerOk(${answer}) 应为 ${want}`)
   }
   // 手动 / 实测的 supportsVision 优先于模型名猜测：自己加载的模型名不在名单里也能用
   const customVision = { ...textOnly, model: 'my-local-mm-7b', supportsVision: true }

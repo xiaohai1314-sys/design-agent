@@ -1427,6 +1427,14 @@ async function executeTurn(
       }
     })
 
+    // 子智能体可能换了模型（subagentModel），能不能看图要按它自己的模型判断，不能沿用主模型的结论。
+    // 子智能体看不了图时，图片交给视觉模型转述；没配独立视觉模型但主模型能看图时，visionProfile 就是主模型。
+    const subProfile = subagentModelProfile(modelProfile)
+    const subSeesImages = profileSeesImages(subProfile)
+    const subImageDescriber = subSeesImages
+      ? undefined
+      : (imageDescriber ??
+        (visionProfile ? createImageDescriber({ modelProfile: visionProfile, signal: abortController.signal }) : undefined))
     const subWorkspaceTools = createWorkspaceTools({
       rootDir,
       readOnlyRoots,
@@ -1437,8 +1445,8 @@ async function executeTurn(
       signal: abortController.signal,
       requireApproval,
       recordToolData: () => {},
-      modelSeesImages: mainSeesImages,
-      describeImage: imageDescriber,
+      modelSeesImages: subSeesImages,
+      describeImage: subImageDescriber,
       onTodosChange: () => {}
     })
 
@@ -1494,7 +1502,7 @@ async function executeTurn(
           offloadRootDir: rootDir,
           enableAnthropicCache:
             modelProfile.protocol === 'anthropic' && modelProfile.enablePromptCache !== false,
-          profile: subagentModelProfile(modelProfile),
+          profile: subProfile,
           onUsage: addUsage,
           onToken: (delta) => {
             subFinalText += delta
