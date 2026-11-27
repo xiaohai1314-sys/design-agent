@@ -24,7 +24,8 @@ module DesignAgentPlanBuilder
     ceiling: [248, 248, 246],
     door: [150, 112, 78],
     frame: [60, 62, 66],
-    glass: [188, 214, 226]
+    glass: [188, 214, 226],
+    column: [214, 210, 204]
   }.freeze
 
   def self.mm(v)
@@ -53,7 +54,8 @@ module DesignAgentPlanBuilder
       ceiling: color_material(model, 'DA_Ceiling', PALETTE[:ceiling]),
       door: color_material(model, 'DA_Door', PALETTE[:door]),
       frame: color_material(model, 'DA_Frame', PALETTE[:frame]),
-      glass: color_material(model, 'DA_Glass', PALETTE[:glass], 0.32)
+      glass: color_material(model, 'DA_Glass', PALETTE[:glass], 0.32),
+      column: color_material(model, 'DA_Column', PALETTE[:column])
     }
     preset_dir = opts[:preset_dir].to_s
     finish = File.join(preset_dir, 'scripts', 'finish.rb')
@@ -105,6 +107,23 @@ module DesignAgentPlanBuilder
     grp
   end
 
+  # 柱子：轴对齐矩形截面，从 z0 挤到 z1
+  def self.column_box(ents, cx, cy, w, d, z0, z1, mat, name)
+    return nil if w < 1 || d < 1 || z1 - z0 < 1
+    grp = ents.add_group
+    grp.name = name
+    corners = [[-w / 2.0, -d / 2.0], [w / 2.0, -d / 2.0], [w / 2.0, d / 2.0], [-w / 2.0, d / 2.0]].map do |u, v|
+      pt(cx + u, cy + v, z0)
+    end
+    face = grp.entities.add_face(corners)
+    if face
+      face.reverse! if face.normal.z < 0
+      face.pushpull(mm(z1 - z0))
+    end
+    paint(grp, mat)
+    grp
+  end
+
   def self.floor_face(ents, polygon, z, mat, name, up = true)
     grp = ents.add_group
     grp.name = name
@@ -129,6 +148,126 @@ module DesignAgentPlanBuilder
 
   # ---------------------------------------------------------------- 主入口
 
+  # 建一层：墙体（含门窗洞口）、柱、地面 / 顶棚。floor[:z] 是这一层楼面的标高（mm）。
+  def self.build_floor(root, floor, opts, mats, tags, warnings, counters)
+    z = floor[:z].to_f
+    plan = floor[:plan]
+    storey_h = (plan.dig('storey', 'height') || 2800).to_f
+    walls = plan['walls'] || []
+    openings = (plan['openings'] || {}).group_by { |o| o['wall'] }
+    key = floor[:level].nil? ? nil : floor[:level].to_s
+    suffix = floor[:name] ? " #{floor[:name]}" : ''
+
+    walls.each do |w|
+      sx, sy = w['start']
+      ex, ey = w['end']
+      len = Math.hypot(ex - sx, ey - sy)
+      next warnings << "墙 #{w['id']} 长度为 0，已跳过" if len < 1
+      d = [(ex - sx) / len, (ey - sy) / len]
+      n = [-d[1], d[0]]
+      t = w['thickness'].to_f
+      h = (w['height'] || storey_h).to_f
+
+      wg = root.entities.add_group
+      wg.name = "墙 #{w['id']}#{suffix}"
+      wg.layer = tags[:wall]
+      wg.set_attribute(DICT, 'kind', 'wall')
+      wg.set_attribute(DICT, 'floor', key) if key
+      wg.set_attribute(DICT, 'id', w['id'])
+      wg.set_attribute(DICT, 'length', len)
+      wg.set_attribute(DICT, 'thickness', t)
+      wg.set_attribute(DICT, 'height', h)
+
+      cursor = 0.0
+      (openings[w['id']] || []).sort_by { |o| o['offset'].to_f }.each do |o|
+        a = [[o['offset'].to_f, 0.0].max, len].min
+        b = [[a + o['width'].to_f, 0.0].max, len].min
+        sill = o['sill'].to_f
+        head = [sill + o['height'].to_f, h].min
+        if a < cursor - 1
+          warnings << "洞口 #{o['id']} 与前一个洞口重叠，已按顺序拼接"
+          a = cursor
+        end
+        wall_box(wg.entities, [sx, sy], d, n, cursor, a, z, z + h, t, mats[:wall], '墙段') if a > cursor
+        wall_box(wg.entities, [sx, sy], d, n, a, b, z, z + sill, t, mats[:wall], '窗台') if sill > 1
+        wall_box(wg.entities, [sx, sy], d, n, a, b, z + head, z + h, t, mats[:wall], '过梁') if head < h - 1
+        cursor = [cursor, b].max
+
+        og = root.entities.add_group
+        og.name = "#{o['type'] == 'window' ? '窗' : (o['type'] == 'door' ? '门' : '洞口')} #{o['id']}#{suffix}"
+        og.layer = tags[:open]
+        og.set_attribute(DICT, 'kind', o['type'])
+        og.set_attribute(DICT, 'floor', key) if key
+        og.set_attribute(DICT, 'id', o['id'])
+        og.set_attribute(DICT, 'wall', w['id'])
+        og.set_attribute(DICT, 'width', b - a)
+        og.set_attribute(DICT, 'sill', sill)
+        og.set_attribute(DICT, 'height', head - sill)
+        case o['type']
+        when 'window'
+          if opts[:include_windows]
+            f = 50.0
+            wall_box(og.entities, [sx, sy], d, n, a, a + f, z + sill, z + head, 70, mats[:frame], '窗框')
+            wall_box(og.entities, [sx, sy], d, n, b - f, b, z + sill, z + head, 70, mats[:frame], '窗框')
+            wall_box(og.entities, [sx, sy], d, n, a, b, z + sill, z + sill + f, 70, mats[:frame], '窗框')
+            wall_box(og.entities, [sx, sy], d, n, a, b, z + head - f, z + head, 70, mats[:frame], '窗框')
+            wall_box(og.entities, [sx, sy], d, n, a + f, b - f, z + sill + f, z + head - f, 12, mats[:glass], '玻璃')
+          end
+        when 'door'
+          if opts[:include_doors]
+            if o['style'] == 'sliding'
+              half_w = (b - a) / 2.0
+              wall_box(og.entities, [sx, sy], d, n, a, a + half_w + 30, z, z + head - 20, 30, mats[:glass], '推拉门扇')
+              wall_box(og.entities, [sx, sy], d, n, a + half_w - 30, b, z, z + head - 20, 30, mats[:glass], '推拉门扇')
+            else
+              wall_box(og.entities, [sx, sy], d, n, a + 20, b - 20, z, z + head - 10, 40, mats[:door], '门扇')
+            end
+          end
+        end
+        # 不生成门窗构件（或无门扇过道）时组会是空的，SketchUp 会自动删掉空组；放一个辅助点保住它，measure 才读得到
+        og.entities.add_cpoint(pt(sx + d[0] * (a + b) / 2.0, sy + d[1] * (a + b) / 2.0, z + sill)) if og.entities.length.zero?
+        counters[:openings] += 1
+      end
+      wall_box(wg.entities, [sx, sy], d, n, cursor, len, z, z + h, t, mats[:wall], '墙段') if len > cursor + 1
+    end
+
+    (plan['columns'] || []).each do |c|
+      cx, cy = c['center']
+      cg = column_box(root.entities, cx, cy, c['width'].to_f, c['depth'].to_f, z, z + (c['height'] || storey_h).to_f, mats[:column], "柱 #{c['id']}#{suffix}")
+      next unless cg
+      cg.layer = tags[:column]
+      cg.set_attribute(DICT, 'kind', 'column')
+      cg.set_attribute(DICT, 'floor', key) if key
+      cg.set_attribute(DICT, 'id', c['id'])
+      counters[:columns] += 1
+    end
+
+    (plan['rooms'] || []).each do |room|
+      poly = room['polygon'] || []
+      next if poly.length < 3
+      wet = room['name'].to_s =~ WET_ROOM
+      stair = room['type'] == 'stair'
+      # 楼梯间 / 电梯井是通高洞口：不是最底层就不铺地面，各层都不做顶棚
+      if opts[:include_floors] && !(stair && !floor[:bottom])
+        fg, face = floor_face(root.entities, poly, z, wet ? mats[:floor_wet] : mats[:floor_dry], "地面 #{room['name']}#{suffix}")
+        fg.layer = tags[:floor]
+        fg.set_attribute(DICT, 'kind', 'floor')
+        fg.set_attribute(DICT, 'floor', key) if key
+        fg.set_attribute(DICT, 'id', room['id'])
+        fg.set_attribute(DICT, 'name', room['name'])
+        area = face ? (face.area * 0.00064516).round(2) : nil
+        counters[:rooms] << { id: room['id'], name: room['name'], area_m2: area, plan_area_m2: room['area_m2'] }
+      end
+      if opts[:include_ceilings] && !stair && floor[:top]
+        cg, _ = floor_face(root.entities, poly, z + storey_h, mats[:ceiling], "顶棚 #{room['name']}#{suffix}", false)
+        cg.layer = tags[:ceil]
+        cg.set_attribute(DICT, 'kind', 'ceiling')
+        cg.set_attribute(DICT, 'floor', key) if key
+        cg.set_attribute(DICT, 'id', room['id'])
+      end
+    end
+  end
+
   def self.build(plan_path, raw_opts = {})
     opts = {
       style: 'modern_minimal',
@@ -145,12 +284,22 @@ module DesignAgentPlanBuilder
     model = Sketchup.active_model
     raise '未找到活动的 SketchUp 模型文档，请先新建或打开一个模型。' unless model
     plan = JSON.parse(File.read(plan_path.to_s, encoding: 'UTF-8'))
-    raise "不是 plan.json（schema=#{plan['schema']}）" unless plan['schema'].to_s.start_with?('design-agent/plan@')
+    schema = plan['schema'].to_s
+    unless schema.start_with?('design-agent/plan@') || schema.start_with?('design-agent/building@')
+      raise "不是 plan.json / building.json（schema=#{plan['schema']}）"
+    end
 
     warnings = []
-    walls = plan['walls'] || []
-    openings = (plan['openings'] || []).group_by { |o| o['wall'] }
-    storey_h = (plan.dig('storey', 'height') || 2800).to_f
+    floors =
+      if schema.start_with?('design-agent/building@')
+        (plan['floors'] || []).each_with_index.map do |f, index|
+          { level: f['level'], name: f['name'], z: f['elevation'].to_f, bottom: index.zero?, plan: f['plan'] || {} }
+        end
+      else
+        [{ level: nil, name: nil, z: 0.0, bottom: true, plan: plan }]
+      end
+    raise 'building 文件里没有 floors' if floors.empty?
+    floors.each_with_index { |f, index| f[:top] = index == floors.length - 1 }
 
     model.start_operation('DesignAgent Plan Build', true)
     begin
@@ -158,109 +307,21 @@ module DesignAgentPlanBuilder
         model.entities.grep(Sketchup::Group).select { |g| g.name == ROOT_NAME }.each { |g| g.erase! if g.valid? }
       end
       mats = build_materials(model, opts, warnings)
-      t_wall = tag(model, 'DA_墙体')
-      t_open = tag(model, 'DA_门窗')
-      t_floor = tag(model, 'DA_地面')
-      t_ceil = tag(model, 'DA_顶棚')
+      tags = {
+        wall: tag(model, 'DA_墙体'),
+        open: tag(model, 'DA_门窗'),
+        floor: tag(model, 'DA_地面'),
+        ceil: tag(model, 'DA_顶棚'),
+        column: tag(model, 'DA_柱')
+      }
 
       root = model.entities.add_group
       root.name = ROOT_NAME
       root.set_attribute(DICT, 'plan', plan_path.to_s)
       root.set_attribute(DICT, 'version', VERSION)
 
-      built_openings = 0
-      walls.each do |w|
-        sx, sy = w['start']
-        ex, ey = w['end']
-        len = Math.hypot(ex - sx, ey - sy)
-        next warnings << "墙 #{w['id']} 长度为 0，已跳过" if len < 1
-        d = [(ex - sx) / len, (ey - sy) / len]
-        n = [-d[1], d[0]]
-        t = w['thickness'].to_f
-        h = (w['height'] || storey_h).to_f
-
-        wg = root.entities.add_group
-        wg.name = "墙 #{w['id']}"
-        wg.layer = t_wall
-        wg.set_attribute(DICT, 'kind', 'wall')
-        wg.set_attribute(DICT, 'id', w['id'])
-        wg.set_attribute(DICT, 'length', len)
-        wg.set_attribute(DICT, 'thickness', t)
-        wg.set_attribute(DICT, 'height', h)
-
-        cursor = 0.0
-        (openings[w['id']] || []).sort_by { |o| o['offset'].to_f }.each do |o|
-          a = [[o['offset'].to_f, 0.0].max, len].min
-          b = [[a + o['width'].to_f, 0.0].max, len].min
-          sill = o['sill'].to_f
-          head = [sill + o['height'].to_f, h].min
-          if a < cursor - 1
-            warnings << "洞口 #{o['id']} 与前一个洞口重叠，已按顺序拼接"
-            a = cursor
-          end
-          wall_box(wg.entities, [sx, sy], d, n, cursor, a, 0, h, t, mats[:wall], '墙段') if a > cursor
-          wall_box(wg.entities, [sx, sy], d, n, a, b, 0, sill, t, mats[:wall], '窗台') if sill > 1
-          wall_box(wg.entities, [sx, sy], d, n, a, b, head, h, t, mats[:wall], '过梁') if head < h - 1
-          cursor = [cursor, b].max
-
-          og = root.entities.add_group
-          og.name = "#{o['type'] == 'window' ? '窗' : (o['type'] == 'door' ? '门' : '洞口')} #{o['id']}"
-          og.layer = t_open
-          og.set_attribute(DICT, 'kind', o['type'])
-          og.set_attribute(DICT, 'id', o['id'])
-          og.set_attribute(DICT, 'wall', w['id'])
-          og.set_attribute(DICT, 'width', b - a)
-          og.set_attribute(DICT, 'sill', sill)
-          og.set_attribute(DICT, 'height', head - sill)
-          case o['type']
-          when 'window'
-            if opts[:include_windows]
-              f = 50.0
-              wall_box(og.entities, [sx, sy], d, n, a, a + f, sill, head, 70, mats[:frame], '窗框')
-              wall_box(og.entities, [sx, sy], d, n, b - f, b, sill, head, 70, mats[:frame], '窗框')
-              wall_box(og.entities, [sx, sy], d, n, a, b, sill, sill + f, 70, mats[:frame], '窗框')
-              wall_box(og.entities, [sx, sy], d, n, a, b, head - f, head, 70, mats[:frame], '窗框')
-              wall_box(og.entities, [sx, sy], d, n, a + f, b - f, sill + f, head - f, 12, mats[:glass], '玻璃')
-            end
-          when 'door'
-            if opts[:include_doors]
-              if o['style'] == 'sliding'
-                half_w = (b - a) / 2.0
-                wall_box(og.entities, [sx, sy], d, n, a, a + half_w + 30, 0, head - 20, 30, mats[:glass], '推拉门扇')
-                wall_box(og.entities, [sx, sy], d, n, a + half_w - 30, b, 0, head - 20, 30, mats[:glass], '推拉门扇')
-              else
-                wall_box(og.entities, [sx, sy], d, n, a + 20, b - 20, 0, head - 10, 40, mats[:door], '门扇')
-              end
-            end
-          end
-          # 不生成门窗构件（或无门扇过道）时组会是空的，SketchUp 会自动删掉空组；放一个辅助点保住它，measure 才读得到
-          og.entities.add_cpoint(pt(sx + d[0] * (a + b) / 2.0, sy + d[1] * (a + b) / 2.0, sill)) if og.entities.length.zero?
-          built_openings += 1
-        end
-        wall_box(wg.entities, [sx, sy], d, n, cursor, len, 0, h, t, mats[:wall], '墙段') if len > cursor + 1
-      end
-
-      rooms_out = []
-      (plan['rooms'] || []).each do |room|
-        poly = room['polygon'] || []
-        next if poly.length < 3
-        wet = room['name'].to_s =~ WET_ROOM
-        if opts[:include_floors]
-          fg, face = floor_face(root.entities, poly, 0, wet ? mats[:floor_wet] : mats[:floor_dry], "地面 #{room['name']}")
-          fg.layer = t_floor
-          fg.set_attribute(DICT, 'kind', 'floor')
-          fg.set_attribute(DICT, 'id', room['id'])
-          fg.set_attribute(DICT, 'name', room['name'])
-          area = face ? (face.area * 0.00064516).round(2) : nil
-          rooms_out << { id: room['id'], name: room['name'], area_m2: area, plan_area_m2: room['area_m2'] }
-        end
-        if opts[:include_ceilings]
-          cg, _ = floor_face(root.entities, poly, storey_h, mats[:ceiling], "顶棚 #{room['name']}", false)
-          cg.layer = t_ceil
-          cg.set_attribute(DICT, 'kind', 'ceiling')
-          cg.set_attribute(DICT, 'id', room['id'])
-        end
-      end
+      counters = { openings: 0, columns: 0, rooms: [] }
+      floors.each { |floor| build_floor(root, floor, opts, mats, tags, warnings, counters) }
 
       model.commit_operation
 
@@ -271,9 +332,11 @@ module DesignAgentPlanBuilder
         builder: 'plan_builder',
         version: VERSION,
         plan: plan_path.to_s,
-        walls: walls.length,
-        openings: built_openings,
-        rooms: rooms_out,
+        floors: floors.length,
+        walls: floors.sum { |f| (f[:plan]['walls'] || []).length },
+        openings: counters[:openings],
+        columns: counters[:columns],
+        rooms: counters[:rooms],
         bounds_mm: { width: (bb.width * 25.4).round, depth: (bb.height * 25.4).round, height: (bb.depth * 25.4).round },
         preview_out: exports[:preview],
         skp_out: exports[:skp],
@@ -329,13 +392,17 @@ module DesignAgentPlanBuilder
     root = model && model.entities.grep(Sketchup::Group).find { |g| g.name == ROOT_NAME }
     return JSON.generate(status: 'error', error: '模型中没有 DesignAgentPlan_Root，请先执行 build') unless root
 
-    walls, openings, rooms = [], [], []
+    buckets = {}
     root.entities.grep(Sketchup::Group).each do |g|
       kind = g.get_attribute(DICT, 'kind')
+      next unless %w[wall window door passage floor column].include?(kind)
+      key = g.get_attribute(DICT, 'floor')
+      bucket = (buckets[key] ||= { level: key, walls: [], openings: [], rooms: [], columns: [], boxes: [] })
+      bucket[:boxes] << g
       case kind
       when 'wall'
         volume = g.entities.grep(Sketchup::Group).sum { |piece| piece.manifold? ? piece.volume : 0 } * (25.4**3) / 1e9
-        walls << {
+        bucket[:walls] << {
           id: g.get_attribute(DICT, 'id'),
           length: g.get_attribute(DICT, 'length').to_f.round(1),
           thickness: g.get_attribute(DICT, 'thickness').to_f.round(1),
@@ -344,7 +411,7 @@ module DesignAgentPlanBuilder
           volume_m3: volume.round(3)
         }
       when 'window', 'door', 'passage'
-        openings << {
+        bucket[:openings] << {
           id: g.get_attribute(DICT, 'id'),
           type: kind,
           wall: g.get_attribute(DICT, 'wall'),
@@ -352,19 +419,45 @@ module DesignAgentPlanBuilder
           sill: g.get_attribute(DICT, 'sill').to_f.round(1),
           height: g.get_attribute(DICT, 'height').to_f.round(1)
         }
+      when 'column'
+        bucket[:columns] << {
+          id: g.get_attribute(DICT, 'id'),
+          width: (g.bounds.width * 25.4).round(1),
+          depth: (g.bounds.height * 25.4).round(1),
+          height: (g.bounds.depth * 25.4).round(1)
+        }
       when 'floor'
         area = g.entities.grep(Sketchup::Face).sum(&:area) * 0.00064516
-        rooms << { id: g.get_attribute(DICT, 'id'), name: g.get_attribute(DICT, 'name'), area_m2: area.round(2) }
+        bucket[:rooms] << { id: g.get_attribute(DICT, 'id'), name: g.get_attribute(DICT, 'name'), area_m2: area.round(2) }
       end
     end
+
     bb = root.bounds
-    JSON.generate(
+    result = {
       status: 'ok',
       plan: root.get_attribute(DICT, 'plan'),
-      bounds_mm: { width: (bb.width * 25.4).round, depth: (bb.height * 25.4).round, height: (bb.depth * 25.4).round },
-      walls: walls,
-      openings: openings,
-      rooms: rooms
-    )
+      bounds_mm: { width: (bb.width * 25.4).round, depth: (bb.height * 25.4).round, height: (bb.depth * 25.4).round }
+    }
+    if buckets.keys.all? { |k| k.nil? }
+      flat = buckets[nil] || { walls: [], openings: [], rooms: [], columns: [] }
+      result[:walls] = flat[:walls]
+      result[:openings] = flat[:openings]
+      result[:rooms] = flat[:rooms]
+      result[:columns] = flat[:columns]
+    else
+      result[:floors] = buckets.map do |_key, b|
+        xs = b[:boxes].flat_map { |g| [g.bounds.min.x, g.bounds.max.x] }
+        ys = b[:boxes].flat_map { |g| [g.bounds.min.y, g.bounds.max.y] }
+        {
+          level: b[:level],
+          walls: b[:walls],
+          openings: b[:openings],
+          rooms: b[:rooms],
+          columns: b[:columns],
+          bounds_mm: xs.empty? ? nil : { width: ((xs.max - xs.min) * 25.4).round, depth: ((ys.max - ys.min) * 25.4).round }
+        }
+      end
+    end
+    JSON.generate(result)
   end
 end

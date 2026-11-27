@@ -625,6 +625,149 @@ def test_extract_columns_and_codes():
     check("C1815 = 窗 1800×1500", plan_core.parse_opening_code("C1815")["height"], 1500)
 
 
+def test_room_region_merged_labels():
+    section("泛洪区域里有两个房间名：少了隔墙，两间算成一间，必须标低并报警")
+    import plan_core
+
+    def line(a, b):
+        return {"layer": "WALL", "type": "LINE", "points": [a, b], "closed": False}
+
+    # 外框 8000×3000（墙厚 200），中间本该有一道隔墙但图上没画；两个“教室”各写在一半里
+    walls = []
+    for (x0, y0, x1, y1) in ((0, 0, 8000, 0), (0, 3000, 8000, 3000)):
+        walls += [line((x0, y0 - 100), (x1, y1 - 100)), line((x0, y0 + 100), (x1, y1 + 100))]
+    for x in (0, 8000):
+        walls += [line((x - 100, 0), (x - 100, 3000)), line((x + 100, 0), (x + 100, 3000))]
+    texts = [
+        {"text": "教室", "anchor": (1800, 1500), "point": (2000, 1500), "height": 300, "layer": "PUB_TEXT"},
+        {"text": "教室", "anchor": (5800, 1500), "point": (6000, 1500), "height": 300, "layer": "PUB_TEXT"},
+    ]
+    plan = plan_core.build_plan({"wall": walls, "door": [], "window": [], "room": []}, texts)
+    check("只得到一间", len(plan["rooms"]), 1)
+    check("同名重复 → 置信度低", plan["rooms"][0]["confidence"], "low")
+    check("报警提示少了隔墙", any("隔墙" in w for w in plan["warnings"]), True)
+
+    texts[1] = dict(texts[1], text="储藏")
+    plan = plan_core.build_plan({"wall": walls, "door": [], "window": [], "room": []}, texts)
+    check("不同名合并成一个名字", plan["rooms"][0]["name"], "教室/储藏")
+    check("不同名 → 置信度中（可能是套间）", plan["rooms"][0]["confidence"], "medium")
+
+
+def fake_measure(plan):
+    """按 plan.json 造一份「建得完全正确」的模型实测结果，用来验证核对逻辑本身。"""
+    return {
+        "status": "ok",
+        "bounds_mm": {"width": plan["bounds"]["width"], "depth": plan["bounds"]["depth"], "height": plan["storey"]["height"]},
+        "walls": [
+            {"id": w["id"], "length": round(math.dist(w["start"], w["end"]), 1), "thickness": w["thickness"], "height": w["height"]}
+            for w in plan["walls"]
+        ],
+        "openings": [
+            {"id": o["id"], "type": o["type"], "wall": o["wall"], "width": o["width"], "sill": o.get("sill", 0), "height": o["height"]}
+            for o in plan["openings"]
+        ],
+        "columns": [{"id": c["id"], "width": c["width"], "depth": c["depth"], "height": c["height"]} for c in plan.get("columns", [])],
+        "rooms": [{"id": r["id"], "name": r["name"], "area_m2": r["area_m2"]} for r in plan["rooms"]],
+    }
+
+
+def test_verify_closed_loop():
+    section("建模核对闭环：完全一致时报通过，差一处就报出来")
+    import plan_verify as pv
+
+    plan = bedroom_plan()
+    plan["columns"] = [{"id": "K1", "center": [1000, 1000], "width": 600, "depth": 600, "height": 2800}]
+    model = fake_measure(plan)
+    passed, issues = pv.compare(plan, model)
+    check("完全一致：没有不一致项", issues, [])
+    check("通过项数大于 0", passed > 0, True)
+
+    model["walls"][0]["thickness"] = 250
+    _, issues = pv.compare(plan, model)
+    check("墙厚差 50 能报出来", any("厚度" in text for text in issues), True)
+
+    model = fake_measure(plan)
+    model["columns"][0]["width"] = 500
+    _, issues = pv.compare(plan, model)
+    check("柱截面不对能报出来", any("柱 K1" in text for text in issues), True)
+
+    model = fake_measure(plan)
+    model["rooms"][0]["area_m2"] = 13.0
+    _, issues = pv.compare(plan, model)
+    check("房间面积不对能报出来", any("面积" in text for text in issues), True)
+
+
+def test_building_levels():
+    section("多层：层号解析与标高")
+    import plan_building as pb
+
+    check("一层", pb.parse_level("一层平面图"), 1)
+    check("负一层", pb.parse_level("负一层平面图"), -1)
+    check("十一层", pb.parse_level("十一层平面图"), 11)
+    check("首层", pb.parse_level("首层平面图"), 1)
+    check("标准层认不出层号", pb.parse_level("标准层平面图"), None)
+    check("屋顶层认不出层号", pb.parse_level("屋顶层平面图"), None)
+    check("标高：一层为 0", pb.elevation_of(1, 3000), 0)
+    check("标高：二层 +层高", pb.elevation_of(2, 3000), 3000)
+    check("标高：负一层 -层高", pb.elevation_of(-1, 3000), -3000)
+
+
+def test_verify_building():
+    section("建模核对：多层按层号逐层比对")
+    import plan_verify as pv
+
+    plan = bedroom_plan()
+    building = {
+        "schema": "design-agent/building@1",
+        "storey": {"height": 2800},
+        "bounds": plan["bounds"],
+        "floors": [
+            {"level": 1, "name": "一层平面图", "elevation": 0, "plan": plan},
+            {"level": 2, "name": "二层平面图", "elevation": 2800, "plan": plan},
+        ],
+    }
+    model = {"status": "ok", "floors": [dict(fake_measure(plan), level="1"), dict(fake_measure(plan), level="2")]}
+    _, issues = pv.compare(building, model)
+    check("两层都对上：没有不一致项", issues, [])
+
+    model["floors"].pop()
+    _, issues = pv.compare(building, model)
+    check("少一层能报出来", any("第 2 层" in text for text in issues), True)
+
+
+def test_columns_and_stairs():
+    section("柱与楼梯间：柱输出到 plan.json，楼梯间标成通高洞口")
+    import plan_core
+
+    def line(a, b):
+        return {"layer": "WALL", "type": "LINE", "points": [a, b], "closed": False}
+
+    walls = []
+    for (x0, y0, x1, y1) in ((0, 0, 4000, 0), (0, 3000, 4000, 3000)):
+        walls += [line((x0, y0 - 100), (x1, y1 - 100)), line((x0, y0 + 100), (x1, y1 + 100))]
+    for x in (0, 4000):
+        walls += [line((x - 100, 0), (x - 100, 3000)), line((x + 100, 0), (x + 100, 3000))]
+    room = {"layer": "ROOM", "type": "LWPOLYLINE", "closed": True, "points": [(100, 100), (3900, 100), (3900, 2900), (100, 2900)]}
+    column = {"layer": "COLUMN", "type": "LWPOLYLINE", "closed": True, "points": [(1900, 1400), (2100, 1400), (2100, 1600), (1900, 1600)]}
+
+    stair = plan_core.build_plan(
+        {"wall": walls, "door": [], "window": [], "room": [room], "column": [column]},
+        [{"text": "楼梯间", "anchor": (1000, 800), "height": 300, "layer": "ROOM"}],
+    )
+    check("柱写进 plan.columns", len(stair["columns"]), 1)
+    check("柱截面 200×200", (stair["columns"][0]["width"], stair["columns"][0]["depth"]), (200, 200))
+    check("柱高取层高", stair["columns"][0]["height"], 2800, tol=1)
+    check("楼梯间类型", stair["rooms"][0]["type"], "stair")
+    check("结构校验", plan_core.validate_plan(stair), [])
+
+    ordinary = plan_core.build_plan(
+        {"wall": walls, "door": [], "window": [], "room": [room], "column": []},
+        [{"text": "教室", "anchor": (1000, 800), "height": 300, "layer": "ROOM"}],
+    )
+    check("普通房间类型", ordinary["rooms"][0]["type"], "room")
+    check("没有柱时不输出柱", ordinary["columns"], [])
+
+
 def main():
     test_quantity_bedroom()
     test_quantity_bathroom()
@@ -645,6 +788,11 @@ def main():
     test_text_point()
     test_room_regions()
     test_codecheck_low_coverage()
+    test_room_region_merged_labels()
+    test_verify_closed_loop()
+    test_building_levels()
+    test_verify_building()
+    test_columns_and_stairs()
 
     print(f"\n通过 {len(PASS)}，失败 {len(FAIL)}")
     if FAIL:

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""把建模结果和 plan.json 逐项核对：墙长 / 厚 / 高、门窗洞口尺寸、房间地面面积、整体外包尺寸。
+"""把建模结果和 plan.json / building.json 逐项核对：墙长 / 厚 / 高、门窗洞口尺寸、柱截面、房间地面面积、外包尺寸。
 
 用法：
-  python plan_verify.py --plan <xxx.plan.json> --model <measure.json> [--tol-mm 5] [--tol-area 0.02]
+  python plan_verify.py --plan <xxx.plan.json|xxx.building.json> --model <measure.json> [--tol-mm 5] [--tol-area 0.02]
 
 measure.json 是建模软件读回的实测结果，SketchUp 用 DesignAgentPlanBuilder.measure 的返回值原样保存即可；
-其他软件只要输出同样的字段（walls / openings / rooms / bounds_mm）也能用。
+其他软件只要输出同样的字段（walls / openings / columns / rooms / bounds_mm，多层时放在 floors 里）也能用。
+building.json 按层核对：每一层拿模型里同层号的实测结果比。
 全部通过时退出码为 0，有不一致时为 1，stdout 列出每一项差异，便于逐条修正后再核对。
 """
 import argparse
@@ -19,7 +20,7 @@ def load(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
-def compare(plan, model, tol_mm=5.0, tol_area=0.02):
+def compare_plan(plan, model, tol_mm=5.0, tol_area=0.02):
     issues, passed = [], 0
 
     def check(ok, text):
@@ -59,10 +60,22 @@ def compare(plan, model, tol_mm=5.0, tol_area=0.02):
         for key, label in (("width", "宽"), ("sill", "窗台"), ("height", "高")):
             check(abs(float(m.get(key, 0)) - float(o.get(key, 0))) <= tol_mm, f"洞口 {o['id']} {label}：plan {o.get(key)} / 模型 {m.get(key)}")
 
+    columns = {c["id"]: c for c in model.get("columns", [])}
+    for c in plan.get("columns", []):
+        m = columns.get(c["id"])
+        if not m:
+            issues.append(f"柱 {c['id']}：模型里没有")
+            continue
+        for key, label in (("width", "截面宽"), ("depth", "截面深"), ("height", "高")):
+            check(abs(float(m.get(key, 0)) - float(c.get(key, 0))) <= tol_mm, f"柱 {c['id']} {label}：plan {c.get(key)} / 模型 {m.get(key)}")
+
     rooms = {r["id"]: r for r in model.get("rooms", [])}
     for r in plan.get("rooms", []):
         m = rooms.get(r["id"])
         if not m:
+            # 楼梯间 / 电梯井在上层是通高洞口，本来就不铺地面
+            if r.get("type") == "stair":
+                continue
             issues.append(f"房间 {r['id']}（{r['name']}）：模型里没有地面")
             continue
         target = float(r["area_m2"])
@@ -75,8 +88,31 @@ def compare(plan, model, tol_mm=5.0, tol_area=0.02):
     return passed, issues
 
 
+def compare(plan, model, tol_mm=5.0, tol_area=0.02):
+    if not str(plan.get("schema", "")).startswith("design-agent/building@"):
+        return compare_plan(plan, model, tol_mm, tol_area)
+    floors = model.get("floors")
+    if not floors:
+        return 0, ["模型实测里没有 floors：多层的模型要用 DesignAgentPlanBuilder.measure 重新测量"]
+    by_level = {str(floor.get("level")): floor for floor in floors}
+    passed, issues = 0, []
+    for floor in plan.get("floors", []):
+        key = str(floor.get("level"))
+        m = by_level.get(key)
+        if not m:
+            issues.append(f"第 {key} 层：模型里没有这一层")
+            continue
+        floor_passed, floor_issues = compare_plan(floor["plan"], m, tol_mm, tol_area)
+        passed += floor_passed
+        issues += [f"第 {key} 层：{text}" for text in floor_issues]
+    extra = set(by_level) - {str(floor.get("level")) for floor in plan.get("floors", [])}
+    if extra:
+        issues.append("模型里多出的楼层：" + "、".join(sorted(extra)))
+    return passed, issues
+
+
 def main():
-    parser = argparse.ArgumentParser(description="核对建模结果与 plan.json")
+    parser = argparse.ArgumentParser(description="核对建模结果与 plan.json / building.json")
     parser.add_argument("--plan", required=True)
     parser.add_argument("--model", required=True, help="建模软件读回的实测 JSON")
     parser.add_argument("--tol-mm", type=float, default=5.0)
@@ -95,7 +131,7 @@ def main():
     for text in issues:
         print(f"- ❌ {text}")
     if not issues:
-        print("- ✅ 墙体、洞口、房间面积与外包尺寸均与 plan.json 一致")
+        print("- ✅ 墙体、洞口、柱、房间面积与外包尺寸均与 plan.json 一致")
     sys.exit(1 if issues else 0)
 
 

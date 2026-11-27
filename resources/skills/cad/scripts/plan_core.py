@@ -574,6 +574,8 @@ NON_ROOM_RE = re.compile(
 NON_ROOM_HINT_RE = re.compile(r"平面图|立面图|剖面图|详图|大样|面积|比例|说明|图例|标高|轴线|楼梯\d|^\d+-\d+$")
 NON_ROOM_LAYER_RE = re.compile(r"window|door|门窗|axis|轴|dim|标注|尺寸|elev|标高|title|图签|图框", re.I)
 HAS_WORD_RE = re.compile(r"[\u4e00-\u9fff]|[A-Za-z]{3,}")
+# 楼梯间、电梯井在模型里是通高的洞口：本层不铺地面、不做顶棚，上层也不铺地面
+STAIR_ROOM_RE = re.compile(r"楼梯|电梯|梯井|前室", re.I)
 
 
 def is_label(text, layer=None):
@@ -914,9 +916,13 @@ def rooms_from_labels(texts, walls, cfg):
             continue
         same = by_region.get(region["key"])
         if same:
-            # 同一片空间里有多个名字（如“教室”+“储藏”）：合并名称，不重复计面积
+            # 同一片空间里有多个房间名：合并名称，不重复计面积；但这多半说明中间少了隔墙（没画或没识别出来），
+            # 两间房被算成一间。同名重复（两个“教室”）几乎肯定是漏墙，不同名（“教室”+“储藏”）也可能是套间。
+            same["labels"] += 1
             if text["text"].strip() not in same["name"].split("/"):
                 same["name"] = f"{same['name']}/{text['text'].strip()}"
+            else:
+                same["duplicate_label"] = True
             continue
         poly = region["polygon"]
         near = [parse_area_text(other["text"]) for other in texts if point_in_polygon(text_point(other), poly)]
@@ -929,6 +935,7 @@ def rooms_from_labels(texts, walls, cfg):
             "support": 1.0,
             "seed": seed,
             "enclosed": True,
+            "labels": 1,
         }
         by_region[region["key"]] = room
         rooms.append(room)
@@ -944,16 +951,21 @@ def rooms_from_labels(texts, walls, cfg):
 def room_confidence(room, area, enclosed=None):
     """房间面积的可信度。
 
-    高：轮廓是图上画出来的闭合多段线，或推断矩形四面都被墙围住、泛洪出的区域与它面积相当，
+    高：轮廓是图上画出来的闭合多段线，或泛洪出的被墙围住的区域里只有这一个房间名，
         或算出的面积与图上标注差 2% 以内。
-    中：从房间名推断的矩形，墙体基本围合（70%–95%），或没有图上标注可以对照。
-    低：推断矩形没被墙围住（敞开的大厅、L 形走廊、隔断没画）、泛洪区域与矩形差 25% 以上
-        （只圈住一条缝，或把邻居吞了），或与图上标注差 10% 以上。
+    中：从房间名推断的矩形，墙体基本围合（70%–95%）；或泛洪区域里有几个不同的房间名（可能是套间，也可能少了隔墙）。
+    低：推断矩形没被墙围住（敞开的大厅、L 形走廊、隔断没画），泛洪区域里同一个房间名出现两次以上
+        （几乎肯定少了隔墙，两间算成了一间），或与图上标注差 10% 以上。
     """
     if room["source"] == "polyline":
         base = "high"
     elif room["source"] == "inferred-region":
-        base = "high"
+        if room.get("duplicate_label"):
+            base = "low"
+        elif room.get("labels", 1) > 1:
+            base = "medium"
+        else:
+            base = "high"
     else:
         support = room.get("support")
         if support is None:
@@ -1092,6 +1104,19 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
                 item["code"] = code["code"]
             out_openings.append(item)
 
+    # 柱：位置 + 截面 + 高度，建模时按它挤出（不输出的话模型里就没有柱）
+    out_columns = []
+    for ki, box in enumerate(sorted(columns, key=lambda b: (round(b[1]), round(b[0])))):
+        out_columns.append(
+            {
+                "id": "K%d" % (ki + 1),
+                "center": rp(tr(((box[0] + box[2]) / 2, (box[1] + box[3]) / 2))),
+                "width": r(max(box[2] - box[0], 1.0)),
+                "depth": r(max(box[3] - box[1], 1.0)),
+                "height": r(storey),
+            }
+        )
+
     # 房间
     polys = [rec for rec in records_by_role.get("room", []) if rec.get("closed") and len(rec["points"]) >= 3 and polygon_area(rec["points"]) > 1e5]
     rooms = rooms_from_polygons(polys, texts) if polys else rooms_from_labels(texts, walls, cfg)
@@ -1106,6 +1131,7 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
         item = {
             "id": "R%d" % (ri + 1),
             "name": room["name"] or "房间%d" % (ri + 1),
+            "type": "stair" if STAIR_ROOM_RE.search(room["name"] or "") else "room",
             "polygon": [rp(p) for p in poly],
             "area_m2": round(area, 2),
             "source": room["source"],
@@ -1118,6 +1144,12 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
         out_rooms.append(item)
 
     # 自检
+    merged = [(item, room) for item, room in zip(out_rooms, rooms) if room.get("labels", 1) > 1]
+    for item, room in merged:
+        warnings.append(
+            "%s（%s㎡）这片被墙围住的空间里有 %d 个房间名，被算成了一间：多半是中间的隔墙没画或没识别出来，房间数会少、面积会偏大，请核对。"
+            % (item["name"], item["area_m2"], room["labels"])
+        )
     low_rooms = [x for x in out_rooms if x["confidence"] == "low"]
     if any(x["source"] == "inferred-rect" for x in out_rooms):
         assumptions.append("房间面积置信度：高 = 闭合轮廓、泛洪出的房间四面被墙围住、或与图上标注一致；中 = 从房间名推断且基本围合；低 = 泛洪没围住（退回了矩形）、或与图上标注差 10% 以上。")
@@ -1168,6 +1200,7 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
         "bounds": {"width": r(width), "depth": r(depth)},
         "walls": out_walls,
         "openings": out_openings,
+        "columns": out_columns,
         "rooms": out_rooms,
         "summary": {
             "walls": len(out_walls),
@@ -1214,6 +1247,11 @@ def validate_plan(plan):
             problems.append("洞口 %s 超出墙 %s 的长度" % (o.get("id"), w.get("id")))
         if o.get("sill", 0) + o.get("height", 0) > float(w.get("height", 0)) + 1:
             problems.append("洞口 %s 高于墙 %s" % (o.get("id"), w.get("id")))
+    for column in plan.get("columns", []):
+        if float(column.get("width", 0)) <= 0 or float(column.get("depth", 0)) <= 0:
+            problems.append("柱 %s 的截面不是正数" % column.get("id"))
+        if float(column.get("height", 0)) <= 0:
+            problems.append("柱 %s 的高度不是正数" % column.get("id"))
     for room in plan.get("rooms", []):
         if len(room.get("polygon", [])) < 3 or polygon_area(room["polygon"]) <= 0:
             problems.append("房间 %s 的轮廓无效" % room.get("id"))
