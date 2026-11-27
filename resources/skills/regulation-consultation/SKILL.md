@@ -37,7 +37,7 @@ description: 建筑、室内、景观、施工验收等规范咨询。用户查�
 
 - **时机**：检索和读表都做完之后、写最终回答之前。
 - **`selected_clause_keys` 只能填本轮 `retrieve_regulation_chunks` 返回过的 `cite`。** 工具会逐条核对，引用没查过的条文会被打回，并列出本轮可用的 cite。
-- **`coverage` 按用户的实际子问拆**，每个子问列出用到的条；**没有条文的子问必须写 `gap_reason`**——`no_evidence`（确实没查到）/ `asset_unavailable`（规范原文拿不到）/ `region_unconfirmed`（项目地区不明）/ `project_input_missing`（缺项目条件）/ `filter_unavailable`（筛选能力不可用）/ `timeout` / `tool_error`。留空不给原因是会被打回的。
+- **`coverage` 按用户的实际子问拆**，每个子问列出用到的条；**没有条文的子问必须写 `gap_reason`**——`no_evidence`（确实没查到）/ `asset_unavailable`（规范原文拿不到）/ `region_unconfirmed`（项目地区不明）/ `project_input_missing`（缺项目条件）/ `filter_unavailable`（筛选能力不可用）/ `timeout` / `tool_error`。留空不给原因是会被打回的。所有子问都查不到条文时，`selected_clause_keys` 传空数组、每个子问写 `gap_reason` 照常登记，不要为了交得上去编一条 cite。
 - **返回 `status: review_evidence` 时**，按 `issues` 改完重新提交。本轮只允许补证一次，第二次提交即使仍有问题也会放行，问题列在 `warnings` 里——这时必须在回答中如实说明哪几项没核到，不能当作已核验。
 - **返回 `status: accepted` 后**，按 `evidence` 里回传的条文作答；`warnings` 里的问题写进回答的「待核实」，`gap_reason` 的子问明确说明缺什么、补什么才能判定。
 

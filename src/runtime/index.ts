@@ -1461,7 +1461,9 @@ async function executeTurn(
     const subagentAllTools: DynamicStructuredTool[] = [
       ...subWorkspaceTools,
       ...planTools,
-      ...regulationTools,
+      // 证据登记是主智能体作答前的门槛，子智能体不登记：两边共用同一个提交计数，
+      // 子智能体先交一次就把主智能体唯一的补证机会用掉了。检索结果仍共享，主智能体可以引用子智能体查到的条
+      ...regulationTools.filter((tool) => tool.name !== 'submit_regulation_evidence'),
       inspirationTool,
       ...(webSearchTool ? [webSearchTool] : []),
       ...(mcpBundle?.tools ?? [])

@@ -265,6 +265,8 @@ export function createLocalRegulationTools(params: {
   const retrieved = new Map<string, RetrievedClause>()
   /** 本轮提交次数：第一次有问题回 review_evidence，第二次起放行并带 warnings —— 只给一轮补证 */
   let submissions = 0
+  /** 本轮检索次数：区分「没检索」和「检索了但没查到」，后者可以直接空数组登记 */
+  let searches = 0
 
   const remember = (chunks: ReadonlyArray<RegulationChunk>): void => {
     for (const c of chunks) {
@@ -292,6 +294,7 @@ export function createLocalRegulationTools(params: {
       mandatory_only: z.boolean().optional().describe('是否仅过滤强制性/含强约束关键词条文')
     }),
     func: async ({ query, standard, current_only, mandatory_only }, runManager, config) => {
+      searches += 1
       const callId =
         resolveToolCallId(runManager, config)
       const signal = (config as { signal?: AbortSignal } | undefined)?.signal
@@ -427,7 +430,9 @@ export function createLocalRegulationTools(params: {
       '返回 status=review_evidence 时按 issues 修正后重新提交（本轮只允许补证一次）；status=accepted 之后才能作答。',
     schema: z.object({
       question_type: z.enum(['条文精准检索', '宽泛检索', '设计检索推荐', '综合咨询']).describe('本轮问题的类型'),
-      selected_clause_keys: z.array(z.string().min(1)).min(1).describe('按优先级列出实际采用的条文 cite'),
+      // 不设 min(1)：所有子问都查不到条文时也要能登记（每个子问写 gap_reason），
+      // 否则模型只能编一条 cite 凑数才交得上
+      selected_clause_keys: z.array(z.string().min(1)).describe('按优先级列出实际采用的条文 cite；全部子问都缺证时可为空'),
       coverage: z
         .array(
           z.object({
@@ -451,7 +456,7 @@ export function createLocalRegulationTools(params: {
       const uncovered = selected_clause_keys.filter((key) => !covered.has(key))
       const issues: string[] = []
 
-      if (retrieved.size === 0) {
+      if (searches === 0) {
         issues.push('本轮还没有检索过条文：先用 retrieve_regulation_chunks 检索，再登记证据。')
       }
       if (unknown.length > 0) {
