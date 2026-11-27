@@ -35,7 +35,8 @@ import type {
   PermissionMode,
   PptProposal,
   RuntimeInbound,
-  RuntimeOutbound
+  RuntimeOutbound,
+  UpdateState
 } from '@shared/protocol'
 import { LocalAppStore } from './store'
 import { DownloadCenter } from './downloadCenter'
@@ -43,6 +44,7 @@ import { AgentRuntimeHost } from './runtimeHost'
 import { CadPreviewService } from './cadService'
 import { ModelPreviewService } from './modelService'
 import { McpConnectorManager } from './mcpManager'
+import { UpdateService } from './updateService'
 import { applyPptProposalToFile } from './pptPatcher'
 import { discoverCcSwitchCandidates, testModelProfileConnection, testVisionProfileConnection } from './ccSwitchService'
 import { testImageChannelConnection } from './imageChannelTestService'
@@ -176,6 +178,7 @@ function isSafeExternalUrl(raw: string): boolean {
 let cadService: CadPreviewService
 let modelService: ModelPreviewService
 let mcpManager: McpConnectorManager
+let updateService: UpdateService | null = null
 const pickedFiles = new Set<string>()
 const pickedFolders = new Set<string>()
 const pickedModelFolders = new Set<string>()
@@ -504,6 +507,15 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.DownloadsPickDir, async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     return result.canceled ? null : (result.filePaths[0] ?? null)
+  })
+
+  // updateService 在 whenReady 里先于本函数创建，这里只是防御
+  const updateFallback = (): UpdateState => ({ status: 'disabled', currentVersion: app.getVersion() })
+  ipcMain.handle(IPC_CHANNELS.UpdatesGetState, () => updateService?.getState() ?? updateFallback())
+  ipcMain.handle(IPC_CHANNELS.UpdatesCheck, () => updateService?.check() ?? updateFallback())
+  ipcMain.handle(IPC_CHANNELS.UpdatesDownload, () => updateService?.download() ?? updateFallback())
+  ipcMain.handle(IPC_CHANNELS.UpdatesInstall, () => {
+    updateService?.install()
   })
 
   ipcMain.handle(IPC_CHANNELS.AgentGetPermissionMode, () => store.getPermissionMode())
@@ -1277,6 +1289,13 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
   modelService = new ModelPreviewService(join(userData, 'cache', 'models'))
   mcpManager = new McpConnectorManager(userData, resourcesDir)
 
+  updateService = new UpdateService()
+  updateService.onChange((state) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(IPC_CHANNELS.UpdatesChanged, state)
+    }
+  })
+
   runtimeHost = new AgentRuntimeHost({
     skillsRoot,
     presetsRoot,
@@ -1364,6 +1383,7 @@ if (gotSingleInstanceLock) app.whenReady().then(() => {
   runtimeHost.ensureStarted()
   registerIpcHandlers()
   createMainWindow()
+  updateService?.startAutoCheck()
 
   tray = new Tray(buildAppIcon())
   tray.setToolTip('空间设计智能体工作台')
@@ -1398,4 +1418,5 @@ app.on('before-quit', () => {
   isQuitting = true
   store?.flushTranscripts()
   runtimeHost?.dispose()
+  updateService?.dispose()
 })

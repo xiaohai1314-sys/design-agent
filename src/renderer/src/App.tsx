@@ -23,6 +23,7 @@ import {
 import { TodoBar } from './components/TodoBar'
 import { ComposerCard } from './components/chat/ComposerCard'
 import { WindowTitleBar } from './components/layout/WindowTitleBar'
+import { UpdateBanner } from './components/UpdateBanner'
 import { WorkspaceSidebar } from './components/layout/WorkspaceSidebar'
 import { ProjectMetaModal } from './components/modals/ProjectMetaModal'
 import { CharterModal } from './components/modals/CharterModal'
@@ -516,6 +517,8 @@ export const App: React.FC = () => {
         onOpenSettings={() => setSettingsModalOpen(true)}
         isMaximized={isMaximized}
       />
+
+      <UpdateBanner />
 
       <div className="flex-1 min-h-0 flex overflow-hidden">
       <WorkspaceSidebar

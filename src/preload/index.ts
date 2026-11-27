@@ -130,6 +130,18 @@ const api: DesignAgentBridgeApi = {
       return () => ipcRenderer.removeListener(IPC_CHANNELS.DownloadsChanged, wrapped)
     }
   },
+  updates: {
+    getState: () => ipcRenderer.invoke(IPC_CHANNELS.UpdatesGetState),
+    check: () => ipcRenderer.invoke(IPC_CHANNELS.UpdatesCheck),
+    download: () => ipcRenderer.invoke(IPC_CHANNELS.UpdatesDownload),
+    install: () => ipcRenderer.invoke(IPC_CHANNELS.UpdatesInstall),
+    onChanged: (listener) => {
+      const wrapped = (_e: Electron.IpcRendererEvent, state: import('@shared/protocol').UpdateState): void =>
+        listener(state)
+      ipcRenderer.on(IPC_CHANNELS.UpdatesChanged, wrapped)
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.UpdatesChanged, wrapped)
+    }
+  },
   mcp: {
     listConnectors: () => ipcRenderer.invoke(IPC_CHANNELS.McpListConnectors),
     setEnabled: (payload) => ipcRenderer.invoke(IPC_CHANNELS.McpSetEnabled, payload),

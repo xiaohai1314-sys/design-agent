@@ -311,6 +311,35 @@ export interface DownloadStartRequest {
   fileName?: string
 }
 
+/**
+ * 自动更新的当前状态。main 进程是唯一真源，界面只渲染它推送过来的快照。
+ * disabled：开发模式或未打包，检查更新没有意义
+ */
+export type UpdateStatus =
+  | 'disabled'
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'downloading'
+  | 'downloaded'
+  | 'up-to-date'
+  | 'error'
+
+export interface UpdateState {
+  status: UpdateStatus
+  /** 当前运行的版本 */
+  currentVersion: string
+  /** 新版本号（available / downloading / downloaded 时有） */
+  version?: string
+  releaseNotes?: string
+  /** 下载进度 0-100 */
+  percent?: number
+  bytesPerSecond?: number
+  transferred?: number
+  total?: number
+  error?: string
+}
+
 /** 应用内重建灵感索引的结果（设置页「重建索引」按钮） */
 export interface InspirationRebuildResult {
   ok: boolean

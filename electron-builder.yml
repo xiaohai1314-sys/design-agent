@@ -30,3 +30,9 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+# 自动更新的发布源：electron-updater 从这个仓库的 Release 读 latest.yml
+publish:
+  provider: github
+  owner: xiaohai1314-sys
+  repo: design-agent
+  releaseType: release

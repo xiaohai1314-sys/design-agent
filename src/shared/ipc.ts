@@ -29,6 +29,7 @@ import type {
   RuntimeOutbound,
   SceneParam,
   TodoItem,
+  UpdateState,
   WebSearchConfig
 } from './protocol'
 import type { SelectedMcpConnector } from './mcp'
@@ -100,6 +101,12 @@ export const IPC_CHANNELS = {
   DownloadsOpenFolder: 'downloads:open-folder',
   DownloadsPickDir: 'downloads:pick-dir',
   DownloadsChanged: 'downloads:changed',
+
+  UpdatesGetState: 'updates:get-state',
+  UpdatesCheck: 'updates:check',
+  UpdatesDownload: 'updates:download',
+  UpdatesInstall: 'updates:install',
+  UpdatesChanged: 'updates:changed',
 
   McpListConnectors: 'mcp:list-connectors',
   McpSetEnabled: 'mcp:set-enabled',
@@ -491,6 +498,17 @@ export interface DesignAgentBridgeApi {
     openFolder: (id: string) => Promise<void>
     pickDir: () => Promise<string | null>
     onChanged: (cb: (tasks: DownloadTask[]) => void) => () => void
+  }
+  updates: {
+    /** 当前状态快照；界面挂载时先取一次，之后靠 onChanged 跟进 */
+    getState: () => Promise<UpdateState>
+    /** 手动检查更新（启动时也会自动检查一次，那条失败不弹错） */
+    check: () => Promise<UpdateState>
+    /** 用户确认后才开始下载，安装包很大，不在后台偷偷拉 */
+    download: () => Promise<UpdateState>
+    /** 退出并安装已下载的更新 */
+    install: () => Promise<void>
+    onChanged: (cb: (state: UpdateState) => void) => () => void
   }
   mcp: {
     listConnectors: () => Promise<McpConnectorInfo[]>
