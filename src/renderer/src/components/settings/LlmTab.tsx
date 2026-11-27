@@ -23,6 +23,8 @@ export interface LlmTabProps {
   onToggleShowKey: () => void
   profileProbe: ProbeResultState | null
   onTestProfile: () => void
+  visionProbe: ProbeResultState | null
+  onTestVision: () => void
   onAddProfile: () => void
   onRemoveProfile: () => void
   onUpdateProfile: (patch: Partial<ModelProviderProfile>) => void
@@ -39,6 +41,8 @@ export function LlmTab({
   onToggleShowKey,
   profileProbe,
   onTestProfile,
+  visionProbe,
+  onTestVision,
   onAddProfile,
   onRemoveProfile,
   onUpdateProfile,
@@ -272,6 +276,68 @@ export function LlmTab({
                 className="w-full px-3 py-2 rounded-lg border border-zinc-200 font-mono focus:border-blue-500 outline-none"
               />
             </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3 space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-medium text-zinc-700">看图能力</span>
+              <select
+                value={current.supportsVision === undefined ? 'auto' : current.supportsVision ? 'yes' : 'no'}
+                onChange={(e) =>
+                  onUpdateProfile({
+                    supportsVision: e.target.value === 'auto' ? undefined : e.target.value === 'yes'
+                  })
+                }
+                className="px-2 py-1 rounded-md border border-zinc-200 bg-white text-zinc-700 outline-none focus:border-blue-500"
+              >
+                <option value="auto">自动（按模型名猜）</option>
+                <option value="yes">能看图</option>
+                <option value="no">不能看图</option>
+              </select>
+              <button
+                type="button"
+                disabled={visionProbe?.status === 'testing'}
+                onClick={onTestVision}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 cursor-pointer"
+              >
+                {visionProbe?.status === 'testing' ? (
+                  <LoaderCircle className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Eye className="w-3.5 h-3.5" />
+                )}
+                <span>{visionProbe?.status === 'testing' ? '测试中…' : '测试看图'}</span>
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-medium text-zinc-700">生图能力</span>
+              <select
+                value={current.supportsImageGen === undefined ? 'auto' : current.supportsImageGen ? 'yes' : 'no'}
+                onChange={(e) =>
+                  onUpdateProfile({
+                    supportsImageGen: e.target.value === 'auto' ? undefined : e.target.value === 'yes'
+                  })
+                }
+                className="px-2 py-1 rounded-md border border-zinc-200 bg-white text-zinc-700 outline-none focus:border-blue-500"
+              >
+                <option value="auto">自动（按模型名猜）</option>
+                <option value="yes">能出图</option>
+                <option value="no">不能出图</option>
+              </select>
+              <span className="text-[11px] text-zinc-500">
+                只在没有配置「效果图 / 图生图 API」渠道时，才用这个模型直接出图
+              </span>
+            </div>
+            {visionProbe && visionProbe.status !== 'testing' ? (
+              <p className={clsx('text-[11px]', visionProbe.status === 'ok' ? 'text-emerald-700' : 'text-rose-600')}>
+                {visionProbe.message}
+                {visionProbe.latencyMs !== undefined ? `（${visionProbe.latencyMs}ms）` : ''}
+              </p>
+            ) : null}
+            <p className="text-[11px] leading-relaxed text-zinc-500">
+              自己加载的模型名字猜不准时，点一次「测试看图」：会发一红一蓝两张测试图，两张都认对才算能看图，结果自动写进上面的选项。
+              能看图时，读图纸截图、参考图、建模截图都直接交给它；不能看图时，交给「视觉模型」页配置的模型转述。
+              生图能力没有探活（要真出一张图才准），按实际情况手选即可。
+            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-4 pt-1">

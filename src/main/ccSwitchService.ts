@@ -512,19 +512,37 @@ export async function discoverCcSwitchCandidates(
   return { candidates, ...(dbError ? { error: dbError } : {}) }
 }
 
-// 32×32 纯红 PNG：用来确认模型真的“看得见”图片，而不只是接口能通
-const VISION_PROBE_PNG =
+// 32×32 纯色 PNG：红、蓝各一张。只发一张问颜色，模型随口蒙对一个词也能通过；
+// 两张不同颜色一起问，必须都认对才算真能看图。
+const VISION_PROBE_RED =
   'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42u3NMQEAAAQAMATRP5QwSvBtBZbTHZ8qngkEAoFAIBAIBIIrC9KAAVhVsgYjAAAAAElFTkSuQmCC'
+const VISION_PROBE_BLUE =
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR4nGOQs7lDU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAEyE2D2G6f7QAAAAAElFTkSuQmCC'
 
 /**
- * 视觉模型测活：先按普通对话测通接口，再发一张纯红小图问颜色。
+ * 视觉模型测活：先按普通对话测通接口，再发一红一蓝两张小图要求按顺序说出颜色。
  * 只通过第一步说明 Key、地址可用但模型不能看图（例如把 deepseek-chat 填成了视觉模型）。
  */
 export async function testVisionProfileConnection(
   profile: ModelProviderProfile
-): Promise<{ ok: boolean; latencyMs: number; detail?: string; error?: string }> {
+): Promise<{
+  ok: boolean
+  latencyMs: number
+  detail?: string
+  error?: string
+  /** true 能看图；false 接口通但看不了图；undefined 连接本身失败，无法判断 */
+  visionSupported?: boolean
+  resolvedBaseUrl?: string
+  resolvedUseResponsesApi?: boolean
+  resolvedAuthStyle?: AnthropicAuthStyle
+}> {
   const base = await testModelProfileConnection(profile)
-  if (!base.ok) return base
+  if (!base.ok) return { ok: false, latencyMs: base.latencyMs, error: base.error }
+  const resolved = {
+    ...(base.resolvedBaseUrl ? { resolvedBaseUrl: base.resolvedBaseUrl } : {}),
+    ...(base.resolvedUseResponsesApi !== undefined ? { resolvedUseResponsesApi: base.resolvedUseResponsesApi } : {}),
+    ...(base.resolvedAuthStyle ? { resolvedAuthStyle: base.resolvedAuthStyle } : {})
+  }
   const started = Date.now()
   const target: ModelProviderProfile = {
     ...profile,
@@ -540,8 +558,9 @@ export async function testVisionProfileConnection(
       [
         new HumanMessage({
           content: [
-            { type: 'text', text: '这张图片主要是什么颜色？只回答一个颜色词。' },
-            { type: 'image_url', image_url: { url: `data:image/png;base64,${VISION_PROBE_PNG}` } }
+            { type: 'text', text: '按顺序说出这两张图片各自的主要颜色，只回答两个颜色词，用逗号分隔。' },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${VISION_PROBE_RED}` } },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${VISION_PROBE_BLUE}` } }
           ] as never
         })
       ],
@@ -549,21 +568,30 @@ export async function testVisionProfileConnection(
     )
     const text = (typeof res.content === 'string' ? res.content : JSON.stringify(res.content)).trim()
     const latencyMs = base.latencyMs + (Date.now() - started)
-    const adapted = base.resolvedBaseUrl ? `（地址已自动适配为 ${base.resolvedBaseUrl}，请同步修改）` : ''
-    if (/红|red/i.test(text)) {
-      return { ok: true, latencyMs, detail: `能正确识别图片（回答：${text.slice(0, 20)}）${adapted}` }
+    const adapted = base.resolvedBaseUrl ? `（地址已自动适配为 ${base.resolvedBaseUrl}）` : ''
+    if (/红|red/i.test(text) && /蓝|blue/i.test(text)) {
+      return { ok: true, visionSupported: true, ...resolved, latencyMs, detail: `能看图：两张测试图都认对了（回答：${text.slice(0, 30)}）${adapted}` }
     }
     return {
       ok: false,
+      visionSupported: false,
+      ...resolved,
       latencyMs,
-      error: `接口可用，但模型没有认出测试图片（回答：${text.slice(0, 40) || '空'}），它可能不支持看图，请换成视觉模型${adapted}`
+      error: `接口可用，但没认出测试图（回答：${text.slice(0, 40) || '空'}），判定为不能看图${adapted}`
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
+    // 超时、限流、5xx 只是「这次没成功」，不能据此把模型标成不能看图
+    const inconclusive =
+      /\b(429|5\d{2})\b|timeout|timed out|abort|ECONN|ENOTFOUND|ETIMEDOUT|fetch failed|network/i.test(message)
     return {
       ok: false,
+      ...(inconclusive ? {} : { visionSupported: false }),
+      ...resolved,
       latencyMs: base.latencyMs + (Date.now() - started),
-      error: `接口可用，但发送图片失败，模型可能不支持看图：${message.slice(0, 200)}`
+      error: inconclusive
+        ? `接口可用，但发图请求失败，无法判断能否看图：${message.slice(0, 160)}`
+        : `接口可用，但发送图片被拒绝，判定为不能看图：${message.slice(0, 200)}`
     }
   } finally {
     clearTimeout(timer)

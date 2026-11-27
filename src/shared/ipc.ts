@@ -83,6 +83,7 @@ export const IPC_CHANNELS = {
   ModelsSaveSettings: 'models:save-settings',
   ModelsDiscoverCcSwitch: 'models:discover-cc-switch',
   ModelsTestConnection: 'models:test-connection',
+  ModelsTestVision: 'models:test-vision',
   ModelsTestImageChannel: 'models:test-image-channel',
   ModelsGetClipModelStatus: 'models:get-clip-model-status',
   ModelsDownloadClipModel: 'models:download-clip-model',
@@ -449,6 +450,17 @@ export interface DesignAgentBridgeApi {
       latencyMs: number
       detail?: string
       error?: string
+      resolvedBaseUrl?: string
+      resolvedUseResponsesApi?: boolean
+      resolvedAuthStyle?: AnthropicAuthStyle
+    }>
+    /** 发一张测试小图，实测这个模型配置能不能看图 */
+    testVision: (profile: ModelProviderProfile) => Promise<{
+      ok: boolean
+      latencyMs: number
+      detail?: string
+      error?: string
+      visionSupported?: boolean
       resolvedBaseUrl?: string
       resolvedUseResponsesApi?: boolean
       resolvedAuthStyle?: AnthropicAuthStyle

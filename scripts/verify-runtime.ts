@@ -29,7 +29,13 @@ import {
   splitToolImageBlocks
 } from '../src/runtime/checkpoint'
 import { applyProfilePatch, emptyProfile, summarizeProfile } from '../src/runtime/projectProfile'
-import { isVisionCapableModel, resolveVisionProfile } from '../src/runtime/tools/imageTools'
+import {
+  isVisionCapableModel,
+  profileGeneratesImages,
+  profileSeesImages,
+  resolveVisionProfile,
+  subagentModelProfile
+} from '../src/runtime/tools/imageTools'
 import {
   listFileSnapshots,
   recordImageLineageSnapshot,
@@ -474,6 +480,43 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
   const visionModel = { ...textOnly, model: 'gpt-4o' }
   if (resolveVisionProfile({ modelProfile: visionModel })?.model !== 'gpt-4o') {
     throw new Error('主模型支持视觉时应退回主模型')
+  }
+  // 手动 / 实测的 supportsVision 优先于模型名猜测：自己加载的模型名不在名单里也能用
+  const customVision = { ...textOnly, model: 'my-local-mm-7b', supportsVision: true }
+  if (resolveVisionProfile({ modelProfile: customVision })?.model !== 'my-local-mm-7b') {
+    throw new Error('supportsVision=true 的自定义模型应被当作能看图')
+  }
+  if (resolveVisionProfile({ modelProfile: { ...visionModel, supportsVision: false } }) !== null) {
+    throw new Error('supportsVision=false 时即使模型名像视觉模型也不应启用')
+  }
+  // 子智能体换了模型时，主模型的 supportsVision 不能沿用
+  if (profileSeesImages({ model: 'my-local-mm-7b', supportsVision: true }) !== true) {
+    throw new Error('profileSeesImages 应优先采用显式 supportsVision')
+  }
+  const subProfile = subagentModelProfile({ ...visionModel, subagentModel: 'deepseek-chat' })
+  if (subProfile.model !== 'deepseek-chat' || subProfile.supportsVision !== undefined) {
+    throw new Error(`子智能体换了模型后应清除 supportsVision：${JSON.stringify(subProfile)}`)
+  }
+  if (subagentModelProfile(visionModel) !== visionModel) {
+    throw new Error('没配 subagentModel 时不应改动 profile')
+  }
+  // 独立视觉模型被实测判否后不再使用，能看图的主模型重新接管
+  const blindVisionCfg = { enabled: true, protocol: 'openai' as const, baseUrl: '', apiKey: 'vk', model: 'qwen-vl-max', supportsVision: false }
+  if (resolveVisionProfile({ modelProfile: textOnly, visionConfig: blindVisionCfg }) !== null) {
+    throw new Error('视觉模型实测不能看图时不应继续用它')
+  }
+  if (resolveVisionProfile({ modelProfile: visionModel, visionConfig: blindVisionCfg })?.model !== 'gpt-4o') {
+    throw new Error('视觉模型被判否后应退回能看图的主模型')
+  }
+  // 生图能力同样支持显式开关
+  if (!profileGeneratesImages({ model: 'my-local-image-model', supportsImageGen: true })) {
+    throw new Error('supportsImageGen=true 的自定义模型应被当作能出图')
+  }
+  if (profileGeneratesImages({ model: 'gpt-image-1', supportsImageGen: false })) {
+    throw new Error('supportsImageGen=false 时即使模型名像生图模型也不应启用')
+  }
+  if (!profileGeneratesImages({ model: 'flux-dev' }) || profileGeneratesImages({ model: 'deepseek-chat' })) {
+    throw new Error('未设置 supportsImageGen 时应按模型名判断生图能力')
   }
 
   // 1b. 技能目录作为只读根：read_file 能读到工作区外的 SKILL.md，write_file 仍然被拦截

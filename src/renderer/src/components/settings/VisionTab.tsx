@@ -20,9 +20,21 @@ type Probe = { status: 'testing' | 'ok' | 'fail'; message?: string }
 /** 设置 → 视觉模型（审图、看参考图） */
 export function VisionTab({ draft, setDraft }: VisionTabProps): React.JSX.Element {
   const vision: VisionConfig = { ...DEFAULTS, ...(draft.vision ?? {}) }
-  const patch = (p: Partial<VisionConfig>): void => setDraft({ ...draft, vision: { ...vision, ...p } })
-  const ready = vision.enabled && Boolean(vision.apiKey.trim()) && Boolean(vision.model.trim())
   const [probe, setProbe] = useState<Probe | null>(null)
+  // 改了模型 / 地址 / Key，之前的实测结论就作废，重新交回人工判断
+  const patch = (p: Partial<VisionConfig>): void => {
+    const invalidates = ['model', 'baseUrl', 'apiKey', 'protocol'].some((k) => k in p)
+    if (invalidates) setProbe(null)
+    setDraft({
+      ...draft,
+      vision: { ...vision, ...p, ...(invalidates ? { supportsVision: undefined } : {}) }
+    })
+  }
+  const ready =
+    vision.enabled &&
+    Boolean(vision.apiKey.trim()) &&
+    Boolean(vision.model.trim()) &&
+    vision.supportsVision !== false
 
   const testConnection = async (): Promise<void> => {
     if (!vision.model.trim() || !vision.apiKey.trim()) {
@@ -39,10 +51,12 @@ export function VisionTab({ draft, setDraft }: VisionTabProps): React.JSX.Elemen
       model: vision.model.trim(),
       subagentModel: vision.model.trim(),
       supportsThinking: false,
+      supportsVision: true,
       maxOutputTokens: 4096
     }
     try {
-      const res = await window.designAgent.models.testConnection(profile)
+      const res = await window.designAgent.models.testVision(profile)
+      if (res.visionSupported !== undefined) patch({ supportsVision: res.visionSupported })
       setProbe(
         res.ok
           ? { status: 'ok', message: `${res.detail ?? '连接正常'}（${res.latencyMs}ms）` }
@@ -136,14 +150,16 @@ export function VisionTab({ draft, setDraft }: VisionTabProps): React.JSX.Elemen
             {probe.message}
           </span>
         ) : (
-          <span className="text-zinc-400">只验证地址、Key 与模型名是否可用</span>
+          <span className="text-zinc-400">会先握手，再发一红一蓝两张测试图确认能看图</span>
         )}
       </div>
 
       <p className="text-[11px] leading-relaxed text-zinc-500">
-        {ready
-          ? '已配置。审图（review_image）与 read_file 读到的图片都会先交给这个模型，主对话可以继续用纯文本模型。'
-          : '未配置或未填全时：主模型支持看图（Claude / GPT-4o / Gemini / Qwen-VL 等）就由主模型自己看；否则不提供审图工具，read_file 读图片也拿不到内容。'}
+        {vision.supportsVision === false
+          ? '上次测试没认出测试图，判定这个模型看不了图：审图与读图会退回主模型（主模型能看图时），否则不提供。换个支持视觉的模型再测一次。'
+          : ready
+            ? '已配置。审图（review_image）与 read_file 读到的图片都会先交给这个模型，主对话可以继续用纯文本模型。'
+            : '未配置或未填全时：主模型支持看图（Claude / GPT-4o / Gemini / Qwen-VL 等）就由主模型自己看；否则不提供审图工具，read_file 读图片也拿不到内容。'}
       </p>
     </div>
   )

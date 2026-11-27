@@ -154,6 +154,13 @@ export interface ModelProviderProfile {
   model: string
   subagentModel?: string
   supportsThinking?: boolean
+  /**
+   * 能否看图：true / false 为用户指定或「测试看图」实测的结果；未设置时才按模型名猜测。
+   * 自己加载的模型名字千奇百怪，猜不准时在设置里手动指定或点一次测试即可。
+   */
+  supportsVision?: boolean
+  /** 能否直接出图：同上，未设置时按模型名猜测 */
+  supportsImageGen?: boolean
   enablePromptCache?: boolean
   useResponsesApi?: boolean
   contextWindowTokens?: number
@@ -213,6 +220,8 @@ export interface VisionConfig {
   baseUrl: string
   apiKey: string
   model: string
+  /** 「测试连接」实测结果：false 时不再拿它审图 / 转述；未测过为 undefined */
+  supportsVision?: boolean
 }
 
 /** 生图渠道连通性测试级别：probe = 轻量探活（免费）；generate = 真实出图（消耗一次出图调用） */

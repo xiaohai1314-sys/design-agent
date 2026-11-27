@@ -84,6 +84,7 @@ const api: DesignAgentBridgeApi = {
     saveSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.ModelsSaveSettings, settings),
     discoverCcSwitch: () => ipcRenderer.invoke(IPC_CHANNELS.ModelsDiscoverCcSwitch),
     testConnection: (profile) => ipcRenderer.invoke(IPC_CHANNELS.ModelsTestConnection, profile),
+    testVision: (profile) => ipcRenderer.invoke(IPC_CHANNELS.ModelsTestVision, profile),
     testImageChannel: (channel, level) =>
       ipcRenderer.invoke(IPC_CHANNELS.ModelsTestImageChannel, channel, level),
     getClipModelStatus: (modelDir) =>

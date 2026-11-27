@@ -31,6 +31,7 @@ import type {
   ImageChannelTestLevel,
   ImageEditAnswer,
   ImageGenChannel,
+  ModelProviderProfile,
   PermissionMode,
   PptProposal,
   RuntimeInbound,
@@ -403,23 +404,31 @@ function registerIpcHandlers(): void {
       }))
     }
   })
+  // 界面回传的是脱敏 Key：视觉模型不在 profiles 里，要单独按 vision 配置回填
+  const restoreTestProfile = async (
+    profile: ModelSettingsState['profiles'][number]
+  ): Promise<ModelProviderProfile> => {
+    let target = profile
+    if (profile.ccUid && (!profile.apiKey || isMaskedKey(profile.apiKey))) {
+      const key = await resolveCcSwitchKey(profile.ccUid)
+      if (key) target = { ...profile, apiKey: key }
+    }
+    const savedSettings = store.getModelSettings()
+    const savedSource =
+      profile.id === 'vision'
+        ? savedSettings.vision
+        : savedSettings.profiles.find((p) => p.id === profile.id)
+    return restoreSecrets(target, savedSource)
+  }
   ipcMain.handle(
     IPC_CHANNELS.ModelsTestConnection,
-    async (_e, profile: ModelSettingsState['profiles'][number]) => {
-      let target = profile
-      if (profile.ccUid && (!profile.apiKey || isMaskedKey(profile.apiKey))) {
-        const key = await resolveCcSwitchKey(profile.ccUid)
-        if (key) target = { ...profile, apiKey: key }
-      }
-      const savedSettings = store.getModelSettings()
-      // 视觉模型不在 profiles 里，界面回传的是脱敏 Key，要单独按 vision 配置回填
-      const savedSource =
-        profile.id === 'vision'
-          ? savedSettings.vision
-          : savedSettings.profiles.find((p) => p.id === profile.id)
-      const restored = restoreSecrets(target, savedSource)
-      return profile.id === 'vision' ? testVisionProfileConnection(restored) : testModelProfileConnection(restored)
-    }
+    async (_e, profile: ModelSettingsState['profiles'][number]) =>
+      testModelProfileConnection(await restoreTestProfile(profile))
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.ModelsTestVision,
+    async (_e, profile: ModelSettingsState['profiles'][number]) =>
+      testVisionProfileConnection(await restoreTestProfile(profile))
   )
   ipcMain.handle(
     IPC_CHANNELS.ModelsTestImageChannel,

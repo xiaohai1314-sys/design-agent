@@ -37,7 +37,7 @@ import { approvalDelta, splitMcpToolName, toolDelta, toolLabel } from './toolMet
 import { createDeliverTool } from './tools/deliver'
 import { createAskUserTool, formatAnswersForModel } from './tools/askUser'
 import { createWorkspaceTools } from './tools/workspaceTools'
-import { createImageTools, hasImageGenCapability, isVisionCapableModel, resolveVisionProfile } from './tools/imageTools'
+import { createImageTools, hasImageGenCapability, profileSeesImages, resolveVisionProfile, subagentModelProfile } from './tools/imageTools'
 import { createLocalRegulationTool } from './tools/regulationTool'
 import { createSearchInspirationTool } from './tools/inspirationTool'
 import { createWebSearchTool } from './tools/webSearchTool'
@@ -381,7 +381,7 @@ export async function runAgentLoop(params: {
     : true
   // 接口不收工具结果里的图片时，能看图的主模型改走“用户消息补发图片”
   const forwardToolImages =
-    !toolImagesSupported && Boolean(params.profile && isVisionCapableModel(params.profile.model))
+    !toolImagesSupported && profileSeesImages(params.profile)
   const toolMap = new Map(tools.map((t) => [t.name, t]))
   let lastBoundCount = -1
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1292,7 +1292,7 @@ async function executeTurn(
     // 审图用的是「能不能看图」，与上面的「能不能生图」无关
     const visionProfile = resolveVisionProfile({ modelProfile, visionConfig })
     // 主模型是纯文本时，read_file 读到的图片先由独立视觉模型转述成文字
-    const mainSeesImages = isVisionCapableModel(modelProfile.model)
+    const mainSeesImages = profileSeesImages(modelProfile)
     const imageDescriber =
       !mainSeesImages && visionProfile
         ? createImageDescriber({ modelProfile: visionProfile, signal: abortController.signal })
@@ -1494,10 +1494,7 @@ async function executeTurn(
           offloadRootDir: rootDir,
           enableAnthropicCache:
             modelProfile.protocol === 'anthropic' && modelProfile.enablePromptCache !== false,
-          profile: {
-            ...modelProfile,
-            model: modelProfile.subagentModel?.trim() || modelProfile.model
-          },
+          profile: subagentModelProfile(modelProfile),
           onUsage: addUsage,
           onToken: (delta) => {
             subFinalText += delta

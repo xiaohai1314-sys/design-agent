@@ -48,16 +48,43 @@ export function isVisionCapableModel(modelName?: string): boolean {
   return VISION_CAPABLE_MODEL_RE.test(m)
 }
 
+/** 这个模型配置能不能看图：以用户设置 / 实测结果为准，没设置时才按模型名猜 */
+export function profileSeesImages(profile?: Pick<ModelProviderProfile, 'model' | 'supportsVision'> | null): boolean {
+  if (!profile) return false
+  if (typeof profile.supportsVision === 'boolean') return profile.supportsVision
+  return isVisionCapableModel(profile.model)
+}
+
+/** 这个模型配置能不能直接出图：以用户设置为准，没设置时才按模型名猜 */
+export function profileGeneratesImages(
+  profile?: Pick<ModelProviderProfile, 'model' | 'supportsImageGen'> | null
+): boolean {
+  if (!profile) return false
+  if (typeof profile.supportsImageGen === 'boolean') return profile.supportsImageGen
+  return isImageCapableModel(profile.model)
+}
+
+/**
+ * 子智能体实际跑的模型可能与主模型不同。supportsVision 是给主模型设的（或实测出来的），
+ * 换了模型就不能沿用，交回按模型名判断。
+ */
+export function subagentModelProfile(profile: ModelProviderProfile): ModelProviderProfile {
+  const sub = profile.subagentModel?.trim()
+  if (!sub || sub === profile.model) return profile
+  return { ...profile, model: sub, supportsVision: undefined, supportsImageGen: undefined }
+}
+
 /**
  * 审图该用哪个模型：配了独立视觉模型就用它；没配则只有主模型确实支持视觉时才退回主模型；
  * 两者都不满足返回 null，调用方据此不注册 review_image，避免暴露一个注定失败的工具。
+ * 独立视觉模型被「测试连接」实测判定为看不了图时（supportsVision === false），不再拿它审图。
  */
 export function resolveVisionProfile(params: {
   modelProfile: ModelProviderProfile
   visionConfig?: VisionConfig
 }): ModelProviderProfile | null {
   const cfg = params.visionConfig
-  if (cfg?.enabled && cfg.apiKey.trim() && cfg.model.trim()) {
+  if (cfg?.enabled && cfg.apiKey.trim() && cfg.model.trim() && cfg.supportsVision !== false) {
     return {
       id: 'vision',
       label: '视觉模型',
@@ -67,10 +94,11 @@ export function resolveVisionProfile(params: {
       model: cfg.model.trim(),
       subagentModel: cfg.model.trim(),
       supportsThinking: false,
+      supportsVision: true,
       maxOutputTokens: 4096
     }
   }
-  return isVisionCapableModel(params.modelProfile.model) ? params.modelProfile : null
+  return profileSeesImages(params.modelProfile) ? params.modelProfile : null
 }
 
 export function hasImageGenCapability(params: {
@@ -80,7 +108,7 @@ export function hasImageGenCapability(params: {
   if (resolveImageChannels(params.imageGenConfig).length > 0) {
     return true
   }
-  if (params.modelProfile?.apiKey?.trim() && isImageCapableModel(params.modelProfile.model)) {
+  if (params.modelProfile?.apiKey?.trim() && profileGeneratesImages(params.modelProfile)) {
     return true
   }
   return false
@@ -152,7 +180,7 @@ export function createImageTools(params: {
     (c, i) => i === 0 || (c.baseUrl.trim() && c.model.trim())
   )
   const profileChannel: ImageGenChannel | null =
-    params.modelProfile?.apiKey?.trim() && isImageCapableModel(params.modelProfile.model)
+    params.modelProfile?.apiKey?.trim() && profileGeneratesImages(params.modelProfile)
       ? {
           id: 'chat-profile',
           name: `主对话模型（${params.modelProfile.label || params.modelProfile.model}）`,

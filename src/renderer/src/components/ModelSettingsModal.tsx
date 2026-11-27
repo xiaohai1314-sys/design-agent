@@ -75,6 +75,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
   const [showImgKey, setShowImgKey] = useState(false)
   const [saving, setSaving] = useState(false)
   const [profileProbe, setProfileProbe] = useState<ProbeResultState | null>(null)
+  const [visionProbe, setVisionProbe] = useState<ProbeResultState | null>(null)
   const [imageProbes, setImageProbes] = useState<Record<string, ImageProbeState>>({})
   const [saveProbeWarnings, setSaveProbeWarnings] = useState<string[]>([])
   const [clipStatus, setClipStatus] = useState<ClipModelStatus | null>(null)
@@ -99,6 +100,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       setDraft(structuredClone(settings))
       setSelectedId(settings.activeProfileId || settings.profiles[0]?.id || '')
       setProfileProbe(null)
+      setVisionProbe(null)
       setImageProbes({})
       setSaveProbeWarnings([])
       void refreshRecognizedCandidates()
@@ -110,6 +112,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
 
   useEffect(() => {
     setProfileProbe(null)
+    setVisionProbe(null)
   }, [selectedId])
 
   // 向量模型状态：打开设置或模型目录变化时刷新（下载中状态由主进程如实回传）
@@ -257,6 +260,26 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
       res.ok
         ? { status: 'ok', latencyMs: res.latencyMs, message: res.detail }
         : { status: 'fail', latencyMs: res.latencyMs, message: res.error }
+    )
+  }
+
+  /** 实测这个对话模型能不能看图，结果直接写回配置的 supportsVision */
+  const testCurrentVision = async (): Promise<void> => {
+    if (!current) return
+    setVisionProbe({ status: 'testing' })
+    const res = await window.designAgent.models.testVision(current)
+    if (res.visionSupported !== undefined) {
+      updateCurrent({
+        supportsVision: res.visionSupported,
+        ...(res.resolvedBaseUrl !== undefined ? { baseUrl: res.resolvedBaseUrl } : {}),
+        ...(res.resolvedUseResponsesApi !== undefined ? { useResponsesApi: res.resolvedUseResponsesApi } : {}),
+        ...(res.resolvedAuthStyle !== undefined ? { authStyle: res.resolvedAuthStyle } : {})
+      })
+    }
+    setVisionProbe(
+      res.ok
+        ? { status: 'ok', latencyMs: res.latencyMs, message: res.detail }
+        : { status: 'fail', latencyMs: res.latencyMs, message: res.error ?? '连接失败，无法判断' }
     )
   }
 
@@ -700,6 +723,8 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
             onToggleShowKey={() => setShowKey(!showKey)}
             profileProbe={profileProbe}
             onTestProfile={() => void testCurrentProfile()}
+            visionProbe={visionProbe}
+            onTestVision={() => void testCurrentVision()}
             onAddProfile={addNewProfile}
             onRemoveProfile={removeCurrent}
             onUpdateProfile={updateCurrent}

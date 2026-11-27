@@ -4,6 +4,7 @@ import { DynamicStructuredTool } from '@langchain/core/tools'
 import { z } from 'zod'
 import type { ModelProviderProfile } from '@shared/protocol'
 import { createChatModel } from '../modelFactory'
+import { subagentModelProfile } from './imageTools'
 // 仅类型引用：编译后擦除，运行期不会形成 index → asyncSubagents 的循环依赖
 import type { runAgentLoop } from '../index'
 
@@ -133,12 +134,8 @@ export function createAsyncSubagentTools(params: {
           signal: controller.signal,
           maxIterations: 15,
           offloadRootDir: params.rootDir,
-          // 传入 profile，工具结果里的图片才会按接口能力降级或转交，否则 OpenAI 兼容接口会直接 400；
-          // model 要用子智能体实际跑的模型，否则视觉判定会拿主模型的名字去判断
-          profile: {
-            ...params.modelProfile,
-            model: params.modelProfile.subagentModel?.trim() || params.modelProfile.model
-          },
+          // 传入 profile，工具结果里的图片才会按接口能力降级或转交，否则 OpenAI 兼容接口会直接 400
+          profile: subagentModelProfile(params.modelProfile),
           enableAnthropicCache:
             params.modelProfile.protocol === 'anthropic' &&
             params.modelProfile.enablePromptCache !== false,
