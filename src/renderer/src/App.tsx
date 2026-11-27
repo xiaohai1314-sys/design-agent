@@ -177,6 +177,10 @@ export const App: React.FC = () => {
   /** 任务进行中按下的消息先排队，本轮结束后按顺序发出（以前是直接丢弃，用户以为发出去了） */
   const queuedSendRef = useRef<Array<{ taskId: string | null; payload: Parameters<typeof sendMessage>[0] & { restore: () => void } }>>([])
   const [queuedCount, setQueuedCount] = useState(0)
+  /** 排队消息发送失败后暂停的任务：不自动重试（多半是密钥 / 网络问题，连发只会连败），用户在输入框按回车再继续 */
+  const queuePausedRef = useRef<Set<string | null>>(new Set())
+  /** 队列内容变了但 running / activeTaskId 没变时，用它触发下面的出队 effect */
+  const [queueVersion, setQueueVersion] = useState(0)
 
   useEffect(() => {
     void init()
@@ -405,46 +409,75 @@ export const App: React.FC = () => {
     }
   }
 
-  const dispatchSend = async (payload: Parameters<typeof sendMessage>[0] & { restore: () => void }): Promise<void> => {
+  type QueuedSend = { taskId: string | null; payload: Parameters<typeof sendMessage>[0] & { restore: () => void } }
+
+  const queuedFor = (taskId: string | null): number => queuedSendRef.current.filter((q) => q.taskId === taskId).length
+
+  /** fromQueue：排队消息出队发送。失败时放回队首并暂停，不把内容倒回输入框（用户可能正在打下一条） */
+  const dispatchSend = async (
+    payload: Parameters<typeof sendMessage>[0] & { restore: () => void },
+    fromQueue?: QueuedSend
+  ): Promise<void> => {
     setSendError(null)
     const { restore, ...message } = payload
     const res = await sendMessage(message)
     if (!res.ok && res.error) {
-      setSendError(res.error)
-      restore()
+      if (fromQueue) {
+        queuedSendRef.current.unshift(fromQueue)
+        queuePausedRef.current.add(fromQueue.taskId)
+        setQueuedCount(queuedFor(fromQueue.taskId))
+        setSendError(`${res.error}（排队的消息已暂停，处理好后在输入框按回车继续，或点「清空」放弃）`)
+      } else {
+        setSendError(res.error)
+        restore()
+      }
     }
   }
 
   const handleSend = async (overrideText?: string): Promise<void> => {
     const payload = buildSendPayload(overrideText)
-    if (!payload) return
-    if (!overrideText) {
+    const hasQueued = queuedFor(activeTaskId) > 0
+    // 空输入也允许按回车：用来恢复暂停的排队消息
+    if (!payload && !(hasQueued && !running)) return
+    if (payload && !overrideText) {
       setInputText('')
       setAttachments([])
       clearDraftAnnotations()
       clearDraftConversationRefs()
     }
-    // 任务进行中不能并发发送：排到队尾，本轮结束后自动发出，不再静默丢弃
-    if (running) {
-      queuedSendRef.current.push({ taskId: activeTaskId, payload })
-      setQueuedCount(queuedSendRef.current.length)
+    // 任务进行中不能并发发送：排到队尾，本轮结束后自动发出，不再静默丢弃。
+    // 本任务还有没发完的排队消息时也排到后面，保证先按先发
+    if (running || hasQueued) {
+      if (payload) queuedSendRef.current.push({ taskId: activeTaskId, payload })
+      queuePausedRef.current.delete(activeTaskId)
+      setQueuedCount(queuedFor(activeTaskId))
+      setQueueVersion((v) => v + 1)
       return
     }
-    await dispatchSend(payload)
+    if (payload) await dispatchSend(payload)
+  }
+
+  const clearQueued = (): void => {
+    queuedSendRef.current = queuedSendRef.current.filter((q) => q.taskId !== activeTaskId)
+    queuePausedRef.current.delete(activeTaskId)
+    setQueuedCount(0)
   }
 
   // 每轮结束发出一条排队消息；发出后 running 会重新变 true，剩下的等下一轮结束再发。
   // 只发排给自己那个任务的：切到别的会话时不能把上一条排队的消息发过去
+  // 按任务找第一条，别的会话排的消息不挡住这里
   useEffect(() => {
+    setQueuedCount(queuedFor(activeTaskId))
     if (running) return
-    const head = queuedSendRef.current[0]
-    if (!head || head.taskId !== activeTaskId) return
-    queuedSendRef.current.shift()
-    setQueuedCount(queuedSendRef.current.length)
-    void dispatchSend(head.payload)
+    if (queuePausedRef.current.has(activeTaskId)) return
+    const index = queuedSendRef.current.findIndex((q) => q.taskId === activeTaskId)
+    if (index < 0) return
+    const [item] = queuedSendRef.current.splice(index, 1)
+    setQueuedCount(queuedFor(activeTaskId))
+    void dispatchSend(item.payload, item)
     // dispatchSend 每次渲染重建，只依赖稳定的 store 方法与 setState
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, activeTaskId])
+  }, [running, activeTaskId, queueVersion])
 
   const refableTasks = tasks.filter((t) => t.id !== activeTaskId && t.transcriptPath)
 
@@ -639,6 +672,7 @@ export const App: React.FC = () => {
               dragOver={dragOver}
               running={running}
               queuedCount={queuedCount}
+              onClearQueued={clearQueued}
               hasApiKey={hasApiKey}
               pendingInterrupt={pendingInterrupt}
               activeScenePreset={activeScenePreset}

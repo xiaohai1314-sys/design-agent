@@ -51,6 +51,8 @@ export interface ComposerCardProps {
   dragOver: boolean
   running: boolean
   queuedCount: number
+  /** 清空当前任务的排队消息（任务被中止、或不想再发时） */
+  onClearQueued: () => void
   hasApiKey: boolean
   pendingInterrupt: unknown
   activeScenePreset: SceneToolboxPreset | null
@@ -127,6 +129,7 @@ export function ComposerCard(props: ComposerCardProps): React.JSX.Element {
     dragOver,
     running,
     queuedCount,
+    onClearQueued,
     hasApiKey,
     pendingInterrupt,
     activeScenePreset,
@@ -302,7 +305,16 @@ export function ComposerCard(props: ComposerCardProps): React.JSX.Element {
             )}
 
             {queuedCount > 0 && (
-              <div className="mb-1 text-[12px] text-amber-600">已排队 {queuedCount} 条消息，本轮结束后自动发送</div>
+              <div className="mb-1 flex items-center gap-2 text-[12px] text-amber-600">
+                <span>已排队 {queuedCount} 条消息，本轮结束后自动发送</span>
+                <button
+                  type="button"
+                  onClick={onClearQueued}
+                  className="underline underline-offset-2 hover:text-amber-700"
+                >
+                  清空
+                </button>
+              </div>
             )}
             <textarea
               rows={isHomeEmpty ? 3 : 2}
