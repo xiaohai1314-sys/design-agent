@@ -45,7 +45,7 @@ export function VisionTab({ draft, setDraft }: VisionTabProps): React.JSX.Elemen
       const res = await window.designAgent.models.testConnection(profile)
       setProbe(
         res.ok
-          ? { status: 'ok', message: `连接正常（${res.latencyMs}ms）` }
+          ? { status: 'ok', message: `${res.detail ?? '连接正常'}（${res.latencyMs}ms）` }
           : { status: 'fail', message: res.error ?? '连接失败' }
       )
     } catch (err) {

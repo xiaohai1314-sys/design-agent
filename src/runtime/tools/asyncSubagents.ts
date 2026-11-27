@@ -133,6 +133,12 @@ export function createAsyncSubagentTools(params: {
           signal: controller.signal,
           maxIterations: 15,
           offloadRootDir: params.rootDir,
+          // 传入 profile，工具结果里的图片才会按接口能力降级或转交，否则 OpenAI 兼容接口会直接 400；
+          // model 要用子智能体实际跑的模型，否则视觉判定会拿主模型的名字去判断
+          profile: {
+            ...params.modelProfile,
+            model: params.modelProfile.subagentModel?.trim() || params.modelProfile.model
+          },
           enableAnthropicCache:
             params.modelProfile.protocol === 'anthropic' &&
             params.modelProfile.enablePromptCache !== false,

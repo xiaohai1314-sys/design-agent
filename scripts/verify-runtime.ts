@@ -22,7 +22,12 @@ import {
   composeFeatureSubmission,
   filterFeatures
 } from '../src/renderer/src/features/taskForm/compose'
-import { buildSystemMessage, offloadLargeToolOutput } from '../src/runtime/checkpoint'
+import {
+  buildSystemMessage,
+  degradeToolImageBlocks,
+  offloadLargeToolOutput,
+  splitToolImageBlocks
+} from '../src/runtime/checkpoint'
 import { applyProfilePatch, emptyProfile, summarizeProfile } from '../src/runtime/projectProfile'
 import { isVisionCapableModel, resolveVisionProfile } from '../src/runtime/tools/imageTools'
 import {
@@ -552,6 +557,35 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
   }).invoke({ file_path: tinyPng })
   if (typeof describeFailed !== 'string' || !describeFailed.includes('视觉模型 401')) {
     throw new Error(`视觉转述失败应如实返回原因：${String(describeFailed).slice(0, 200)}`)
+  }
+
+  // 1d. 工具结果里的图片：接口不收图时摘出来补发，收图时原样保留
+  const imgBlock = { type: 'image_url', image_url: { url: 'data:image/png;base64,AAA' } }
+  const split = splitToolImageBlocks([{ type: 'text', text: '已读取图片' }, imgBlock])
+  if (
+    split.images.length !== 1 ||
+    !Array.isArray(split.content) ||
+    (split.content as Array<{ type?: string }>).some((p) => p?.type === 'image_url')
+  ) {
+    throw new Error('splitToolImageBlocks 未把图片从工具结果里摘出')
+  }
+  if (!JSON.stringify(split.content).includes('图片见紧随其后的消息')) {
+    throw new Error('splitToolImageBlocks 缺少图片占位说明')
+  }
+  const passthrough = splitToolImageBlocks('纯文本结果')
+  if (passthrough.images.length !== 0 || passthrough.content !== '纯文本结果') {
+    throw new Error('splitToolImageBlocks 不应改动非数组结果')
+  }
+  if (
+    !JSON.stringify(degradeToolImageBlocks([{ type: 'text', text: 'x' }, imgBlock], false)).includes(
+      '不支持在工具结果中返回图片'
+    )
+  ) {
+    throw new Error('degradeToolImageBlocks 未降级图片块')
+  }
+  const kept = degradeToolImageBlocks([imgBlock], true)
+  if (!Array.isArray(kept) || (kept as Array<{ type?: string }>)[0]?.type !== 'image_url') {
+    throw new Error('degradeToolImageBlocks 在接口支持图片时不应改动内容')
   }
 
   await verifyWorkspacePathBoundary(tempRoot)

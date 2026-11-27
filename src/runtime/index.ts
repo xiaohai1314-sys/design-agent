@@ -55,10 +55,12 @@ import {
 import {
   buildSystemMessage,
   compactHistoryIfNeeded,
+  degradeToolImageBlocks,
   loadRuntimeCheckpoint,
   offloadLargeToolOutput,
   sanitizeHistoryForResume,
   saveRuntimeCheckpoint,
+  splitToolImageBlocks,
   type PendingSuspension
 } from './checkpoint'
 import { distillProjectMemory, generateNextSuggestions } from './distiller'
@@ -347,23 +349,8 @@ function extractStreamDeltas(chunk: AIMessage): { textDelta: string; reasoningDe
   return { textDelta, reasoningDelta }
 }
 
-/**
- * OpenAI Chat Completions 的 tool 消息只接受文本块，带 image 块会被网关 400。
- * Anthropic 与 Responses API 支持原生图片，保持原样。
- */
-function degradeToolImageBlocks(content: unknown, keepImages: boolean): unknown {
-  if (keepImages || !Array.isArray(content)) return content
-  let degraded = false
-  const parts = content.map((part) => {
-    const type = (part as { type?: string } | null)?.type
-    if (type === 'image_url' || type === 'image') {
-      degraded = true
-      return { type: 'text', text: '[图片内容已读取，但当前模型接口不支持在工具结果中返回图片]' }
-    }
-    return part
-  })
-  return degraded ? parts : content
-}
+/** 主模型能看图、但接口不允许工具结果带图片（OpenAI Chat Completions）时，每步最多补发几张图 */
+const MAX_FORWARDED_IMAGES_PER_STEP = 4
 
 export async function runAgentLoop(params: {
   model: ReturnType<typeof createChatModel>
@@ -392,6 +379,9 @@ export async function runAgentLoop(params: {
   const toolImagesSupported = params.profile
     ? params.profile.protocol === 'anthropic' || Boolean(params.profile.useResponsesApi)
     : true
+  // 接口不收工具结果里的图片时，能看图的主模型改走“用户消息补发图片”
+  const forwardToolImages =
+    !toolImagesSupported && Boolean(params.profile && isVisionCapableModel(params.profile.model))
   const toolMap = new Map(tools.map((t) => [t.name, t]))
   let lastBoundCount = -1
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -530,6 +520,7 @@ export async function runAgentLoop(params: {
       )
     }
 
+    const forwardedImages: Array<{ name: string; image: unknown }> = []
     for (const tc of toolCalls) {
       signal.throwIfAborted()
       const callId = tc.id || `call_${randomUUID().slice(0, 8)}`
@@ -568,11 +559,19 @@ export async function runAgentLoop(params: {
           : rawOutput
         const recorded = params.takeRecordedToolData(callId)
         params.onToolEnd(callId, callName, true, recorded ?? null)
+        let toolContent: unknown = safeOutput
+        if (forwardToolImages) {
+          const split = splitToolImageBlocks(safeOutput)
+          toolContent = split.content
+          for (const image of split.images) forwardedImages.push({ name: callName, image })
+        } else {
+          toolContent = degradeToolImageBlocks(safeOutput, toolImagesSupported)
+        }
         history.push(
           new ToolMessage({
             tool_call_id: callId,
             name: callName,
-            content: degradeToolImageBlocks(safeOutput, toolImagesSupported) as never
+            content: toolContent as never
           })
         )
       } catch (err) {
@@ -591,6 +590,24 @@ export async function runAgentLoop(params: {
           })
         )
       }
+    }
+    // 所有工具结果都写完之后才能插入用户消息（OpenAI 要求 tool 消息紧跟在带 tool_calls 的助手消息后）
+    if (forwardedImages.length > 0) {
+      const kept = forwardedImages.slice(-MAX_FORWARDED_IMAGES_PER_STEP)
+      const dropped = forwardedImages.length - kept.length
+      history.push(
+        new HumanMessage({
+          content: [
+            {
+              type: 'text',
+              text: `[系统转交] 以下是上一步工具（${[...new Set(kept.map((x) => x.name))].join('、')}）读取到的图片，共 ${kept.length} 张${
+                dropped > 0 ? `（另有 ${dropped} 张较早的图片未转交，需要时请重新读取）` : ''
+              }。这不是用户的新指令，请结合图片继续当前任务。`
+            },
+            ...kept.map((x) => x.image)
+          ] as never
+        })
+      )
     }
   }
   return { completedNaturally }
@@ -1477,7 +1494,10 @@ async function executeTurn(
           offloadRootDir: rootDir,
           enableAnthropicCache:
             modelProfile.protocol === 'anthropic' && modelProfile.enablePromptCache !== false,
-          profile: modelProfile,
+          profile: {
+            ...modelProfile,
+            model: modelProfile.subagentModel?.trim() || modelProfile.model
+          },
           onUsage: addUsage,
           onToken: (delta) => {
             subFinalText += delta

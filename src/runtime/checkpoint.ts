@@ -279,6 +279,39 @@ export function offloadLargeToolOutput(params: {
   ].join('\n')
 }
 
+/**
+ * OpenAI Chat Completions 的 tool 消息只接受文本块，带 image 块会被网关 400。
+ * Anthropic 与 Responses API 支持原生图片，保持原样。
+ */
+export function degradeToolImageBlocks(content: unknown, keepImages: boolean): unknown {
+  if (keepImages || !Array.isArray(content)) return content
+  let degraded = false
+  const parts = content.map((part) => {
+    const type = (part as { type?: string } | null)?.type
+    if (type === 'image_url' || type === 'image') {
+      degraded = true
+      return { type: 'text', text: '[图片内容已读取，但当前模型接口不支持在工具结果中返回图片]' }
+    }
+    return part
+  })
+  return degraded ? parts : content
+}
+
+/** 从工具结果里摘出图片块，留一个文字占位，等所有工具结果写完后作为用户消息补发 */
+export function splitToolImageBlocks(content: unknown): { content: unknown; images: unknown[] } {
+  if (!Array.isArray(content)) return { content, images: [] }
+  const images: unknown[] = []
+  const parts = content.map((part) => {
+    const type = (part as { type?: string } | null)?.type
+    if (type === 'image_url' || type === 'image') {
+      images.push(part)
+      return { type: 'text', text: '[图片见紧随其后的消息]' }
+    }
+    return part
+  })
+  return images.length ? { content: parts, images } : { content, images: [] }
+}
+
 export function buildSystemMessage(systemPrompt: string, enableAnthropicCache: boolean): SystemMessage {
   const breakIdx = systemPrompt.indexOf(SYSTEM_PROMPT_CACHE_BREAK)
   const staticPart = (breakIdx >= 0 ? systemPrompt.slice(0, breakIdx) : systemPrompt).trim()
@@ -335,7 +368,12 @@ export function estimateMessagesTokens(systemPrompt: string, history: BaseMessag
 function findSafeSplitIndex(history: BaseMessage[], keepHumanTurns: number, maxKeepTokens: number): number {
   const humanIdx: number[] = []
   for (let i = 0; i < history.length; i++) {
-    if (history[i]._getType() === 'human') humanIdx.push(i)
+    if (history[i]._getType() !== 'human') continue
+    // 工具图片转交消息不是用户的一轮对话，不算进“保留最近几轮”，也不能作为切分点
+    const c = history[i].content as unknown
+    const first = Array.isArray(c) ? (c[0] as { text?: unknown } | undefined)?.text : c
+    if (typeof first === 'string' && first.startsWith('[系统转交]')) continue
+    humanIdx.push(i)
   }
   if (humanIdx.length === 0) return 0
   for (let k = Math.min(keepHumanTurns, humanIdx.length); k >= 1; k--) {

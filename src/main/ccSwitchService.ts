@@ -512,6 +512,64 @@ export async function discoverCcSwitchCandidates(
   return { candidates, ...(dbError ? { error: dbError } : {}) }
 }
 
+// 32×32 纯红 PNG：用来确认模型真的“看得见”图片，而不只是接口能通
+const VISION_PROBE_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42u3NMQEAAAQAMATRP5QwSvBtBZbTHZ8qngkEAoFAIBAIBIIrC9KAAVhVsgYjAAAAAElFTkSuQmCC'
+
+/**
+ * 视觉模型测活：先按普通对话测通接口，再发一张纯红小图问颜色。
+ * 只通过第一步说明 Key、地址可用但模型不能看图（例如把 deepseek-chat 填成了视觉模型）。
+ */
+export async function testVisionProfileConnection(
+  profile: ModelProviderProfile
+): Promise<{ ok: boolean; latencyMs: number; detail?: string; error?: string }> {
+  const base = await testModelProfileConnection(profile)
+  if (!base.ok) return base
+  const started = Date.now()
+  const target: ModelProviderProfile = {
+    ...profile,
+    ...(base.resolvedBaseUrl ? { baseUrl: base.resolvedBaseUrl } : {}),
+    ...(base.resolvedUseResponsesApi !== undefined ? { useResponsesApi: base.resolvedUseResponsesApi } : {}),
+    ...(base.resolvedAuthStyle ? { authStyle: base.resolvedAuthStyle } : {})
+  }
+  const model = createChatModel({ ...target, maxOutputTokens: 64 }, { thinking: false })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 30000)
+  try {
+    const res = await model.invoke(
+      [
+        new HumanMessage({
+          content: [
+            { type: 'text', text: '这张图片主要是什么颜色？只回答一个颜色词。' },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${VISION_PROBE_PNG}` } }
+          ] as never
+        })
+      ],
+      { signal: controller.signal }
+    )
+    const text = (typeof res.content === 'string' ? res.content : JSON.stringify(res.content)).trim()
+    const latencyMs = base.latencyMs + (Date.now() - started)
+    const adapted = base.resolvedBaseUrl ? `（地址已自动适配为 ${base.resolvedBaseUrl}，请同步修改）` : ''
+    if (/红|red/i.test(text)) {
+      return { ok: true, latencyMs, detail: `能正确识别图片（回答：${text.slice(0, 20)}）${adapted}` }
+    }
+    return {
+      ok: false,
+      latencyMs,
+      error: `接口可用，但模型没有认出测试图片（回答：${text.slice(0, 40) || '空'}），它可能不支持看图，请换成视觉模型${adapted}`
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return {
+      ok: false,
+      latencyMs: base.latencyMs + (Date.now() - started),
+      error: `接口可用，但发送图片失败，模型可能不支持看图：${message.slice(0, 200)}`
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function testModelProfileConnection(
   profile: ModelProviderProfile
 ): Promise<{

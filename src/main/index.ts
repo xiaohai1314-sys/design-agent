@@ -43,7 +43,7 @@ import { CadPreviewService } from './cadService'
 import { ModelPreviewService } from './modelService'
 import { McpConnectorManager } from './mcpManager'
 import { applyPptProposalToFile } from './pptPatcher'
-import { discoverCcSwitchCandidates, testModelProfileConnection } from './ccSwitchService'
+import { discoverCcSwitchCandidates, testModelProfileConnection, testVisionProfileConnection } from './ccSwitchService'
 import { testImageChannelConnection } from './imageChannelTestService'
 import {
   downloadClipModel,
@@ -417,7 +417,8 @@ function registerIpcHandlers(): void {
         profile.id === 'vision'
           ? savedSettings.vision
           : savedSettings.profiles.find((p) => p.id === profile.id)
-      return testModelProfileConnection(restoreSecrets(target, savedSource))
+      const restored = restoreSecrets(target, savedSource)
+      return profile.id === 'vision' ? testVisionProfileConnection(restored) : testModelProfileConnection(restored)
     }
   )
   ipcMain.handle(
