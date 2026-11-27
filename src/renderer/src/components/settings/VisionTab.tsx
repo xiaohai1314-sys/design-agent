@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import type { ModelSettingsState } from '@shared/ipc'
-import type { ApiProtocol, VisionConfig } from '@shared/protocol'
+import type { ApiProtocol, ModelProviderProfile, VisionConfig } from '@shared/protocol'
 
 export interface VisionTabProps {
   draft: ModelSettingsState
@@ -14,11 +15,43 @@ const DEFAULTS: VisionConfig = {
   model: ''
 }
 
+type Probe = { status: 'testing' | 'ok' | 'fail'; message?: string }
+
 /** 设置 → 视觉模型（审图、看参考图） */
 export function VisionTab({ draft, setDraft }: VisionTabProps): React.JSX.Element {
   const vision: VisionConfig = { ...DEFAULTS, ...(draft.vision ?? {}) }
   const patch = (p: Partial<VisionConfig>): void => setDraft({ ...draft, vision: { ...vision, ...p } })
   const ready = vision.enabled && Boolean(vision.apiKey.trim()) && Boolean(vision.model.trim())
+  const [probe, setProbe] = useState<Probe | null>(null)
+
+  const testConnection = async (): Promise<void> => {
+    if (!vision.model.trim() || !vision.apiKey.trim()) {
+      setProbe({ status: 'fail', message: '请先填写模型名称与 API Key' })
+      return
+    }
+    setProbe({ status: 'testing' })
+    const profile: ModelProviderProfile = {
+      id: 'vision',
+      label: '视觉模型',
+      protocol: vision.protocol ?? 'openai',
+      baseUrl: vision.baseUrl.trim(),
+      apiKey: vision.apiKey,
+      model: vision.model.trim(),
+      subagentModel: vision.model.trim(),
+      supportsThinking: false,
+      maxOutputTokens: 4096
+    }
+    try {
+      const res = await window.designAgent.models.testConnection(profile)
+      setProbe(
+        res.ok
+          ? { status: 'ok', message: `连接正常（${res.latencyMs}ms）` }
+          : { status: 'fail', message: res.error ?? '连接失败' }
+      )
+    } catch (err) {
+      setProbe({ status: 'fail', message: err instanceof Error ? err.message : String(err) })
+    }
+  }
 
   return (
     <div className="flex-1 p-6 space-y-4 overflow-y-auto text-xs">
@@ -85,10 +118,32 @@ export function VisionTab({ draft, setDraft }: VisionTabProps): React.JSX.Elemen
         />
       </div>
 
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => void testConnection()}
+          disabled={probe?.status === 'testing'}
+          className="px-3 py-1.5 rounded-lg border border-zinc-300 text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          {probe?.status === 'testing' ? '测试中…' : '测试连接'}
+        </button>
+        {probe && probe.status !== 'testing' ? (
+          <span
+            className={
+              probe.status === 'ok' ? 'text-emerald-600' : 'text-red-600'
+            }
+          >
+            {probe.message}
+          </span>
+        ) : (
+          <span className="text-zinc-400">只验证地址、Key 与模型名是否可用</span>
+        )}
+      </div>
+
       <p className="text-[11px] leading-relaxed text-zinc-500">
         {ready
-          ? '已配置。审图（review_image）会走这个模型，与主对话模型互不影响。'
-          : '未配置或未填全时：主模型支持看图（Claude / GPT-4o / Gemini / Qwen-VL 等）就用主模型；否则不提供审图工具，出图后需要你自己核对。'}
+          ? '已配置。审图（review_image）与 read_file 读到的图片都会先交给这个模型，主对话可以继续用纯文本模型。'
+          : '未配置或未填全时：主模型支持看图（Claude / GPT-4o / Gemini / Qwen-VL 等）就由主模型自己看；否则不提供审图工具，read_file 读图片也拿不到内容。'}
       </p>
     </div>
   )

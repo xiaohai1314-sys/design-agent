@@ -499,6 +499,61 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
   }
   rmSync(fakeSkillsRoot, { recursive: true, force: true })
 
+  // 1c. read_file 读图片：主模型看不了图时交给视觉模型转述
+  const tinyPng = join(tempRoot, 'tiny.png')
+  writeFileSync(
+    tinyPng,
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64'
+    )
+  )
+  const makeReadTool = (extra: {
+    modelSeesImages?: boolean
+    describeImage?: (imagePath: string) => Promise<string>
+  }) =>
+    createWorkspaceTools({
+      rootDir: tempRoot,
+      signal: new AbortController().signal,
+      requireApproval: async () => {},
+      recordToolData: () => {},
+      onTodosChange: () => {},
+      ...extra
+    }).find((t) => t.name === 'read_file')!
+
+  const described = await makeReadTool({
+    describeImage: async () => '一张 1x1 的测试图。'
+  }).invoke({ file_path: tinyPng })
+  if (
+    typeof described !== 'string' ||
+    !described.includes('视觉模型转述') ||
+    !described.includes('一张 1x1 的测试图。')
+  ) {
+    throw new Error(`read_file 未走视觉转述：${String(described).slice(0, 200)}`)
+  }
+
+  const blind = await makeReadTool({ modelSeesImages: false }).invoke({ file_path: tinyPng })
+  if (typeof blind !== 'string' || !blind.includes('不支持看图')) {
+    throw new Error(`read_file 无视觉能力时应返回文字提示：${String(blind).slice(0, 200)}`)
+  }
+
+  const inline = await makeReadTool({}).invoke({ file_path: tinyPng })
+  if (
+    !Array.isArray(inline) ||
+    !(inline as Array<{ type?: string }>).some((part) => part?.type === 'image_url')
+  ) {
+    throw new Error('主模型能看图时 read_file 仍应返回 image_url 内容块')
+  }
+
+  const describeFailed = await makeReadTool({
+    describeImage: async () => {
+      throw new Error('视觉模型 401')
+    }
+  }).invoke({ file_path: tinyPng })
+  if (typeof describeFailed !== 'string' || !describeFailed.includes('视觉模型 401')) {
+    throw new Error(`视觉转述失败应如实返回原因：${String(describeFailed).slice(0, 200)}`)
+  }
+
   await verifyWorkspacePathBoundary(tempRoot)
 
   // 2. 大工具结果自动外置 (.design-agent/tool-results/)

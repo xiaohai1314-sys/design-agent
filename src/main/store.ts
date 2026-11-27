@@ -327,6 +327,7 @@ export class LocalAppStore {
       profiles: cleanedProfiles,
       imageGen: migratedImageGen,
       regulation: saved.regulation ?? defaultRegulation,
+      vision: saved.vision ?? defaultVision,
       inspiration: {
         folderPath: saved.inspiration?.folderPath ?? defaultInspiration.folderPath,
         clipModelDir: saved.inspiration?.clipModelDir ?? defaultInspiration.clipModelDir

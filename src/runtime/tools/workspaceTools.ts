@@ -101,6 +101,10 @@ export function createWorkspaceTools(params: {
   extraEnvPaths?: string[]
   protectedPptPaths?: string[]
   allowedReadPaths?: string[]
+  /** 主模型能否直接看图；false 时图片交给 describeImage 转成文字，缺省按 true 处理 */
+  modelSeesImages?: boolean
+  /** 独立视觉模型生成的图片转述；主模型看不了图且配了视觉模型时才有值 */
+  describeImage?: (imagePath: string) => Promise<string>
   signal: AbortSignal
   requireApproval: ApprovalGate
   recordToolData: (toolCallId: string, data: unknown) => void
@@ -223,7 +227,7 @@ export function createWorkspaceTools(params: {
   const readFileTool = new DynamicStructuredTool({
     name: 'read_file',
     description:
-      '读取本地文本文件（如 SKILL.md、Markdown、JSON、CSV、DXF 文本、代码脚本）或查看图片文件元信息。对于二进制 Office/PDF/CAD 文件，请先阅读对应 Skill 使用专用脚本提取内容。',
+      '读取本地文本文件（如 SKILL.md、Markdown、JSON、CSV、DXF 文本、代码脚本）或查看图片。读取图片时：主模型支持看图就直接返回图片，否则由「设置 → 视觉模型」里配置的模型转述成文字返回。对于二进制 Office/PDF/CAD 文件，请先阅读对应 Skill 使用专用脚本提取内容。',
     schema: z.object({
       file_path: z.string().describe('要读取的文件路径（绝对路径或相对工作区路径）'),
       start_line: z.number().int().positive().optional().describe('起始行号（1开始，可选）'),
@@ -237,6 +241,20 @@ export function createWorkspaceTools(params: {
 
       const ext = extname(target).toLowerCase()
       if (['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'].includes(ext)) {
+        const rel = target.replace(/\\/g, '/')
+        // 主模型看不了图时，先把图片交给视觉模型转成文字，否则多模态内容块会被纯文本模型丢掉
+        if (params.describeImage) {
+          try {
+            const description = await params.describeImage(target)
+            return `已读取图片文件：${rel}（${st.size} bytes）。当前主模型不能直接看图，以下由视觉模型转述：\n\n${description}`
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err)
+            return `已读取图片文件：${rel}（${st.size} bytes），但视觉模型转述失败：${reason}。请把图片路径告知用户，或请用户用文字描述图片内容。`
+          }
+        }
+        if (params.modelSeesImages === false) {
+          return `图片文件：${rel}（${st.size} bytes）。当前主模型不支持看图，也没有配置独立的视觉模型（设置 → 视觉模型），无法查看图片内容。请告知用户，或请用户用文字描述。`
+        }
         const buf = readFileSync(target)
         const mime =
           ext === '.png'

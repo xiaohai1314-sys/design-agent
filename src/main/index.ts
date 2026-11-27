@@ -411,12 +411,13 @@ function registerIpcHandlers(): void {
         const key = await resolveCcSwitchKey(profile.ccUid)
         if (key) target = { ...profile, apiKey: key }
       }
-      return testModelProfileConnection(
-        restoreSecrets(
-          target,
-          store.getModelSettings().profiles.find((p) => p.id === profile.id)
-        )
-      )
+      const savedSettings = store.getModelSettings()
+      // 视觉模型不在 profiles 里，界面回传的是脱敏 Key，要单独按 vision 配置回填
+      const savedSource =
+        profile.id === 'vision'
+          ? savedSettings.vision
+          : savedSettings.profiles.find((p) => p.id === profile.id)
+      return testModelProfileConnection(restoreSecrets(target, savedSource))
     }
   )
   ipcMain.handle(
