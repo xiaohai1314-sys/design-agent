@@ -32,8 +32,8 @@ export interface UsageDelta {
 
 const ROLE_TOOL_ALLOWLISTS: Record<Exclude<SubagentRole, 'general'>, Set<string>> = {
   // 工具名必须与实际注册名一致（规范检索为 retrieve_regulation_chunks）
-  research: new Set(['ls', 'glob', 'grep', 'read_file', 'retrieve_regulation_chunks', 'search_inspiration', 'web_search']),
-  'cad-analyzer': new Set(['ls', 'glob', 'grep', 'read_file', 'execute', 'plan_extract', 'plan_building', 'plan_check', 'plan_quantity', 'plan_furnish', 'retrieve_regulation_chunks', 'web_search']),
+  research: new Set(['ls', 'glob', 'grep', 'read_file', 'retrieve_regulation_chunks', 'submit_regulation_evidence', 'search_inspiration', 'web_search']),
+  'cad-analyzer': new Set(['ls', 'glob', 'grep', 'read_file', 'execute', 'plan_extract', 'plan_building', 'plan_check', 'plan_quantity', 'plan_furnish', 'retrieve_regulation_chunks', 'submit_regulation_evidence', 'web_search']),
   modeler: new Set(['ls', 'glob', 'grep', 'read_file', 'write_file', 'edit_file', 'execute'])
 }
 

@@ -50,6 +50,7 @@ export interface ComposerCardProps {
   inputText: string
   dragOver: boolean
   running: boolean
+  queuedCount: number
   hasApiKey: boolean
   pendingInterrupt: unknown
   activeScenePreset: SceneToolboxPreset | null
@@ -125,6 +126,7 @@ export function ComposerCard(props: ComposerCardProps): React.JSX.Element {
     inputText,
     dragOver,
     running,
+    queuedCount,
     hasApiKey,
     pendingInterrupt,
     activeScenePreset,
@@ -299,6 +301,9 @@ export function ComposerCard(props: ComposerCardProps): React.JSX.Element {
               </div>
             )}
 
+            {queuedCount > 0 && (
+              <div className="mb-1 text-[12px] text-amber-600">已排队 {queuedCount} 条消息，本轮结束后自动发送</div>
+            )}
             <textarea
               rows={isHomeEmpty ? 3 : 2}
               value={inputText}
@@ -315,7 +320,7 @@ export function ComposerCard(props: ComposerCardProps): React.JSX.Element {
                 pendingInterrupt
                   ? '请先在上方卡片完成操作授权…'
                   : running
-                    ? '当前有任务进行中…'
+                    ? '当前有任务进行中…（回车排队，本轮结束后自动发送）'
                     : MODE_PLACEHOLDER[composerMode]
               }
               className="w-full resize-none bg-transparent text-[14px] text-zinc-900 placeholder:text-zinc-400 outline-none max-h-40 leading-relaxed"

@@ -234,12 +234,54 @@ async function loadChunksFromFile(filePath: string, pythonExe: string, signal?: 
   })
 }
 
-export function createLocalRegulationTool(params: {
+/** 证据登记时回报的条文信息：只保留能核验身份和效力的字段，正文不回传 */
+interface RetrievedClause {
+  cite: string
+  standardName: string
+  standardNo: string
+  clauseId: string
+  validityStatus: string
+  isMandatory: boolean
+  supersededBy?: string
+}
+
+/** 子问缺证时的原因（闭集，避免模型用「资料不足」这种含糊说法糊过去） */
+const GAP_REASONS = [
+  'no_evidence',
+  'asset_unavailable',
+  'region_unconfirmed',
+  'project_input_missing',
+  'filter_unavailable',
+  'timeout',
+  'tool_error'
+] as const
+
+export function createLocalRegulationTools(params: {
   regulationFolder?: string
   pythonExe: string
   recordToolData: (toolCallId: string, data: RegulationToolData) => void
-}): DynamicStructuredTool {
-  return new DynamicStructuredTool({
+}): DynamicStructuredTool[] {
+  /** 本轮检索到过的条文（按 cite）：证据登记只认这里面的条，挡住「引用没查过的条文」 */
+  const retrieved = new Map<string, RetrievedClause>()
+  /** 本轮提交次数：第一次有问题回 review_evidence，第二次起放行并带 warnings —— 只给一轮补证 */
+  let submissions = 0
+
+  const remember = (chunks: ReadonlyArray<RegulationChunk>): void => {
+    for (const c of chunks) {
+      if (!c.cite) continue
+      retrieved.set(c.cite, {
+        cite: c.cite,
+        standardName: c.standardName,
+        standardNo: c.standardNo,
+        clauseId: c.clauseId,
+        validityStatus: c.validityStatus,
+        isMandatory: Boolean(c.isMandatory),
+        ...(c.supersededBy ? { supersededBy: c.supersededBy } : {})
+      })
+    }
+  }
+
+  const retrieveTool = new DynamicStructuredTool({
     name: 'retrieve_regulation_chunks',
     description:
       '本地建筑规范知识库检索：检索本地规范库目录中存放的国标/行标/地标条文（JSON、Markdown、TXT 或 PDF），返回可核验的规范名称、编号、条号、正文及效力状态。查询规范限值或合规依据前必须先阅读 regulation-consultation 技能再调用本工具。',
@@ -282,6 +324,7 @@ export function createLocalRegulationTool(params: {
           if (nativeRes.chunks.length === 0) {
             return `在本地规范持久化索引库（共 ${nativeRes.indexedDocs} 份规范 / ${nativeRes.indexedPages} 页，耗时 ${nativeRes.queryMs.toFixed(1)}ms）中未检索到与“${query}”直接匹配的条文。请补充本地规范或调整检索词。`
           }
+          remember(nativeRes.chunks)
           return JSON.stringify(
             {
               engine: 'sqlite-fts5',
@@ -354,6 +397,7 @@ export function createLocalRegulationTool(params: {
         return `在本地规范库（${files.length} 份文件）中未检索到与“${query}”直接匹配的条文。请补充更完整的本地规范文档，或尝试调整检索词。`
       }
 
+      remember(scored)
       return JSON.stringify(
         {
           sourceFolder: folder,
@@ -374,4 +418,89 @@ export function createLocalRegulationTool(params: {
       )
     }
   })
+
+  const evidenceTool = new DynamicStructuredTool({
+    name: 'submit_regulation_evidence',
+    description:
+      '规范问答的证据登记：把本轮实际检索到、并真正用于作答的条文登记给系统，逐个子问说明用了哪几条、缺证的原因是什么。' +
+      '回答任何规范问题之前必须先调用本工具；只能登记本轮 retrieve_regulation_chunks 返回过的条文（用它的 cite）。' +
+      '返回 status=review_evidence 时按 issues 修正后重新提交（本轮只允许补证一次）；status=accepted 之后才能作答。',
+    schema: z.object({
+      question_type: z.enum(['条文精准检索', '宽泛检索', '设计检索推荐', '综合咨询']).describe('本轮问题的类型'),
+      selected_clause_keys: z.array(z.string().min(1)).min(1).describe('按优先级列出实际采用的条文 cite'),
+      coverage: z
+        .array(
+          z.object({
+            question: z.string().min(1).describe('用户的一个子问'),
+            clause_keys: z.array(z.string()).default([]).describe('回答这个子问用到的条文 cite；没有就留空并写 gap_reason'),
+            gap_reason: z
+              .enum(GAP_REASONS)
+              .optional()
+              .describe('缺证原因：no_evidence / asset_unavailable / region_unconfirmed / project_input_missing / filter_unavailable / timeout / tool_error')
+          })
+        )
+        .min(1)
+        .describe('逐个子问的覆盖情况')
+    }),
+    func: async ({ question_type, selected_clause_keys, coverage }) => {
+      submissions += 1
+      const available = [...retrieved.keys()]
+      const used = [...new Set([...selected_clause_keys, ...coverage.flatMap((entry) => entry.clause_keys)])]
+      const unknown = used.filter((key) => !retrieved.has(key))
+      const covered = new Set(coverage.flatMap((entry) => entry.clause_keys))
+      const uncovered = selected_clause_keys.filter((key) => !covered.has(key))
+      const issues: string[] = []
+
+      if (retrieved.size === 0) {
+        issues.push('本轮还没有检索过条文：先用 retrieve_regulation_chunks 检索，再登记证据。')
+      }
+      if (unknown.length > 0) {
+        issues.push(`这些条号本轮没有检索到，不能引用：${unknown.join('、')}。可用的是：${available.join('、') || '（无）'}`)
+      }
+      if (uncovered.length > 0) {
+        issues.push(`这些条没有写进任何子问的 coverage：${uncovered.join('、')}`)
+      }
+      coverage.forEach((entry, index) => {
+        if (entry.clause_keys.length === 0 && !entry.gap_reason) {
+          issues.push(`第 ${index + 1} 个子问「${entry.question}」既没有条文，也没有 gap_reason`)
+        }
+      })
+
+      // 只给一轮补证：第二次提交起放行，问题降级成 warnings，避免模型卡在登记这一步出不来
+      if (issues.length > 0 && submissions === 1) {
+        return JSON.stringify(
+          {
+            status: 'review_evidence',
+            issues,
+            available_clause_keys: available,
+            instruction: '按 issues 修正后重新提交；本轮只剩这一次补证机会，再次提交会直接放行。'
+          },
+          null,
+          2
+        )
+      }
+
+      return JSON.stringify(
+        {
+          status: 'accepted',
+          question_type,
+          evidence: coverage.map((entry) => ({
+            question: entry.question,
+            ...(entry.gap_reason ? { gap_reason: entry.gap_reason } : {}),
+            clauses: entry.clause_keys
+              .map((key) => retrieved.get(key))
+              .filter((clause): clause is RetrievedClause => Boolean(clause))
+              .map((clause) => ({ ...clause }))
+          })),
+          ...(issues.length > 0 ? { warnings: issues } : {}),
+          instruction:
+            '按上述证据作答：每条结论句末用 <source>cite</source> 标注；有 gap_reason 的子问要如实说明没查到什么、缺什么条件，不要用记忆补限值。'
+        },
+        null,
+        2
+      )
+    }
+  })
+
+  return [retrieveTool, evidenceTool]
 }

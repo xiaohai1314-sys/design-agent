@@ -38,7 +38,7 @@ import { createDeliverTool } from './tools/deliver'
 import { createAskUserTool, formatAnswersForModel } from './tools/askUser'
 import { createWorkspaceTools } from './tools/workspaceTools'
 import { createImageTools, hasImageGenCapability, profileSeesImages, resolveVisionProfile, subagentModelProfile } from './tools/imageTools'
-import { createLocalRegulationTool } from './tools/regulationTool'
+import { createLocalRegulationTools } from './tools/regulationTool'
 import { createPlanTools } from './tools/planTools'
 import { createSearchInspirationTool } from './tools/inspirationTool'
 import { createWebSearchTool } from './tools/webSearchTool'
@@ -1378,7 +1378,7 @@ async function executeTurn(
       recordToolData
     })
 
-    const regulationTool = createLocalRegulationTool({
+    const regulationTools = createLocalRegulationTools({
       regulationFolder,
       pythonExe,
       recordToolData
@@ -1461,7 +1461,7 @@ async function executeTurn(
     const subagentAllTools: DynamicStructuredTool[] = [
       ...subWorkspaceTools,
       ...planTools,
-      regulationTool,
+      ...regulationTools,
       inspirationTool,
       ...(webSearchTool ? [webSearchTool] : []),
       ...(mcpBundle?.tools ?? [])
@@ -1562,7 +1562,7 @@ async function executeTurn(
       ...baseTools,
       askUserTool,
       ...imageTools,
-      regulationTool,
+      ...regulationTools,
       inspirationTool,
       ...(webSearchTool ? [webSearchTool] : []),
       ...(pptWorkbenchTool ? [pptWorkbenchTool] : []),

@@ -174,6 +174,9 @@ export const App: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrollBottomRef = useRef<HTMLDivElement | null>(null)
   const taskSearchInputRef = useRef<HTMLInputElement | null>(null)
+  /** 任务进行中按下的消息先排队，本轮结束后按顺序发出（以前是直接丢弃，用户以为发出去了） */
+  const queuedSendRef = useRef<Array<{ taskId: string | null; payload: Parameters<typeof sendMessage>[0] & { restore: () => void } }>>([])
+  const [queuedCount, setQueuedCount] = useState(0)
 
   useEffect(() => {
     void init()
@@ -355,27 +358,21 @@ export const App: React.FC = () => {
     setCharterOpen(true)
   }
 
-  const handleSend = async (overrideText?: string): Promise<void> => {
+  const buildSendPayload = (
+    overrideText?: string
+  ): (Parameters<typeof sendMessage>[0] & { restore: () => void }) | null => {
     const content = (overrideText ?? inputText).trim()
-    if (
-      (!content &&
-        attachments.length === 0 &&
-        draftAnnotations.length === 0 &&
-        draftConversationRefs.length === 0 &&
-        !pptSelection) ||
-      running
-    )
-      return
-    setSendError(null)
     const filesToSend = [...attachments]
     const annotationsToSend = [...draftAnnotations]
     const convRefsToSend = [...draftConversationRefs]
-    if (!overrideText) {
-      setInputText('')
-      setAttachments([])
-      clearDraftAnnotations()
-      clearDraftConversationRefs()
-    }
+    if (
+      !content &&
+      filesToSend.length === 0 &&
+      annotationsToSend.length === 0 &&
+      convRefsToSend.length === 0 &&
+      !pptSelection
+    )
+      return null
     const sceneParam: SceneParam | undefined = activeScenePreset
       ? { toolTitle: activeScenePreset.title, paramValues: sceneParamValues }
       : composerMode === 'regulation'
@@ -388,7 +385,7 @@ export const App: React.FC = () => {
                   : '建筑规范检索与合规核查'
           }
         : undefined
-    const res = await sendMessage({
+    return {
       text:
         content ||
         (annotationsToSend.length > 0
@@ -397,11 +394,9 @@ export const App: React.FC = () => {
       attachments: filesToSend.length > 0 ? filesToSend : undefined,
       annotations: annotationsToSend.length > 0 ? annotationsToSend : undefined,
       conversationRefs: convRefsToSend.length > 0 ? convRefsToSend : undefined,
-      sceneParam
-    })
-    if (!res.ok && res.error) {
-      setSendError(res.error)
-      if (!overrideText) {
+      sceneParam,
+      restore: () => {
+        if (overrideText) return
         setInputText(content)
         setAttachments(filesToSend)
         annotationsToSend.forEach(attachAnnotationRef)
@@ -409,6 +404,47 @@ export const App: React.FC = () => {
       }
     }
   }
+
+  const dispatchSend = async (payload: Parameters<typeof sendMessage>[0] & { restore: () => void }): Promise<void> => {
+    setSendError(null)
+    const { restore, ...message } = payload
+    const res = await sendMessage(message)
+    if (!res.ok && res.error) {
+      setSendError(res.error)
+      restore()
+    }
+  }
+
+  const handleSend = async (overrideText?: string): Promise<void> => {
+    const payload = buildSendPayload(overrideText)
+    if (!payload) return
+    if (!overrideText) {
+      setInputText('')
+      setAttachments([])
+      clearDraftAnnotations()
+      clearDraftConversationRefs()
+    }
+    // 任务进行中不能并发发送：排到队尾，本轮结束后自动发出，不再静默丢弃
+    if (running) {
+      queuedSendRef.current.push({ taskId: activeTaskId, payload })
+      setQueuedCount(queuedSendRef.current.length)
+      return
+    }
+    await dispatchSend(payload)
+  }
+
+  // 每轮结束发出一条排队消息；发出后 running 会重新变 true，剩下的等下一轮结束再发。
+  // 只发排给自己那个任务的：切到别的会话时不能把上一条排队的消息发过去
+  useEffect(() => {
+    if (running) return
+    const head = queuedSendRef.current[0]
+    if (!head || head.taskId !== activeTaskId) return
+    queuedSendRef.current.shift()
+    setQueuedCount(queuedSendRef.current.length)
+    void dispatchSend(head.payload)
+    // dispatchSend 每次渲染重建，只依赖稳定的 store 方法与 setState
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, activeTaskId])
 
   const refableTasks = tasks.filter((t) => t.id !== activeTaskId && t.transcriptPath)
 
@@ -602,6 +638,7 @@ export const App: React.FC = () => {
               inputText={inputText}
               dragOver={dragOver}
               running={running}
+              queuedCount={queuedCount}
               hasApiKey={hasApiKey}
               pendingInterrupt={pendingInterrupt}
               activeScenePreset={activeScenePreset}
