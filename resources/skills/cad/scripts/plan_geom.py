@@ -4,8 +4,9 @@
 plan_quantity.py（工程量与报价）、plan_codecheck.py（规范审图）、report-pack 的汇报包都用它，
 保证各处对“哪个门属于哪个房间”“哪些是湿区”的判断一致。
 
-本模块不 import 任何兄弟模块，是这一组脚本的最底层：polygon_area / point_in_polygon
-由 plan_core 直接复用，不要在别处再写一份。
+本模块不 import 任何兄弟模块，是这一组脚本的最底层，同时也放最基础的几何原语：
+向量运算、线段、包围盒、多边形裁剪、文字取点。plan_axis / plan_column / plan_wall /
+plan_opening / plan_room / plan_core 都从这里取，不要在别处再写一份。
 """
 import json
 import math
@@ -260,3 +261,184 @@ def draw_plan(plan, out_path, marks=None, title=None):
     fig.savefig(out_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return str(out_path)
+
+
+# ---------------------------------------------------------------------------
+# 基础几何：向量、线段、包围盒、裁剪、文字取点
+# ---------------------------------------------------------------------------
+
+def sub(a, b):
+    return (a[0] - b[0], a[1] - b[1])
+
+
+def add(a, b):
+    return (a[0] + b[0], a[1] + b[1])
+
+
+def mul(a, k):
+    return (a[0] * k, a[1] * k)
+
+
+def dot(a, b):
+    return a[0] * b[0] + a[1] * b[1]
+
+
+def cross(a, b):
+    return a[0] * b[1] - a[1] * b[0]
+
+
+def norm(a):
+    return math.hypot(a[0], a[1])
+
+
+def unit(a):
+    n = norm(a)
+    return (a[0] / n, a[1] / n) if n > 1e-12 else (1.0, 0.0)
+
+
+def canonical_direction(d):
+    """把方向归一到半平面（角度 ∈ [0, 180)），平行但反向的线段得到同一方向。"""
+    d = unit(d)
+    if d[0] < -1e-9 or (abs(d[0]) <= 1e-9 and d[1] < 0):
+        d = (-d[0], -d[1])
+    return d
+
+
+def r(value, digits=1):
+    value = round(float(value), digits)
+    return int(value) if float(value).is_integer() else value
+
+
+def rp(p, digits=1):
+    return [r(p[0], digits), r(p[1], digits)]
+
+
+def segments_of(record):
+    pts = record["points"]
+    segs = [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
+    if record.get("closed") and len(pts) > 2:
+        segs.append((pts[-1], pts[0]))
+    return [s for s in segs if norm(sub(s[1], s[0])) > 1e-6]
+
+
+class Line:
+    __slots__ = ("a", "b", "d", "n", "offset", "t0", "t1")
+
+    def __init__(self, a, b):
+        self.a, self.b = a, b
+        self.d = canonical_direction(sub(b, a))
+        self.n = (-self.d[1], self.d[0])
+        self.offset = dot(a, self.n)
+        ta, tb = dot(a, self.d), dot(b, self.d)
+        self.t0, self.t1 = min(ta, tb), max(ta, tb)
+
+
+def same_direction(d1, d2, angle_tol_deg=0.5):
+    return abs(cross(d1, d2)) <= math.sin(math.radians(angle_tol_deg))
+
+
+def clip_polygon_to_box(polygon, box):
+    """Sutherland-Hodgman：多边形与轴对齐矩形的交（房间被柱子占掉的那一块）。"""
+    out = list(polygon)
+    for axis, value, keep_greater in ((0, box[0], True), (0, box[2], False), (1, box[1], True), (1, box[3], False)):
+        if not out:
+            break
+        inside = (lambda p: p[axis] >= value - 1e-9) if keep_greater else (lambda p: p[axis] <= value + 1e-9)
+        clipped = []
+        for k, cur in enumerate(out):
+            prev = out[k - 1]
+            if inside(cur):
+                if not inside(prev):
+                    clipped.append(_cross_at(prev, cur, axis, value))
+                clipped.append(cur)
+            elif inside(prev):
+                clipped.append(_cross_at(prev, cur, axis, value))
+        out = clipped
+    return out
+
+
+def _cross_at(a, b, axis, value):
+    t = (value - a[axis]) / (b[axis] - a[axis])
+    return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+
+
+def _on_boundary(point, polygon, tol=1.0):
+    for k, a in enumerate(polygon):
+        b = polygon[(k + 1) % len(polygon)]
+        length = math.dist(a, b)
+        if length < 1e-9:
+            continue
+        rel = (point[0] - a[0], point[1] - a[1])
+        d = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+        along = rel[0] * d[0] + rel[1] * d[1]
+        if -tol <= along <= length + tol and abs(rel[0] * d[1] - rel[1] * d[0]) <= tol:
+            return True
+    return False
+
+
+def bbox_of(points):
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def boxes_touch(a, b, pad):
+    return not (a[2] + pad < b[0] or b[2] + pad < a[0] or a[3] + pad < b[1] or b[3] + pad < a[1])
+
+
+def group_records(records, pad):
+    groups = []
+    for rec in records:
+        box = bbox_of(rec["points"])
+        hit = [g for g in groups if boxes_touch(g["bbox"], box, pad)]
+        merged = {"records": [rec], "bbox": box}
+        for g in hit:
+            groups.remove(g)
+            merged["records"].extend(g["records"])
+            b = g["bbox"]
+            merged["bbox"] = (min(merged["bbox"][0], b[0]), min(merged["bbox"][1], b[1]), max(merged["bbox"][2], b[2]), max(merged["bbox"][3], b[3]))
+        groups.append(merged)
+    return groups
+
+
+def circle_from_points(a, b, c):
+    """三点定圆；共线时返回 None。用于从离散后的门弧点列反求铰点与门宽。"""
+    d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]))
+    if abs(d) < 1e-9:
+        return None
+    ux = ((a[0] ** 2 + a[1] ** 2) * (b[1] - c[1]) + (b[0] ** 2 + b[1] ** 2) * (c[1] - a[1]) + (c[0] ** 2 + c[1] ** 2) * (a[1] - b[1])) / d
+    uy = ((a[0] ** 2 + a[1] ** 2) * (c[0] - b[0]) + (b[0] ** 2 + b[1] ** 2) * (a[0] - c[0]) + (c[0] ** 2 + c[1] ** 2) * (b[0] - a[0])) / d
+    center = (ux, uy)
+    return center, norm(sub(a, center))
+
+
+def arc_info(rec):
+    """门弧的圆心（铰点）、半径（门宽）和两个端点。"""
+    pts = rec["points"]
+    if rec.get("center") is not None and rec.get("radius"):
+        center, radius = tuple(rec["center"]), float(rec["radius"])
+    else:
+        if len(pts) < 3:
+            return None
+        fit = circle_from_points(pts[0], pts[len(pts) // 2], pts[-1])
+        if fit is None:
+            return None
+        center, radius = fit
+    return {"center": center, "radius": radius, "ends": (pts[0], pts[-1])}
+
+
+def in_strip(q, piece, tol):
+    return abs(dot(q, piece["n"]) - piece["offset"]) <= piece["thickness"] / 2 + tol
+
+
+def within_extent(q, piece, margin):
+    t = dot(q, piece["d"])
+    return piece["t0"] - margin <= t <= piece["t1"] + margin
+
+
+def text_point(text):
+    """文字的包围盒中心；没有 bbox 时退回插入点。
+
+    anchor 是文字的左下角，贴着墙写的房间名用 anchor 判断会落到墙的另一侧，房间就缩成一条窄缝。
+    """
+    return tuple(text.get("point") or text["anchor"])
