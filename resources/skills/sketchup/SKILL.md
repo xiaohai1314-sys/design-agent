@@ -87,7 +87,7 @@ DesignAgentPlanBuilder.build('<工作区>/.design-agent/plans/xxx.plan.json', {
 
    - 墙按洞口拆成墙段、窗台、过梁，不依赖布尔运算；门扇、推拉门、窗框玻璃，各房间地面与顶棚一并生成，分别放在 `DA_墙体`、`DA_门窗`、`DA_地面`、`DA_顶棚` 标记里，并建好 `DA_轴测`、`DA_俯视` 两个场景。
    - 所有几何都在 `DesignAgentPlan_Root` 组里；重复执行只替换这个组，不动模型里其他内容。可选参数：`include_floors`、`include_ceilings`、`include_doors`、`include_windows`（默认都为 true）、`replace_existing`。
-   - 返回 JSON：`status`、墙和洞口数量、各房间地面实测面积、外包尺寸、`warnings`。
+   - 返回 JSON：`status`、墙和洞口数量、各房间地面实测面积、外包尺寸、`warnings`。单个构件建失败只跳过它自己，错误连构件名写进 `warnings`（形如「墙 W3 建模失败：…」），其余照建、`status` 为 `partial_ok`。不要因为有一条警告就整体重来，按构件名定位后改 plan.json 重建。
 3. **核对**：执行 `DesignAgentPlanBuilder.measure`，把返回的 JSON 原样写成 `measure.json`，再运行 cad 技能的 `plan_verify.py --plan … --model measure.json`。有不一致时修正后重建、再核对，通过后再导出和 `deliver`。
 4. 用户要改尺寸、开间、门窗位置时，改 plan.json 后重新 `build`，不要在模型里手工拉伸墙体（否则下次重建会覆盖，核对也会失效）。
 

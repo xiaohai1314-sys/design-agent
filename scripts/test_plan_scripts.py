@@ -809,6 +809,175 @@ def test_room_outline_corners():
     check("消防前室有楼板，不是洞口", bool(plan_core.STAIR_ROOM_RE.search("消防前室")), False)
 
 
+def test_column_spans():
+    section("柱与墙不重叠：墙穿过柱子的区段不出墙体、体积扣掉")
+    import plan_core
+    import plan_quantity as pq
+
+    def line(a, b, layer):
+        return {"layer": layer, "type": "LINE", "points": [a, b], "closed": False}
+
+    # 240 厚墙在 x=4700–5300 被 600×600 的柱子断开
+    walls = [line((x0, y), (x1, y), "WALL") for y in (-120, 120) for x0, x1 in ((0, 4700), (5300, 10000))]
+    column = [{"layer": "COLUMN", "type": "LWPOLYLINE", "points": [(4700, -300), (5300, -300), (5300, 300), (4700, 300)], "closed": True}]
+    plan = plan_core.build_plan({"wall": walls, "door": [], "window": [], "room": [], "column": column}, [])
+    wall = plan["walls"][0]
+    check("仍是一整段墙", len(plan["walls"]), 1)
+    check("记下柱区段", wall.get("column_spans"), [[4700, 5300]])
+    length = wall["length"]
+    expected = (length - 600) * 240 * plan["storey"]["height"] / 1e9
+    check("墙体净体积扣掉柱位", round(plan_core.wall_net_volume_mm3(wall, plan["openings"]) / 1e9, 4), round(expected, 4), tol=1e-4)
+    check("算量的墙体体积扣掉柱位", pq.compute(plan)["quantities"]["wall_volume"], round(expected, 2))
+    check("结构校验", plan_core.validate_plan(plan), [])
+
+    # 柱子只擦到墙边（没把墙厚整个盖住）：不算墙穿柱
+    side = [{"layer": "COLUMN", "type": "LWPOLYLINE", "points": [(2000, 100), (2400, 100), (2400, 500), (2000, 500)], "closed": True}]
+    plan2 = plan_core.build_plan({"wall": walls, "door": [], "window": [], "room": [], "column": column + side}, [])
+    check("擦边的柱子不扣墙", plan2["walls"][0].get("column_spans"), [[4700, 5300]])
+
+
+def test_axes():
+    section("轴网：轴号对到轴线，1 轴 × A 轴求原点，同号指向两条线判歧义")
+    import plan_core
+
+    def line(a, b, layer="DOTE"):
+        return {"layer": layer, "type": "LINE", "points": [a, b], "closed": False}
+
+    def label(text, x, y):
+        return {"text": text, "anchor": (x, y), "point": (x, y), "height": 450, "layer": "AXIS_TEXT"}
+
+    grid = [line((1000, -2000), (1000, 9000)), line((7000, -2000), (7000, 9000)), line((-2000, 500), (10000, 500)), line((-2000, 6500), (10000, 6500))]
+    texts = [label("1", 1000, 9800), label("2", 7000, 9800), label("A", -2800, 500), label("B", -2800, 6500), label("1", 1000, -2800)]
+    lines, ambiguous = plan_core.find_axes(grid, texts, plan_core.DEFAULTS)
+    check("认出 4 根轴线", [a["label"] for a in lines], ["1", "2", "A", "B"])
+    check("没有歧义", ambiguous, [])
+    origin, labels = plan_core.axis_origin(lines)
+    check("原点是 1×A", labels, ["1", "A"])
+    check("原点 x", origin[0], 1000, tol=1)
+    check("原点 y", origin[1], 500, tol=1)
+
+    # 图幅里还有一处局部大样，自己又标了一个“2”，指向另一条线：这个轴号不能用
+    extra = grid + [line((20000, -2000), (20000, 9000))]
+    lines2, ambiguous2 = plan_core.find_axes(extra, texts + [label("2", 20000, 9800)], plan_core.DEFAULTS)
+    check("指向两条线的轴号判歧义", ambiguous2, ["2"])
+    check("歧义的轴号不参与", [a["label"] for a in lines2], ["1", "A", "B"])
+
+
+def test_axis_layer_roles():
+    section("图层角色：墙中心线算墙层，不算轴线（认成轴线会整层丢失墙体）")
+    import argparse
+    import plan_extract
+
+    args = argparse.Namespace(
+        wall_layer=None, door_layer=None, window_layer=None, room_layer=None, column_layer=None, axis_layer=None
+    )
+    layers = {"WALL": 10, "AXIS": 5, "DOTE": 3, "轴线": 2, "A-GRID": 2, "中心线": 1, "墙中心线": 4, "窗中心线": 2}
+    roles = plan_extract.assign_roles(layers, args)
+    check("WALL 是墙", roles.get("WALL"), "wall")
+    check("AXIS 是轴线", roles.get("AXIS"), "axis")
+    check("DOTE 是轴线", roles.get("DOTE"), "axis")
+    check("轴线 是轴线", roles.get("轴线"), "axis")
+    check("A-GRID 是轴线", roles.get("A-GRID"), "axis")
+    check("中心线 是轴线", roles.get("中心线"), "axis")
+    check("墙中心线 是墙", roles.get("墙中心线"), "wall")
+    check("窗中心线 是窗", roles.get("窗中心线"), "window")
+
+
+def test_align_floors():
+    section("多层按轴网对齐：外包框变了（加阳台 / 屋顶只剩楼梯间）也不错位")
+    import plan_building as pb
+
+    def floor(level, walls, origin_x, origin_y):
+        axes = {
+            "lines": [
+                {"label": "1", "point": [origin_x, 0], "dir": [0.0, 1.0]},
+                {"label": "3", "point": [origin_x + 12000, 0], "dir": [0.0, 1.0]},
+                {"label": "A", "point": [0, origin_y], "dir": [1.0, 0.0]},
+                {"label": "C", "point": [0, origin_y + 9000], "dir": [1.0, 0.0]},
+            ]
+        }
+        plan = {"walls": walls, "columns": [], "rooms": [], "axes": axes, "source": {"origin_offset": [0, 0]}}
+        return {"level": level, "name": f"{level}层", "plan": plan}
+
+    # 一层：1 轴在 x=300（外包框左下角为原点）
+    first = floor(1, [{"start": [0, 0], "end": [12600, 0]}], 300, 300)
+    # 二层多了一个 1500 深的阳台，外包框左下角往外挪了 1500：同一根 1 轴到了 x=1800
+    second = floor(2, [{"start": [0, 0], "end": [14100, 0]}], 1800, 1800)
+    # 二层有一间房、柱子在房里挖掉一块：平移时这块也要跟着走，否则地面上的洞会挖到别处
+    second["plan"]["rooms"] = [{
+        "polygon": [[0, 0], [5000, 0], [5000, 3000], [0, 3000]],
+        "column_cuts": [{"polygon": [[800, 800], [1200, 800], [1200, 1200], [800, 1200]], "exposed_mm": 800}],
+    }]
+    warnings, floors = pb.align_floors([first, second])
+    check("没有警告", warnings, [])
+    check("二层按 1×A 对齐", second["alignment"].get("labels"), ["1", "A"])
+    check("二层平移 (-1500, -1500)", second["alignment"].get("offset"), [-1500.0, -1500.0])
+    check("二层墙跟着平移", second["plan"]["walls"][0]["start"], [-1500.0, -1500.0])
+    check("二层的 1 轴和一层重合", second["plan"]["axes"]["lines"][0]["point"][0], 300.0)
+    check("扣柱块跟着平移", second["plan"]["rooms"][0]["column_cuts"][0]["polygon"][0], [-700.0, -700.0])
+
+    # 三层的轴距和基准层不一样（认错了轴）：两处交点算出的平移不一致，退回外包框
+    third = floor(3, [{"start": [0, 0], "end": [12600, 0]}], 300, 300)
+    third["plan"]["axes"]["lines"][1]["point"][0] = 300 + 15000
+    warnings, _ = pb.align_floors([first, third])
+    check("轴距不一致时退回外包框", third["alignment"]["method"], "bounds")
+    check("并给出警告", any("轴距" in text for text in warnings), True)
+
+
+def test_room_column_cut():
+    section("房间面积扣柱：柱子凸出墙面的部分从地面扣掉，露出的柱边算进周长")
+    import plan_core
+    import plan_quantity as pq
+
+    def line(a, b):
+        return {"layer": "WALL", "type": "LINE", "points": [a, b], "closed": False}
+
+    # 6000×4000 的房间，墙厚 200（中心线在外框上），右下角内侧一根 600×600 柱，凸进房间 500×500
+    walls = []
+    for y in (0, 4000):
+        walls += [line((-100, y - 100), (6100, y - 100)), line((-100, y + 100), (6100, y + 100))]
+    for x in (0, 6000):
+        walls += [line((x - 100, -100), (x - 100, 4100)), line((x + 100, -100), (x + 100, 4100))]
+    column = [{"layer": "COLUMN", "type": "LWPOLYLINE", "points": [(5400, -100), (6100, -100), (6100, 600), (5400, 600)], "closed": True}]
+    texts = [{"text": "办公室", "anchor": (2500, 2000), "point": (2700, 2100), "height": 300, "layer": "T"}]
+    plan = plan_core.build_plan({"wall": walls, "door": [], "window": [], "room": [], "column": column}, texts)
+    room = plan["rooms"][0]
+    # 净空 5800×3800 = 22.04㎡（x 100–5900，y 100–3900）；柱子落在房间里的部分 x 5400–5900 × y 100–600 = 0.25㎡
+    check("扣柱前面积", room.get("gross_area_m2"), 22.04)
+    check("扣柱后面积", room["area_m2"], 21.79)
+    check("记下扣掉的块", len(room.get("column_cuts", [])), 1)
+    check("露在房间里的柱边 500+500 = 1000", room["column_cuts"][0]["exposed_mm"], 1000, tol=1)
+    check("结构校验", plan_core.validate_plan(plan), [])
+    q = pq.compute(plan)["quantities"]
+    check("算量地面按扣柱后", q["floor_area_all"], 21.79)
+    # 周长 (5.8+3.8)×2 = 19.2m，再加两条露出来的柱边 0.5+0.5：20.2m
+    check("算量周长含柱边", pq.compute(plan)["rooms"][0]["perimeter"], 20.2)
+
+    no_col = plan_core.build_plan({"wall": walls, "door": [], "window": [], "room": [], "column": []}, texts)
+    check("没有柱时不扣", "column_cuts" in no_col["rooms"][0], False)
+
+
+def test_roof_levels():
+    section("屋顶层 / 机房层：图名里没有层号，排到主体最高层之上")
+    import plan_building as pb
+
+    check("屋顶平面图 → 屋顶类 1", pb.roof_rank("屋顶平面图"), 1)
+    check("屋面排水平面图 → 1", pb.roof_rank("屋面排水平面图"), 1)
+    check("机房层平面图 → 2", pb.roof_rank("机房层平面图"), 2)
+    check("机房屋顶平面图 → 3（不被“屋顶”先吃掉）", pb.roof_rank("机房屋顶平面图"), 3)
+    check("五层平面图不是屋顶类", pb.roof_rank("五层平面图"), None)
+    check("屋顶详图不算", pb.roof_rank("屋顶详图"), None)
+    check("立面图不算", pb.roof_rank("南立面图"), None)
+
+    frames = [{"id": "model:frame-%d" % k, "label": label} for k, label in enumerate(["一层平面图", "二层平面图", "机房屋顶平面图", "屋顶平面图", "机房层平面图", "屋顶平面图"], 1)]
+    picks = [(1, "frame-1", "一层平面图"), (2, "frame-2", "二层平面图")]
+    skipped = []
+    roofs = pb.pick_roofs(frames, picks, skipped)
+    check("屋顶 → 3 层、机房层 → 4 层、机房屋顶 → 5 层", [(level, frame) for level, frame, _ in roofs], [(3, "frame-4"), (4, "frame-5"), (5, "frame-3")])
+    check("重复的屋顶图幅记进 skipped", [frame for _, frame, _ in skipped], ["frame-6"])
+    check("没有地上楼层时不排屋顶", pb.pick_roofs(frames, [(-1, "frame-9", "负一层平面图")], []), [])
+
+
 def main():
     test_quantity_bedroom()
     test_quantity_bathroom()
@@ -835,6 +1004,12 @@ def main():
     test_verify_building()
     test_columns_and_stairs()
     test_room_outline_corners()
+    test_column_spans()
+    test_axes()
+    test_axis_layer_roles()
+    test_align_floors()
+    test_room_column_cut()
+    test_roof_levels()
 
     print(f"\n通过 {len(PASS)}，失败 {len(FAIL)}")
     if FAIL:

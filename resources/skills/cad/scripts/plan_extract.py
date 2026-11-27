@@ -30,6 +30,10 @@ from cad_core import CadError  # noqa: E402
 ROLE_PATTERNS = {
     "wall": re.compile(r"wall|墙|qiang", re.I),
     "column": re.compile(r"colu|^col$|[-_]col$|柱|^zhu", re.I),
+    # 轴线：天正放在 DOTE（点划线），轴号圆圈和引出线在 AXIS；也有画在 A-GRID / 轴线 图层的。
+    # 「中心线」只有图层名不夹带墙 / 窗 / 门 / 柱时才算轴线：「墙中心线」是墙层，
+    # 认成轴线的话这一层整层丢失，图纸里只剩它时直接报「没有识别到墙体图层」
+    "axis": re.compile(r"^axis$|^axis[-_]line|^dote$|grid|轴线|^轴网$|^(?!.*(?:墙|窗|门|柱)).*中心线", re.I),
     "door": re.compile(r"door|门|^men$|[-_]men", re.I),
     "window": re.compile(r"wind|窗|chuang|glaz", re.I),
     "room": re.compile(r"room|房间|空间|space", re.I),
@@ -58,6 +62,7 @@ def assign_roles(layers, args):
         "window": split_layers(args.window_layer),
         "room": split_layers(args.room_layer),
         "column": split_layers(args.column_layer),
+        "axis": split_layers(args.axis_layer),
     }
     roles = {}
     for layer in layers:
@@ -71,7 +76,7 @@ def assign_roles(layers, args):
             # 立面 / 剖面 / 填充 / 文字类图层名里带“墙”也不是平面墙线（如“立面墙线”“WALL_HATCH”）
             if NOT_PLAN_LAYER_RE.search(layer):
                 continue
-            for role in ("window", "door", "room", "column", "wall"):
+            for role in ("axis", "window", "door", "room", "column", "wall"):
                 if explicit[role]:
                     continue
                 if ROLE_PATTERNS[role].search(layer):
@@ -95,6 +100,7 @@ def main():
     parser.add_argument("--window-layer", help="窗图层")
     parser.add_argument("--room-layer", help="房间轮廓图层（闭合多段线）")
     parser.add_argument("--column-layer", help="柱图层（闭合轮廓）；不填按名称自动识别（COLUMN / 柱）")
+    parser.add_argument("--axis-layer", help="轴线图层；不填按名称自动识别（AXIS / DOTE / GRID / 轴线），多层合并时按轴网对齐各层")
     parser.add_argument(
         "--building-type",
         help="建筑类型（residential / education / office / medical / commercial / industrial / unknown），写进 plan.json，规范初查按它选规则库，不再逐层按房间名猜",
@@ -149,7 +155,7 @@ def main():
         records = list(cad_core.iter_geometry(spec, region=region, tolerance=1.0, extents=extents))
         layers = Counter(rec["layer"] for rec in records)
         roles = assign_roles(layers, args)
-        by_role = {"wall": [], "door": [], "window": [], "room": [], "column": []}
+        by_role = {"wall": [], "door": [], "window": [], "room": [], "column": [], "axis": []}
         for rec in records:
             role = roles.get(rec["layer"])
             if role:
@@ -236,7 +242,7 @@ def main():
         f"# 平面提取：{source.name}",
         f"- 已写入 {target.resolve()}",
         f"- 外包尺寸 {plan['bounds']['width']} × {plan['bounds']['depth']} mm；层高 {plan['storey']['height']}",
-        f"- 墙 {s['walls']} 段，门 {s['doors']}，窗 {s['windows']}，推断过道 {s['passages']}，柱 {s.get('columns', 0)}；房间 {s['rooms']} 个，合计 {s['room_area_m2']} ㎡",
+        f"- 墙 {s['walls']} 段，门 {s['doors']}，窗 {s['windows']}，推断过道 {s['passages']}，柱 {s.get('columns', 0)}，轴线 {s.get('axes', 0)}；房间 {s['rooms']} 个，合计 {s['room_area_m2']} ㎡",
         "- 图层：" + "；".join(f"{role} = {', '.join(names) or '无'}" for role, names in plan["source"]["layers"].items()),
     ]
     if plan["rooms"]:

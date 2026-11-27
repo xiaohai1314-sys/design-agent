@@ -169,6 +169,7 @@ export function createPlanTools(params: {
               level: floor.level,
               name: floor.name,
               elevation: floor.elevation,
+              alignment: floor.alignment,
               summary: floor.plan?.summary
             })),
             assumptions: building.assumptions,

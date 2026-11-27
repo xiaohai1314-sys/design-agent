@@ -15,6 +15,12 @@ import math
 import sys
 from pathlib import Path
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import plan_core  # noqa: E402
+
 
 def load(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -41,10 +47,7 @@ def compare_plan(plan, model, tol_mm=5.0, tol_area=0.02):
         check(abs(m["thickness"] - float(w["thickness"])) <= tol_mm, f"墙 {w['id']} 厚度：plan {w['thickness']} / 模型 {m['thickness']}")
         check(abs(m["height"] - float(w["height"])) <= tol_mm, f"墙 {w['id']} 高度：plan {w['height']} / 模型 {m['height']}")
         if "volume_m3" in m:
-            expected = length * float(w["thickness"]) * float(w["height"]) / 1e9
-            for o in plan.get("openings", []):
-                if o["wall"] == w["id"]:
-                    expected -= float(o["width"]) * float(w["thickness"]) * float(o["height"]) / 1e9
+            expected = plan_core.wall_net_volume_mm3(w, plan.get("openings", [])) / 1e9
             check(abs(m["volume_m3"] - expected) <= max(0.01, expected * 0.03), f"墙 {w['id']} 体积：应为 {expected:.3f} m³ / 模型 {m['volume_m3']:.3f} m³（可能缺墙段或洞口位置不对）")
     extra = set(walls) - {w["id"] for w in plan.get("walls", [])}
     if extra:

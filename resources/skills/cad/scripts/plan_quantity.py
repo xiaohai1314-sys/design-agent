@@ -18,6 +18,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import plan_core  # noqa: E402
 import plan_geom as pg  # noqa: E402
 
 BASIS_LABELS = {
@@ -51,8 +52,10 @@ def compute(plan, ceiling_height=None):
     rooms = []
     for room in plan.get("rooms", []):
         poly = room["polygon"]
-        area = pg.polygon_area(poly) / 1e6
-        perim = pg.polygon_perimeter(poly) / 1000
+        cuts = room.get("column_cuts", [])
+        # 扣掉柱子凸出墙面的部分：地面 / 顶棚减面积，露在房间里的柱边算进周长（墙面抹灰、踢脚线都要包柱）
+        area = (pg.polygon_area(poly) - sum(pg.polygon_area(cut["polygon"]) for cut in cuts)) / 1e6
+        perim = (pg.polygon_perimeter(poly) + sum(float(cut.get("exposed_mm", 0)) for cut in cuts)) / 1000
         hole_area, door_width = 0.0, 0.0
         for item in index:
             if room not in item["rooms"]:
@@ -81,14 +84,8 @@ def compute(plan, ceiling_height=None):
             }
         )
 
-    wall_volume = 0.0
-    for w in walls.values():
-        length = math.dist(w["start"], w["end"])
-        v = length * float(w["thickness"]) * float(w["height"])
-        for o in plan.get("openings", []):
-            if o["wall"] == w["id"]:
-                v -= float(o["width"]) * float(w["thickness"]) * float(o["height"])
-        wall_volume += v / 1e9
+    # 扣门窗洞口和柱子占的区段（column_spans）：柱子的体积不算墙
+    wall_volume = sum(plan_core.wall_net_volume_mm3(w, plan.get("openings", [])) for w in walls.values()) / 1e9
     windows = [o for o in plan.get("openings", []) if o["type"] == "window"]
     doors = [o for o in plan.get("openings", []) if o["type"] == "door"]
 

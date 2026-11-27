@@ -221,6 +221,193 @@ def column_pieces(pieces, columns, cfg):
     return extra
 
 
+AXIS_LABEL_RE = re.compile(r"^(?:\d{1,3}|[A-Z]{1,2}|\d{1,3}/\d{1,3}|[A-Z]/[A-Z])$")
+AXIS_TEXT_LAYER_RE = re.compile(r"axis|轴", re.I)
+
+
+def axis_label_key(label):
+    """轴号排序：数字轴按数值，字母轴按字母；附加轴（1/2、A/B）排在主轴后面。"""
+    if label.isdigit():
+        return (0, int(label), label)
+    if label.isalpha():
+        return (1, sum((ord(ch) - 64) * 26 ** k for k, ch in enumerate(reversed(label))), label)
+    return (2, 0, label)
+
+
+def find_axes(axis_records, texts, cfg):
+    """轴网：把轴号（1、2…、A、B…）对到它所在的那条轴线上。
+
+    轴号写在轴线端头的圆圈里，轴线是长直线（点划线图层），引出线也与轴线共线。
+    对每个轴号找延长线离它最近、端头又离它不远的那条线；同一个轴号上下 / 左右各标一次，取先找到的。
+    返回 ([{label, point, dir}]（原图坐标，dir 为单位向量）, [有歧义的轴号])。
+    """
+    if not axis_records:
+        return [], []
+    segments = []
+    for rec in axis_records:
+        if rec.get("type") in ("CIRCLE", "ARC"):
+            continue
+        for a, b in segments_of(rec):
+            if math.dist(a, b) >= 1000.0:
+                segments.append((a, b))
+    if not segments:
+        return [], []
+    candidates = [t for t in texts if AXIS_LABEL_RE.match((t.get("text") or "").strip())]
+    on_axis_layer = [t for t in candidates if AXIS_TEXT_LAYER_RE.search(t.get("layer") or "")]
+    if on_axis_layer:
+        candidates = on_axis_layer
+    found = {}
+    for t in sorted(candidates, key=lambda t: axis_label_key(t["text"].strip())):
+        label = t["text"].strip()
+        p = text_point(t)
+        size = max(float(t.get("height") or 0), 300.0)
+        best = None
+        for a, b in segments:
+            length = math.dist(a, b)
+            d = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+            rel = (p[0] - a[0], p[1] - a[1])
+            across = abs(rel[0] * d[1] - rel[1] * d[0])
+            along = rel[0] * d[0] + rel[1] * d[1]
+            beyond = max(-along, along - length, 0.0)
+            if across > size * 1.5 or beyond > max(size * 8, 3000.0):
+                continue
+            score = across + beyond * 0.01
+            if best is None or score < best[0]:
+                best = (score, a, d)
+        if best:
+            found.setdefault(label, []).append({"label": label, "point": best[1], "dir": best[2]})
+    # 同一个轴号通常上下 / 左右各标一次，指向同一条轴线；如果指向不同的线（图幅里还有局部大样、
+    # 分区轴网自己编了号），这个轴号就有歧义，宁可不用，免得拿错线算对齐
+    lines, ambiguous = [], []
+    for label, hits in found.items():
+        first = hits[0]
+        n = (-first["dir"][1], first["dir"][0])
+        offset = first["point"][0] * n[0] + first["point"][1] * n[1]
+        same = all(
+            abs(abs(h["dir"][0] * first["dir"][0] + h["dir"][1] * first["dir"][1]) - 1) < 1e-3
+            and abs(h["point"][0] * n[0] + h["point"][1] * n[1] - offset) <= 50.0
+            for h in hits[1:]
+        )
+        (lines if same else ambiguous).append(first if same else label)
+    lines.sort(key=lambda item: axis_label_key(item["label"]))
+    return lines, sorted(ambiguous, key=axis_label_key)
+
+
+def axis_intersection(first, second):
+    """两条轴线的交点；平行时返回 None。"""
+    (ax, ay), (dx, dy) = first["point"], first["dir"]
+    (bx, by), (ex, ey) = second["point"], second["dir"]
+    det = dx * (-ey) - dy * (-ex)
+    if abs(det) < 0.5:
+        return None
+    s = ((bx - ax) * (-ey) - (by - ay) * (-ex)) / det
+    return (ax + dx * s, ay + dy * s)
+
+
+def axis_origin(axes):
+    """第一根数字轴 × 第一根字母轴的交点（通常是 1 轴 × A 轴）。返回 (点, [数字轴号, 字母轴号]) 或 None。"""
+    numbers = [a for a in axes if a["label"].isdigit()]
+    letters = [a for a in axes if a["label"].isalpha()]
+    for n in numbers:
+        for l in letters:
+            point = axis_intersection(n, l)
+            if point is not None:
+                return point, [n["label"], l["label"]]
+    return None
+
+
+def clip_polygon_to_box(polygon, box):
+    """Sutherland-Hodgman：多边形与轴对齐矩形的交（房间被柱子占掉的那一块）。"""
+    out = list(polygon)
+    for axis, value, keep_greater in ((0, box[0], True), (0, box[2], False), (1, box[1], True), (1, box[3], False)):
+        if not out:
+            break
+        inside = (lambda p: p[axis] >= value - 1e-9) if keep_greater else (lambda p: p[axis] <= value + 1e-9)
+        clipped = []
+        for k, cur in enumerate(out):
+            prev = out[k - 1]
+            if inside(cur):
+                if not inside(prev):
+                    clipped.append(_cross_at(prev, cur, axis, value))
+                clipped.append(cur)
+            elif inside(prev):
+                clipped.append(_cross_at(prev, cur, axis, value))
+        out = clipped
+    return out
+
+
+def _cross_at(a, b, axis, value):
+    t = (value - a[axis]) / (b[axis] - a[axis])
+    return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
+
+
+def _on_boundary(point, polygon, tol=1.0):
+    for k, a in enumerate(polygon):
+        b = polygon[(k + 1) % len(polygon)]
+        length = math.dist(a, b)
+        if length < 1e-9:
+            continue
+        rel = (point[0] - a[0], point[1] - a[1])
+        d = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+        along = rel[0] * d[0] + rel[1] * d[1]
+        if -tol <= along <= length + tol and abs(rel[0] * d[1] - rel[1] * d[0]) <= tol:
+            return True
+    return False
+
+
+def room_column_cuts(polygon, columns, min_area=1e4):
+    """房间轮廓里被柱子占掉的部分：[(交多边形, 露在房间里的柱边长 mm)]。
+
+    泛洪时柱子只按墙厚封住了墙线所在的那一条，凸出墙面的部分还算在房间里；
+    这里把它扣出来，地面 / 顶棚面积扣掉，露出来的柱边长加到墙面和踢脚线里。
+    """
+    cuts = []
+    for box in columns:
+        xs = [p[0] for p in polygon]
+        ys = [p[1] for p in polygon]
+        if box[2] <= min(xs) or box[0] >= max(xs) or box[3] <= min(ys) or box[1] >= max(ys):
+            continue
+        piece = clip_polygon_to_box(polygon, box)
+        if len(piece) < 3 or polygon_area(piece) < min_area:
+            continue
+        exposed = 0.0
+        for k, a in enumerate(piece):
+            b = piece[(k + 1) % len(piece)]
+            mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+            if not _on_boundary(mid, polygon):
+                exposed += math.dist(a, b)
+        cuts.append((piece, exposed))
+    return cuts
+
+
+def wall_column_spans(wall, columns, cfg):
+    """墙中心线穿过的柱子在墙上占的区段：[(距墙起点, 距墙起点)]，已合并、裁到墙长以内。"""
+    if not columns:
+        return []
+    tol = cfg["tolerance"]
+    base = wall["base"]
+    half = wall["thickness"] / 2
+    spans = []
+    for box in columns:
+        corners = [(box[0], box[1]), (box[2], box[1]), (box[2], box[3]), (box[0], box[3])]
+        offs = [dot(p, base["n"]) for p in corners]
+        # 柱截面要把墙厚整个盖住，才算墙穿过柱子（只擦到墙边的不算）
+        if not (min(offs) <= base["offset"] - half + tol and max(offs) >= base["offset"] + half - tol):
+            continue
+        ts = [dot(p, base["d"]) for p in corners]
+        a, b = max(min(ts), wall["t0"]) - wall["t0"], min(max(ts), wall["t1"]) - wall["t0"]
+        if b - a > tol:
+            spans.append([a, b])
+    spans.sort()
+    merged = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1] + tol:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    return [tuple(s) for s in merged]
+
+
 def piece_point(piece, t):
     return add(mul(piece["d"], t), mul(piece["n"], piece["offset"]))
 
@@ -1169,11 +1356,24 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
     out_walls, out_openings = [], []
     counters = {"door": 0, "window": 0, "passage": 0}
     snapped, mismatched = 0, []
-    for wi, w in enumerate(sorted(walls, key=lambda w: (-w["thickness"], w["t0"]))):
-        wid = "W%d" % (wi + 1)
-        start, end = tr(piece_point(w["base"], w["t0"])), tr(piece_point(w["base"], w["t1"]))
+    dropped_column_walls = 0
+    wall_index = 0
+    for w in sorted(walls, key=lambda w: (-w["thickness"], w["t0"])):
         length = w["t1"] - w["t0"]
-        out_walls.append({"id": wid, "start": rp(start), "end": rp(end), "thickness": r(w["thickness"]), "height": r(storey), "length": r(length)})
+        spans = wall_column_spans(w, columns, cfg)
+        if spans and sum(b - a for a, b in spans) >= length - tol and not w["openings"]:
+            # 整段都在柱子里（柱补出来的短墙段）：不出墙，柱子自己会建
+            dropped_column_walls += 1
+            continue
+        wall_index += 1
+        wid = "W%d" % wall_index
+        start, end = tr(piece_point(w["base"], w["t0"])), tr(piece_point(w["base"], w["t1"]))
+        item_wall = {"id": wid, "start": rp(start), "end": rp(end), "thickness": r(w["thickness"]), "height": r(storey), "length": r(length)}
+        if spans:
+            # 墙中心线穿过柱子的区段（沿墙距离，mm）：建模时这几段不出墙体、算墙体体积时扣掉，
+            # 由柱子自己占位 —— 否则墙和柱是两个重叠的实体，体积多算 柱宽 × 墙厚 × 层高
+            item_wall["column_spans"] = [[r(a), r(b)] for a, b in spans]
+        out_walls.append(item_wall)
         for o in sorted(w["openings"], key=lambda o: o["t0"]):
             kind = o["kind"]
             counters[kind] += 1
@@ -1209,6 +1409,16 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
                 item["code"] = code["code"]
             out_openings.append(item)
 
+    if dropped_column_walls:
+        assumptions.append("%d 段墙整段落在柱子里，没有单独出墙（由柱子占位）。" % dropped_column_walls)
+
+    # 轴网：多层合并时按同名轴线的交点对齐各层（外包框会因阳台、雨篷、退台而变）
+    axes, ambiguous_axes = find_axes(records_by_role.get("axis", []), texts, cfg)
+    if ambiguous_axes:
+        warnings.append("轴号 %s 在图上指向不止一条线（图幅里可能有局部大样或分区轴网），这几个轴号不参与对齐。" % "、".join(ambiguous_axes))
+    out_axes = [{"label": a["label"], "point": rp(tr(a["point"])), "dir": [round(a["dir"][0], 6), round(a["dir"][1], 6)]} for a in axes]
+    origin = axis_origin(axes)
+
     # 柱：位置 + 截面 + 高度，建模时按它挤出（不输出的话模型里就没有柱）
     out_columns = []
     for ki, box in enumerate(sorted(columns, key=lambda b: (round(b[1]), round(b[0])))):
@@ -1230,9 +1440,14 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
     if not rooms:
         warnings.append("没有识别到房间：既没有闭合的房间轮廓线，也没能从房间名推断出矩形。可以在 plan.json 里手动补 rooms。")
     out_rooms = []
+    column_cut_total = 0.0
     for ri, room in enumerate(rooms):
         poly = [tr(p) for p in room["polygon"]]
-        area = polygon_area(poly) / 1e6
+        gross = polygon_area(poly) / 1e6
+        # 柱子凸出墙面、落在房间里的部分：地面面积扣掉（polygon 仍是含柱的外轮廓，扣掉的块记在 column_cuts）
+        cuts = room_column_cuts(room["polygon"], columns) if columns else []
+        cut_area = sum(polygon_area(piece) for piece, _ in cuts) / 1e6
+        area = gross - cut_area
         item = {
             "id": "R%d" % (ri + 1),
             "name": room["name"] or "房间%d" % (ri + 1),
@@ -1242,11 +1457,18 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
             "source": room["source"],
             "confidence": room_confidence(room, area, room.get("enclosed")),
         }
+        if cuts:
+            column_cut_total += cut_area
+            item["gross_area_m2"] = round(gross, 2)
+            item["column_cuts"] = [{"polygon": [rp(tr(p)) for p in piece], "exposed_mm": r(exposed)} for piece, exposed in cuts]
         if room["label_area_m2"] is not None:
             item["label_area_m2"] = room["label_area_m2"]
         if not room["name"]:
             warnings.append("房间 %s 内没有找到房间名文字" % item["id"])
         out_rooms.append(item)
+
+    if column_cut_total > 0:
+        assumptions.append("房间面积已扣除柱子凸出墙面的部分，共 %.2f㎡（polygon 是含柱的外轮廓，gross_area_m2 是扣柱前面积，扣掉的块在 column_cuts）。" % column_cut_total)
 
     # 自检
     merged = [(item, room) for item, room in zip(out_rooms, rooms) if room.get("labels", 1) > 1]
@@ -1307,6 +1529,11 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
         "openings": out_openings,
         "columns": out_columns,
         "rooms": out_rooms,
+        **(
+            {"axes": dict({"lines": out_axes, "ambiguous": ambiguous_axes}, **({"origin": rp(tr(origin[0])), "origin_labels": origin[1]} if origin else {}))}
+            if out_axes or ambiguous_axes
+            else {}
+        ),
         "summary": {
             "walls": len(out_walls),
             "doors": counters["door"],
@@ -1314,6 +1541,7 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
             "passages": counters["passage"],
             "rooms": len(out_rooms),
             "columns": len(columns),
+            "axes": len(axes),
             "room_area_m2": round(sum(x["area_m2"] for x in out_rooms), 2),
             "room_confidence": {key: sum(1 for x in out_rooms if x["confidence"] == key) for key in ("high", "medium", "low")},
         },
@@ -1326,6 +1554,18 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
 # ---------------------------------------------------------------------------
 # plan.json 校验（plan_extract 写出前、建模后核对都用这一份）
 # ---------------------------------------------------------------------------
+
+
+def wall_net_volume_mm3(wall, openings):
+    """墙体净体积（mm³）：长 × 厚 × 高，扣门窗洞口和柱子占的区段。plan_quantity / plan_verify 共用。"""
+    length = math.dist(wall["start"], wall["end"])
+    thickness, height = float(wall["thickness"]), float(wall["height"])
+    solid = length - sum(float(b) - float(a) for a, b in wall.get("column_spans", []))
+    volume = solid * thickness * height
+    for o in openings:
+        if o.get("wall") == wall.get("id"):
+            volume -= float(o["width"]) * thickness * float(o["height"])
+    return max(volume, 0.0)
 
 
 def validate_plan(plan):
@@ -1352,12 +1592,20 @@ def validate_plan(plan):
             problems.append("洞口 %s 超出墙 %s 的长度" % (o.get("id"), w.get("id")))
         if o.get("sill", 0) + o.get("height", 0) > float(w.get("height", 0)) + 1:
             problems.append("洞口 %s 高于墙 %s" % (o.get("id"), w.get("id")))
+    for w in walls.values():
+        length = math.dist(w["start"], w["end"])
+        for span in w.get("column_spans", []):
+            if not (-1 <= span[0] < span[1] <= length + 1):
+                problems.append("墙 %s 的柱区段 %s 超出墙长" % (w.get("id"), span))
     for column in plan.get("columns", []):
         if float(column.get("width", 0)) <= 0 or float(column.get("depth", 0)) <= 0:
             problems.append("柱 %s 的截面不是正数" % column.get("id"))
         if float(column.get("height", 0)) <= 0:
             problems.append("柱 %s 的高度不是正数" % column.get("id"))
     for room in plan.get("rooms", []):
+        for cut in room.get("column_cuts", []):
+            if len(cut.get("polygon", [])) < 3:
+                problems.append("房间 %s 的扣柱块轮廓无效" % room.get("id"))
         if len(room.get("polygon", [])) < 3 or polygon_area(room["polygon"]) <= 0:
             problems.append("房间 %s 的轮廓无效" % room.get("id"))
     return problems
