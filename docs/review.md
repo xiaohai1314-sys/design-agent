@@ -964,3 +964,8 @@
 - 已核：plan_builder.rb 的 `attempt` 改为按 entityID 记录构件前的实体，比数组差集稳，保留。
 - 未看：App.tsx / ComposerCard.tsx、资源打包脚本、inspiration-search / regulation-consultation 的 SKILL.md。
 - 记一笔：residential-2d-planlayout 与 image-prompt-rewrite 来自知末，许可问题同 C2，自用不分发。
+
+- **补看：排队发送（App.tsx / ComposerCard.tsx）。** 修掉「运行中回车静默丢消息」方向对。补了 4 处：① 出队只看全局队首，别的会话排的消息会挡住当前会话 → 改为按任务找第一条，「已排队 N 条」也只数当前任务；② 排队消息发送失败时 `restore()` 把内容倒回输入框，会覆盖用户正在打的下一条，且剩余排队消息卡住不动 → 失败的放回队首并暂停，提示「在输入框按回车继续，或点清空」，空输入回车即恢复；③ 有排队消息时新消息直接发出会插队 → 本任务队列非空时一律排到后面；④ 中止任务后排队消息仍会自动发 → 加「清空」按钮。
+- **补看：资源打包。** 清单逐文件校验、暂存后原子写入与回滚、断点续传、gzip 魔数检查、resources-bundle.json 带整包 sha256，都扎实；test:resources 覆盖了回滚和续传。补 1 处：fetch 只拦逃出仓库根的路径，包里若有 `src/`、`package.json`、`.git/hooks/` 照样会覆盖 → 现在包内文件必须都在 `resources/` 下，否则整包中止不落盘。gh-token.txt 已 gitignore，提交的文件里没有令牌。
+- **补看：规范证据登记（regulationTool.ts）。** 只认本轮检索过的 cite、子问缺证必须给闭集原因、只给一轮补证，设计好。补 2 处：① `selected_clause_keys` 是 `.min(1)`，全部子问都查不到条文时交不上，只能编一条 cite 凑数 → 去掉下限，技能里写明可传空数组；② 主智能体和子智能体共用同一组工具实例（同一个提交计数），子智能体先登记一次就把主智能体唯一的补证机会用掉了 → 子智能体不再提供 submit_regulation_evidence（index.ts 过滤、asyncSubagents 白名单移除），检索结果仍共享。
+- inspiration-search、ai-scheme 技能与工具描述一致，未改。

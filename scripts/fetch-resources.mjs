@@ -220,6 +220,23 @@ const files = manifest?.files
   ? [...Object.keys(manifest.files), MANIFEST_PATH]
   : walkFiles(staging).map((full) => toPosix(relative(staging, full)))
 
+// 资源包只该往 resources/ 下写。applyStaged 只拦了逃出仓库根目录的路径，
+// 清单或旧版包里如果有 src/、package.json、.git/hooks/ 这类路径，照样会覆盖源码或钩子
+const outside = files.filter((rel) => !rel.startsWith('resources/'))
+if (outside.length > 0) {
+  rmSync(staging, { recursive: true, force: true })
+  console.error(
+    [
+      `资源包里有 ${outside.length} 个文件不在 resources/ 下，已中止，现有文件未做任何改动：`,
+      ...outside.slice(0, 10).map((rel) => `  ${rel}`),
+      outside.length > 10 ? '  …' : ''
+    ]
+      .filter(Boolean)
+      .join('\n')
+  )
+  process.exit(1)
+}
+
 if (files.length === 0) {
   rmSync(staging, { recursive: true, force: true })
   console.error('资源包是空的，已中止。')
