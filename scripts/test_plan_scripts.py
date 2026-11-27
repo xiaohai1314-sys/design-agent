@@ -1049,6 +1049,43 @@ def test_roof_levels():
     check("没有地上楼层时不排屋顶", pb.pick_roofs(frames, [(-1, "frame-9", "负一层平面图")], []), [])
 
 
+def test_furnish_columns_and_coordinates():
+    section("家具布置校验：压柱、原图坐标")
+    import plan_core
+    import plan_furnish as pf
+
+    def line(a, b):
+        return {"layer": "WALL", "type": "LINE", "points": [a, b], "closed": False}
+
+    # 6000×4000 的房间、墙厚 200，右下角一根 700×700 柱，凸进房间 500×500
+    walls = []
+    for y in (0, 4000):
+        walls += [line((-100, y - 100), (6100, y - 100)), line((-100, y + 100), (6100, y + 100))]
+    for x in (0, 6000):
+        walls += [line((x - 100, -100), (x - 100, 4100)), line((x + 100, -100), (x + 100, 4100))]
+    column = [{"layer": "COLUMN", "type": "LWPOLYLINE", "points": [(5400, -100), (6100, -100), (6100, 600), (5400, 600)], "closed": True}]
+    texts = [{"text": "办公室", "anchor": (2500, 2000), "point": (2700, 2100), "height": 300, "layer": "T"}]
+    plan = plan_core.build_plan({"wall": walls, "door": [], "window": [], "room": [], "column": column}, texts)
+
+    # 房间轮廓是含柱的外轮廓，柱子凸进来的那块不在墙里：只查墙会漏掉，还会误报成「离墙 50 的无效缝隙」
+    cabinet = {"id": "F1", "name": "柜子", "rect": {"cx": 5650, "cy": 550, "width": 600, "depth": 600}}
+    findings, _ = pf.check(plan, [cabinet], dict(pf.DEFAULTS))
+    checks = {(f["check"], f["status"]) for f in findings}
+    check("家具压进柱子凸出部分报「压柱」", ("压柱", "fail") in checks, True)
+    check("压柱时不再报无效缝隙", ("无效缝隙", "warn") in checks, False)
+
+    desk = {"id": "F2", "name": "桌", "rect": {"cx": 2000, "cy": 2000, "width": 1200, "depth": 600}}
+    findings, _ = pf.check(plan, [desk], dict(pf.DEFAULTS))
+    check("房间中间的桌没有问题", findings, [])
+
+    # 原图坐标：plan 的原点在原图 (-100, -100)，同一个柜子在原图里是 (5550, 450)
+    check("origin_offset", plan["source"]["origin_offset"], [-100, -100])
+    drawing = {"id": "F1", "name": "柜子", "rect": {"cx": 5550, "cy": 450, "width": 600, "depth": 600}}
+    findings, placed = pf.check(plan, [drawing], dict(pf.DEFAULTS), "drawing")
+    check("按原图坐标换算后位置一致", [round(v) for v in pf.centroid(placed[0]["polygon"])], [5650, 550])
+    check("按原图坐标同样报压柱", any(f["check"] == "压柱" for f in findings), True)
+
+
 def main():
     test_quantity_bedroom()
     test_quantity_bathroom()
@@ -1079,6 +1116,7 @@ def main():
     test_axes()
     test_axis_layer_roles()
     test_furnish_checks()
+    test_furnish_columns_and_coordinates()
     test_align_floors()
     test_room_column_cut()
     test_roof_levels()

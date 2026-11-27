@@ -17,9 +17,12 @@
 
 `rect` 以中心点定位，`rotation` 是逆时针角度（度）；异形家具直接用 `polygon`。
 `room` 可以写房间 id 或房间名，不写就按家具中心落在哪个房间判断。
+坐标默认与 plan.json 相同（墙体外包框左下角为原点）；清单里写 `"coordinates": "drawing"` 时按原图坐标读，
+用 plan.json 的 source.origin_offset 换算（从 DWG 家具块直接读出来的坐标就是原图坐标）。
 
 校验项（家具是已知几何，和墙、洞口、房间轮廓一起算，不靠看图比对）：
 - 穿墙：家具压进墙体的面积超过 --tol-area；
+- 压柱：家具压进柱子（含凸出墙面、落在房间轮廓里的部分）的面积超过 --tol-area；
 - 出房间：家具顶点跑到房间轮廓外，或家具边穿出房间轮廓；
 - 家具重叠：两件家具的轮廓相交（贴边相接不算）；
 - 挡门：门洞 / 过道两侧、门宽 × 门宽 的范围内有家具 —— 门扇往哪边开都转不开；
@@ -138,20 +141,34 @@ def wall_overlap_area(poly, wall):
     return local_overlap_area(poly, origin, d, n, (0.0, -half, length, half))
 
 
-def item_polygon(item):
+def column_polygon(column):
+    """plan.columns 里的柱：中心 + 截面宽深 → 轴对齐矩形。"""
+    cx, cy = (float(v) for v in column["center"])
+    hw, hd = float(column["width"]) / 2.0, float(column["depth"]) / 2.0
+    return [(cx - hw, cy - hd), (cx + hw, cy - hd), (cx + hw, cy + hd), (cx - hw, cy + hd)]
+
+
+def column_overlap_area(poly, column):
+    """家具压进柱子的面积，mm²。房间 polygon 是含柱的外轮廓，柱子凸进房间的部分不在墙里，要单独查。"""
+    box = column_polygon(column)
+    clipped = plan_core.clip_polygon_to_box(poly, (box[0][0], box[0][1], box[2][0], box[2][1]))
+    return pg.polygon_area(clipped) if len(clipped) >= 3 else 0.0
+
+
+def item_polygon(item, offset=(0.0, 0.0)):
     """家具 → 多边形。rect 以中心定位，polygon 直接给点。"""
     rect = item.get("rect")
     if rect:
         return rect_polygon(
-            float(rect.get("cx", 0.0)),
-            float(rect.get("cy", 0.0)),
+            float(rect.get("cx", 0.0)) - offset[0],
+            float(rect.get("cy", 0.0)) - offset[1],
             float(rect.get("width", 0.0)),
             float(rect.get("depth", 0.0)),
             float(rect.get("rotation", 0.0)),
         )
     polygon = item.get("polygon")
     if polygon and len(polygon) >= 3:
-        return [(float(p[0]), float(p[1])) for p in polygon]
+        return [(float(p[0]) - offset[0], float(p[1]) - offset[1]) for p in polygon]
     return None
 
 
@@ -212,16 +229,26 @@ def door_zones(plan):
     return zones
 
 
-def check(plan, items, cfg):
-    """返回 (findings, 每件家具的房间与轮廓)。"""
+def check(plan, items, cfg, coordinates="plan"):
+    """返回 (findings, 每件家具的房间与轮廓)。
+
+    coordinates="plan"：家具坐标与 plan.json 同一坐标系（墙体外包框左下角为原点）；
+    "drawing"：家具坐标是原图坐标（比如从 DWG 的家具块读出来的），按 source.origin_offset 换算。
+    """
     tol, tol_area, min_passage = cfg["tol"], cfg["tol_area"], cfg["min_passage"]
     rooms = plan.get("rooms", [])
     walls = plan.get("walls", [])
+    columns = plan.get("columns", [])
+    offset = (0.0, 0.0)
+    if coordinates == "drawing":
+        offset = tuple(float(v) for v in (plan.get("source") or {}).get("origin_offset") or (0.0, 0.0))
+    elif coordinates != "plan":
+        raise ValueError("coordinates 只能是 plan 或 drawing，收到「%s」" % coordinates)
     findings = []
     placed = []
 
     for item in items:
-        poly = item_polygon(item)
+        poly = item_polygon(item, offset)
         name = item.get("name") or item.get("id") or "未命名"
         if poly is None:
             findings.append({"status": "fail", "check": "轮廓", "item": name, "detail": "没有 rect 或 polygon，无法定位", "xy": None})
@@ -250,6 +277,22 @@ def check(plan, items, cfg):
                 }
             )
 
+        worst_column = None
+        for column in columns:
+            area = column_overlap_area(poly, column)
+            if area > tol_area and (worst_column is None or area > worst_column[0]):
+                worst_column = (area, column.get("id"))
+        if worst_column:
+            findings.append(
+                {
+                    "status": "fail",
+                    "check": "压柱",
+                    "item": name,
+                    "detail": "压进柱 %s 共 %.0f mm²" % (worst_column[1], worst_column[0]),
+                    "xy": centroid(poly),
+                }
+            )
+
         outside = [p for p in poly if not point_in_or_near(p, room["polygon"], tol)]
         if outside or edges_cross(poly, room["polygon"]):
             findings.append(
@@ -263,7 +306,7 @@ def check(plan, items, cfg):
             )
 
         gap = distance_to_polygon(poly, room["polygon"])
-        if tol < gap < min_passage:
+        if tol < gap < min_passage and not worst_column:
             findings.append(
                 {
                     "status": "warn",
@@ -457,7 +500,8 @@ def main():
 
     cfg = {"tol": args.tol, "tol_area": args.tol_area, "min_passage": args.min_passage}
     try:
-        findings, placed = check(plan, items, cfg)
+        coordinates = payload.get("coordinates", "plan") if isinstance(payload, dict) else "plan"
+        findings, placed = check(plan, items, cfg, coordinates)
     except ValueError as error:
         sys.exit("ERROR: %s" % error)
 

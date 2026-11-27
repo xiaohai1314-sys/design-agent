@@ -176,9 +176,18 @@ module DesignAgentPlanBuilder
   # 逐构件执行：一个构件失败只跳过它自己，错误连同构件名收集进 warnings。
   # 整段建模只有一个 rescue 的话，一根柱子报错就 abort_operation，前面建好的全丢；
   # 用户改一处再跑一轮，每轮还要点一次授权，代价远大于跳过并如实报告。
-  def self.attempt(warnings, label)
+  # ents 给了时，失败的构件建了一半的组（半截墙、只有外轮廓的地面）一并删掉：留着的话 measure 会读到残缺的构件，
+  # plan_verify 报一串尺寸不对，掩盖了真正的原因（这条警告）
+  # 快照按 entityID 记，不按对象：to_a 每次返回的包装对象未必是同一个，用数组相减会把整棵 root 都判成「新增」。
+  def self.attempt(warnings, label, ents = nil)
+    before = nil
+    if ents
+      before = {}
+      ents.each { |x| before[x.entityID] = true }
+    end
     yield
   rescue StandardError => e
+    ents.to_a.each { |x| x.erase! if x.valid? && !before[x.entityID] } if before
     warnings << "#{label} 建模失败：#{e.class}: #{e.message}"
     nil
   end
@@ -196,7 +205,7 @@ module DesignAgentPlanBuilder
     suffix = floor[:name] ? " #{floor[:name]}" : ''
 
     walls.each do |w|
-      attempt(warnings, "墙 #{w['id']}") do
+      attempt(warnings, "墙 #{w['id']}", root.entities) do
         sx, sy = w['start']
         ex, ey = w['end']
         len = Math.hypot(ex - sx, ey - sy)
@@ -274,7 +283,7 @@ module DesignAgentPlanBuilder
     end
 
     (plan['columns'] || []).each do |c|
-      attempt(warnings, "柱 #{c['id']}") do
+      attempt(warnings, "柱 #{c['id']}", root.entities) do
         cx, cy = c['center']
         cg = column_box(root.entities, cx, cy, c['width'].to_f, c['depth'].to_f, z, z + (c['height'] || storey_h).to_f, mats[:column], "柱 #{c['id']}#{suffix}")
         next unless cg
@@ -287,7 +296,7 @@ module DesignAgentPlanBuilder
     end
 
     (plan['rooms'] || []).each do |room|
-      attempt(warnings, "房间 #{room['id']}") do
+      attempt(warnings, "房间 #{room['id']}", root.entities) do
         poly = room['polygon'] || []
         next if poly.length < 3
         wet = room['name'].to_s =~ WET_ROOM
