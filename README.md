@@ -66,6 +66,7 @@ API Key 保存在用户数据目录的 `model-settings.json` 中，系统支持�
 | `npm run build` | 构建到 `out/` |
 | `npm run typecheck` | 主进程与界面两套 TypeScript 类型检查 |
 | `npm run test:runtime` | 端到端测试（需先 `npm run build`，测试会启动 `out/main/runtime.js`） |
+| `npm run test:plan` | 平面脚本基准测试（算量、规范初查、图纸提取的具体数值） |
 | `npm run check:resources` | 检查 `resources/` 下的内置运行资源 |
 | `npm run pack:resources` | 把内置运行资源打成 `dist-resources/*.tar.gz` |
 | `npm run fetch:resources` | 从 `resources-bundle.json` 配置的地址下载并解压运行资源 |
