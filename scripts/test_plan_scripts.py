@@ -149,6 +149,112 @@ def test_codecheck_wide_door():
     check("不满足项数", sum(1 for f in findings if f["status"] == "fail"), 0)
 
 
+def test_price():
+    section("报价：示例单价表套在主卧工程量上")
+    with open(ROOT / "resources" / "presets" / "price-table.sample.json", encoding="utf-8") as f:
+        prices = json.load(f)
+    quote = pq.price(pq.compute(bedroom_plan()), prices)
+    lines = {ln["code"]: ln for ln in quote["lines"]}
+    # 手算：地面 12.00×(1+5%)×260 = 3276.00；墙面 35.51×48 = 1704.48；
+    #       踢脚 13.10×(1+5%)×55 = 756.53；平开门 1×2200；清运 1×3000
+    check("木地板金额", lines["F01"]["amount"], 3276.00, tol=0.01)
+    check("墙面乳胶漆金额", lines["W01"]["amount"], 1704.48, tol=0.01)
+    check("踢脚线金额", lines["K01"]["amount"], 756.53, tol=0.02)
+    check("平开门金额", lines["D01"]["amount"], 2200.00, tol=0.01)
+    check("湿区地砖工程量为 0", lines["F02"]["qty"], 0.0)
+    check("直接费小计", quote["subtotal"], 13397.01, tol=0.05)
+    fees = {f["name"]: f["amount"] for f in quote["fees"]}
+    check("管理费 8%", fees.get("管理费"), 1071.76, tol=0.02)
+    check("税金 3%", fees.get("税金"), 401.91, tol=0.02)
+    check("合计", quote["total"], 14870.68, tol=0.1)
+    check("没有缺失的工程量依据", quote["missing"], [])
+
+
+def test_xlsx():
+    section("Excel 输出：三张表、公式与数值")
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        print("  ⚠️ 没有 openpyxl，跳过 Excel 测试")
+        return
+    with open(ROOT / "resources" / "presets" / "price-table.sample.json", encoding="utf-8") as f:
+        prices = json.load(f)
+    result = pq.compute(bedroom_plan())
+    quote = pq.price(result, prices)
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "报价.xlsx")
+        pq.write_xlsx(path, "plan.json", result, quote)
+        wb = load_workbook(path)
+        check("表数量", len(wb.sheetnames), 3)
+        check("表名", wb.sheetnames, ["报价单", "房间明细", "工程量汇总"])
+
+        detail = wb["房间明细"]
+        check("房间明细首行地面面积", detail["E2"].value, 12.0, tol=0.01)
+        check("房间明细首行墙面面积", detail["G2"].value, 35.51, tol=0.01)
+        check("房间明细合计行是公式", str(detail["E3"].value).startswith("=SUM("), True)
+
+        quote_ws = wb["报价单"]
+        check("报价单金额列是公式", str(quote_ws["I2"].value).startswith("=ROUND("), True)
+        check("报价单含合计行", any("合计" in str(c.value) for row in quote_ws.iter_rows() for c in row), True)
+
+        summary = wb["工程量汇总"]
+        values = [str(c.value) for row in summary.iter_rows() for c in row if c.value is not None]
+        check("汇总含地面合计", any("地面" in v for v in values), True)
+        check("汇总含说明", any(v.startswith("说明：") for v in values), True)
+
+
+def test_extract_two_rooms():
+    section("提取：两室带内墙（外墙 200、内墙 200、内门 900）")
+    try:
+        import ezdxf
+    except ImportError:
+        print("  ⚠️ 没有 ezdxf，跳过")
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dxf_path = os.path.join(tmp, "two.dxf")
+        out_path = os.path.join(tmp, "two.json")
+        doc = ezdxf.new("R2010")
+        doc.units = ezdxf.units.MM
+        for name in ("A-WALL", "A-DOOR", "A-ROOM"):
+            doc.layers.add(name)
+        msp = doc.modelspace()
+        # 外墙双线 8000×3000，墙厚 200
+        msp.add_lwpolyline([(0, 0), (8000, 0), (8000, 3000), (0, 3000)], close=True, dxfattribs={"layer": "A-WALL"})
+        msp.add_lwpolyline([(200, 200), (7800, 200), (7800, 2800), (200, 2800)], close=True, dxfattribs={"layer": "A-WALL"})
+        # 内墙在 x=4000，厚 200（两条平行线，应合并成一段墙）
+        msp.add_line((4000, 200), (4000, 2800), dxfattribs={"layer": "A-WALL"})
+        msp.add_line((4200, 200), (4200, 2800), dxfattribs={"layer": "A-WALL"})
+        msp.add_arc((4000, 1500), 900, 0, 90, dxfattribs={"layer": "A-DOOR"})
+        msp.add_lwpolyline([(200, 200), (4000, 200), (4000, 2800), (200, 2800)], close=True, dxfattribs={"layer": "A-ROOM"})
+        msp.add_lwpolyline([(4200, 200), (7800, 200), (7800, 2800), (4200, 2800)], close=True, dxfattribs={"layer": "A-ROOM"})
+        doc.styles.add("CJK", font="simhei.ttf")
+        msp.add_text("主卧", height=250, dxfattribs={"layer": "A-ROOM", "style": "CJK"}).set_placement((1800, 1500))
+        msp.add_text("客厅", height=250, dxfattribs={"layer": "A-ROOM", "style": "CJK"}).set_placement((5800, 1500))
+        doc.saveas(dxf_path)
+
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPTS / "plan_extract.py"), dxf_path, "--out", out_path],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        check("plan_extract 退出码", proc.returncode, 0)
+        if proc.returncode != 0:
+            print(proc.stderr[-800:])
+            return
+        with open(out_path, encoding="utf-8") as f:
+            plan = json.load(f)
+        # 两条内墙线应合并为一段墙：4 段外墙 + 1 段内墙
+        check("墙体段数（内墙合并）", len(plan["walls"]), 5)
+        check("房间数", len(plan["rooms"]), 2)
+        areas = {r["name"]: r["area_m2"] for r in plan["rooms"]}
+        check("主卧面积 3800×2600", areas.get("主卧"), 9.88)
+        check("客厅面积 3600×2600", areas.get("客厅"), 9.36)
+        q = pq.compute(plan)["quantities"]
+        check("地面合计", q["floor_area_all"], 19.24)
+
+
 def test_extract_roundtrip():
     section("提取：合成 DXF → plan.json → 算量")
     try:
@@ -206,6 +312,9 @@ def main():
     test_quantity_ceiling_height()
     test_codecheck()
     test_codecheck_wide_door()
+    test_price()
+    test_xlsx()
+    test_extract_two_rooms()
     test_extract_roundtrip()
 
     print(f"\n通过 {len(PASS)}，失败 {len(FAIL)}")
