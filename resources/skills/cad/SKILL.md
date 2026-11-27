@@ -28,7 +28,7 @@ DWG 首次使用时自动转换并缓存。遍历整张图的结果（文字、�
 
 用户要**按自己的户型平面图建三维模型**时，不要手工读线再现写建模脚本，先把平面图转成结构化的 plan.json：
 
-> 优先用 `plan_extract` / `plan_building` / `plan_check` / `plan_quantity` 四个工具（参数类型化、路径限定在工作区内、直接返回 JSON 摘要），下面命令行里写的参数与工具一一对应。只有工具没覆盖的用法才退回 `execute` 跑脚本。
+> 优先用 `plan_extract` / `plan_building` / `plan_check` / `plan_quantity` / `plan_furnish` 五个工具（参数类型化、路径限定在工作区内、直接返回 JSON 摘要），下面命令行里写的参数与工具一一对应。只有工具没覆盖的用法才退回 `execute` 跑脚本。
 
 ```bash
 python <技能目录>/scripts/plan_extract.py 平面图.dwg [--frame N | --bbox x0,y0,x1,y1] [--height 2800] [--building-type residential]
@@ -78,6 +78,22 @@ python <技能目录>/scripts/plan_quantity.py --plan xxx.plan.json [--prices �
 - **房间没识别全时也不判定**：识别到的房间合计不到外包面积一半时同样退出码 2，报告里说明原因。房间漏了一半，面积、门洞、采光都是拿错数在判。
 - **`plan_quantity.py`**：按房间计算地面、墙面（扣门窗洞口）、顶棚、踢脚线、防水面积，统计门窗表和墙体体积；给了 `--prices` 时生成报价单。输出 `.xlsx` 时包含「报价单 / 房间明细 / 工程量汇总」三张表，房间明细带面积置信度，金额是公式，用户改单价会自动重算；输出 `.json` 时供汇报包使用。单价表格式见 `resources/presets/price-table.sample.json`，**其中的数值只是示例，不是市场价**，用户没有提供单价表时要明确告诉他。
 - 两个脚本都需要吊顶后的净高时用 `--ceiling-height`，不给则按层高计算并在结果里注明。
+
+## 家具布置校验与出图：plan_furnish.py
+
+用户要在户型里摆家具、或者拿来一版布置要核的时候：
+
+```bash
+python <技能目录>/scripts/plan_furnish.py --plan xxx.plan.json --furniture 家具.json [--out 布置.dxf] [--min-passage 500]
+```
+
+家具清单（`schema: design-agent/furniture@1`）每件给 `id` / `name` / `room` / `category`，几何二选一：`rect`（中心点 `cx`、`cy`，`width`、`depth`，`rotation` 逆时针角度）或异形家具的 `polygon`。`room` 写房间 id 或房间名，不写就按家具中心落在哪个房间判断。
+
+- **校验的是几何关系，不是看图比对**：家具是已知坐标，墙、洞口、房间轮廓也在 plan.json 里，所以能直接算出来。查五项：穿墙（压进墙体超过 `--tol-area`，默认 2000mm²）、出房间、家具重叠、挡门、无效缝隙（离墙在 `--min-passage` 以内又贴不上，既卡不进也走不过去）。
+- **挡门查的是通行区不是开启弧**：门洞两侧各取 洞口宽 × 门宽 的范围，门扇往哪边开都覆盖得到；plan.json 里没有铰接侧，画不出真实开启弧。要按实际铰接方向核，只能人工看图。
+- 输出：`.dxf`（`A-WALL` / `A-ROOM` / `A-FURN` / `A-CHECK` 四个图层，问题处画圈编号）、同名 `.json` 清单、同名 `.png` 标注图（`--no-png` 关掉）。退出码 0 = 没有不满足项，1 = 有。
+- **本工具只校验和出图，不生成布置方案**。方案要先有——用户给的、或者按需求排出来再交给它核。它不判断家具尺寸是否合理、功能分区对不对，这些仍要人工看。
+- `plan.json` 里的房间轮廓是墙内皮；家具贴墙时按 `--tol`（默认 5mm）容差算作贴上了，不会误报成出房间。
 
 ## 公共参数
 

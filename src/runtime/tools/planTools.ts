@@ -241,5 +241,32 @@ export function createPlanTools(params: {
     }
   })
 
-  return [extractTool, buildingTool, checkTool, quantityTool]
+  const furnishTool = new DynamicStructuredTool({
+    name: 'plan_furnish',
+    description:
+      '按 plan.json 校验家具布置，输出 DXF 和问题清单：穿墙、出房间、家具重叠、挡门（洞口前 门宽×门宽 的通行区）、无效缝隙（离墙 500mm 以内又贴不上）。' +
+      '只校验和出图，不生成布置方案——布置要先有家具清单（schema design-agent/furniture@1）。' +
+      '退出码 0 = 没有不满足项；1 = 有不满足项，清单里逐条列出。',
+    schema: z.object({
+      plan: z.string().describe('单层 plan.json 路径（工作区内）'),
+      furniture: z.string().describe('家具清单 JSON 路径（工作区内）'),
+      out: z.string().optional().describe('输出 DXF，默认 .design-agent/plans/<图名>.furnish.dxf；必须以 .dxf 结尾'),
+      min_passage: z.number().optional().describe('通行净宽 mm，默认 500'),
+      tol: z.number().optional().describe('贴边容差 mm，默认 5')
+    }),
+    func: async ({ plan, furniture, out, min_passage, tol }) => {
+      const target = inside(plan, 'plan')
+      if (/\.building\.json$/i.test(target)) {
+        return '家具校验只接受单层 plan.json，请对每层的 plan.json 分别调用。'
+      }
+      const outPath = out ? outPathOf(out, ['.dxf']) : defaultOut(target.replace(/\.plan\.json$/, ''), '.furnish.dxf')
+      const args = ['--plan', target, '--furniture', inside(furniture, 'furniture'), '--out', outPath]
+      if (min_passage) args.push('--min-passage', String(min_passage))
+      if (tol) args.push('--tol', String(tol))
+      const result = await run('plan_furnish.py', args)
+      return render(result, outPath, loadJson(outPath.replace(/\.dxf$/i, '.json')))
+    }
+  })
+
+  return [extractTool, buildingTool, checkTool, quantityTool, furnishTool]
 }

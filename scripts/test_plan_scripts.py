@@ -883,6 +883,77 @@ def test_axis_layer_roles():
     check("窗中心线 是窗", roles.get("窗中心线"), "window")
 
 
+def furnish_plan():
+    """净空 5800×3800（墙厚 200、中心线在外框上），南墙一樘 900 门，洞口开向房内（+y）。"""
+    return {
+        "schema": "design-agent/plan@1",
+        "bounds": {"width": 6000, "depth": 4000},
+        "storey": {"height": 2800},
+        "walls": [
+            {"id": "W1", "start": [0, 0], "end": [6000, 0], "thickness": 200, "height": 2800},
+            {"id": "W2", "start": [6000, 0], "end": [6000, 4000], "thickness": 200, "height": 2800},
+            {"id": "W3", "start": [6000, 4000], "end": [0, 4000], "thickness": 200, "height": 2800},
+            {"id": "W4", "start": [0, 4000], "end": [0, 0], "thickness": 200, "height": 2800},
+        ],
+        "openings": [
+            {"id": "D1", "wall": "W1", "offset": 2550, "width": 900, "height": 2100, "sill": 0, "type": "door", "style": "swing"},
+        ],
+        "rooms": [
+            {
+                "id": "R1",
+                "name": "卧室",
+                "area_m2": 22.04,
+                "confidence": "high",
+                "type": "room",
+                "polygon": [[100, 100], [5900, 100], [5900, 3900], [100, 3900]],
+            }
+        ],
+        "columns": [],
+    }
+
+
+def test_furnish_checks():
+    section("家具布置校验：穿墙 / 出房间 / 挡门 / 重叠 / 无效缝隙")
+    import plan_furnish as pf
+
+    plan = furnish_plan()
+    items = [
+        {"id": "F1", "name": "床", "room": "R1", "rect": {"cx": 1500, "cy": 2000, "width": 1500, "depth": 2000}},
+        {"id": "F2", "name": "柜", "room": "R1", "rect": {"cx": 0, "cy": 2000, "width": 400, "depth": 1800}},
+        {"id": "F3", "name": "桌", "room": "R1", "rect": {"cx": 3000, "cy": 400, "width": 800, "depth": 600}},
+        {"id": "F4", "name": "椅A", "room": "R1", "rect": {"cx": 4500, "cy": 3000, "width": 600, "depth": 600}},
+        {"id": "F5", "name": "椅B", "room": "R1", "rect": {"cx": 4500, "cy": 3000, "width": 600, "depth": 600}},
+        {"id": "F6", "name": "窄柜", "room": "R1", "rect": {"cx": 400, "cy": 2000, "width": 300, "depth": 1200}},
+    ]
+    findings, placed = pf.check(plan, items, dict(pf.DEFAULTS))
+    fails = {(f["check"], f["item"]) for f in findings if f["status"] == "fail"}
+    warns = {(f["check"], f["item"]) for f in findings if f["status"] == "warn"}
+    check("六件家具都定位了", len(placed), 6)
+    check("床没有不满足项", [f for f in findings if f["item"] == "床" and f["status"] == "fail"], [])
+    check("柜压进西墙（400×1800 里有 200×1800 在墙内）", ("穿墙", "柜") in fails, True)
+    check("柜出房间", ("出房间", "柜") in fails, True)
+    check("桌挡住门洞前的通行区", ("挡门", "桌") in fails, True)
+    check("完全重合的两件家具报一次重叠", sum(1 for f in findings if f["check"] == "家具重叠"), 1)
+    check("窄柜离墙 150 判无效缝隙", ("无效缝隙", "窄柜") in warns, True)
+    check("贴墙的桌不算无效缝隙", ("无效缝隙", "桌") in warns, False)
+
+    rotated = pf.rect_polygon(0, 0, 2000, 1000, 90)
+    check("旋转 90° 后长边转到 y 方向", round(max(p[1] for p in rotated) - min(p[1] for p in rotated)), 2000)
+    check("旋转 90° 后短边转到 x 方向", round(max(p[0] for p in rotated) - min(p[0] for p in rotated)), 1000)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "布置.dxf")
+        pf.write_dxf(plan, placed, findings, out)
+        import ezdxf
+
+        doc = ezdxf.readfile(out)
+        layers = {layer.dxf.name for layer in doc.layers}
+        check("DXF 写出墙 / 房间 / 家具 / 标注四个图层", {"A-WALL", "A-ROOM", "A-FURN", "A-CHECK"} <= layers, True)
+        furniture = [e for e in doc.modelspace() if e.dxf.layer == "A-FURN" and e.dxftype() == "LWPOLYLINE"]
+        check("DXF 里六件家具轮廓", len(furniture), 6)
+        check("DXF 单位是毫米", doc.units, 4)
+
+
 def test_align_floors():
     section("多层按轴网对齐：外包框变了（加阳台 / 屋顶只剩楼梯间）也不错位")
     import plan_building as pb
@@ -1007,6 +1078,7 @@ def main():
     test_column_spans()
     test_axes()
     test_axis_layer_roles()
+    test_furnish_checks()
     test_align_floors()
     test_room_column_cut()
     test_roof_levels()
