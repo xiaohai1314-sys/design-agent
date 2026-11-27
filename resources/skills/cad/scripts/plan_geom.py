@@ -3,6 +3,9 @@
 
 plan_quantity.py（工程量与报价）、plan_codecheck.py（规范审图）、report-pack 的汇报包都用它，
 保证各处对“哪个门属于哪个房间”“哪些是湿区”的判断一致。
+
+本模块不 import 任何兄弟模块，是这一组脚本的最底层：polygon_area / point_in_polygon
+由 plan_core 直接复用，不要在别处再写一份。
 """
 import json
 import math

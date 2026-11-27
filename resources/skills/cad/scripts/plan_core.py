@@ -11,6 +11,9 @@ ARC 额外带 center / radius 更好但不是必须）和文字记录（text / a
 import math
 import re
 
+# 面积与点包含在 plan_geom 里也有一份，两处字节相同；统一从这里取，避免改一处漏一处
+from plan_geom import point_in_polygon, polygon_area  # noqa: F401
+
 SCHEMA = "design-agent/plan@1"
 
 DEFAULTS = {
@@ -74,23 +77,6 @@ def canonical_direction(d):
     if d[0] < -1e-9 or (abs(d[0]) <= 1e-9 and d[1] < 0):
         d = (-d[0], -d[1])
     return d
-
-
-def polygon_area(points):
-    return abs(sum(points[i - 1][0] * points[i][1] - points[i][0] * points[i - 1][1] for i in range(len(points)))) / 2
-
-
-def point_in_polygon(p, poly):
-    x, y = p
-    inside = False
-    j = len(poly) - 1
-    for i in range(len(poly)):
-        xi, yi = poly[i]
-        xj, yj = poly[j]
-        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi:
-            inside = not inside
-        j = i
-    return inside
 
 
 def r(value, digits=1):
