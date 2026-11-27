@@ -24,6 +24,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import cad_core  # noqa: E402
 import plan_core  # noqa: E402
+import plan_frames  # noqa: E402
 from cad_core import CadError  # noqa: E402
 
 ROLE_PATTERNS = {
@@ -81,6 +82,8 @@ def main():
     parser.add_argument("input", help="DWG / DXF 图纸路径")
     parser.add_argument("--layout", default="model", help="Layout 名称，默认模型空间")
     parser.add_argument("--bbox", help="只提取这个范围内的平面：x0,y0,x1,y1（图纸坐标）")
+    parser.add_argument("--frame", help="只提取某个图幅内的平面：cad.py info 列出的编号，如 2 或 frame-2")
+    parser.add_argument("--list-plans", action="store_true", help="列出图框（候选平面）与图名后退出；再用 --frame N 选一个")
     parser.add_argument("--wall-layer", help="墙体图层，逗号分隔；不填按名称自动识别")
     parser.add_argument("--door-layer", help="门图层")
     parser.add_argument("--window-layer", help="窗图层")
@@ -99,12 +102,33 @@ def main():
         source = Path(args.input)
         document, warnings = cad_core.open_document(source)
         spec = cad_core.find_layout(document, args.layout)
-        region = parse_bbox(args.bbox) if args.bbox else None
+        if args.bbox and args.frame:
+            raise CadError("--bbox 与 --frame 只能给一个")
+        if args.list_plans and (args.bbox or args.frame):
+            raise CadError("--list-plans 只用来列图框，不要再给 --frame / --bbox")
         key = None
         try:
             key = cad_core.source_cache_key(source)
         except OSError:
             key = None
+        collected = cad_core.collect_layout_cached(spec, key)
+        if args.list_plans:
+            records = list(cad_core.iter_geometry(spec, tolerance=1.0, top_level_only=True))
+            print(plan_frames.format_plan_list(plan_frames.describe_plans(collected, records)))
+            return
+        region = parse_bbox(args.bbox) if args.bbox else None
+        if args.frame:
+            region = list(cad_core.find_frame(collected, args.frame)["bbox"])
+        elif region is None:
+            top = cad_core.top_level_frames(collected)
+            if len(top) >= 2:
+                listing = plan_frames.format_plan_list(
+                    plan_frames.describe_plans(collected), with_layers=False
+                )
+                raise CadError(
+                    "这张图里有 %d 个图框（各层平面 / 剖面 / 立面），整张一起提取会把它们混成一个平面。\n%s"
+                    % (len(top), listing)
+                )
         extents = cad_core.top_level_extents(spec, key) if region else None
 
         code, unit_name = cad_core.drawing_units(document)

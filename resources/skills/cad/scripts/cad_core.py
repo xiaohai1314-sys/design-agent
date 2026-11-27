@@ -1068,9 +1068,31 @@ def label_sheets(frames, texts):
 
     for frame in frames:
         inside = [text for text in texts if point_in_bbox(text["anchor"], frame["bbox"])]
+        if not frame.get("label"):
+            frame["label"] = drawing_title(inside)
         short = [text for text in inside if 2 <= len(comparable_characters(text["text"])) <= 30]
         if short:
             frame["largestText"] = one_line(max(short, key=lambda text: (text["height"], len(text["text"])))["text"])
+
+
+DRAWING_TITLE_PATTERN = re.compile(r"(平面图|剖面图|立面图|详图|大样图?|总平面|门窗表|设计说明|节点图?|布置图)")
+
+
+def drawing_title(texts):
+    """图签字段拼不出图名时，按常见图名后缀找框内字号较大的一条（如「首层平面图」「1-1 剖面图」）。"""
+    heights = [text["height"] for text in texts if text.get("height")]
+    floor = max(heights) * 0.5 if heights else 0.0
+    titled = [
+        text
+        for text in texts
+        if text.get("text")
+        and DRAWING_TITLE_PATTERN.search(text["text"])
+        and (text.get("height") or 0) >= floor
+    ]
+    if not titled:
+        return ""
+    best = max(titled, key=lambda text: (text["height"], len(text["text"])))
+    return one_line(best["text"])[:80]
 
 
 def one_line(text):

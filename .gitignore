@@ -27,3 +27,6 @@ dist-resources/
 
 # 本地凭据，切勿提交
 gh-token.txt
+
+# 本地测试图纸与批量识别输出
+测试图纸/

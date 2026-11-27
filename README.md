@@ -8,7 +8,7 @@
 
 - **设计软件连接器**：SketchUp、Blender、3ds Max、Rhino、Photoshop、multicad（AutoCAD / 中望 / 浩辰 / BricsCAD）、computer-use，默认关闭、按需启用。
 - **技能**：`resources/skills/` 下每个子目录一个技能（`SKILL.md` + 脚本），智能体按需读取。
-- **平面转模型**：`cad/scripts/plan_extract.py` 把任意 DWG / DXF 户型平面转成结构化的 `plan.json`（墙体、门窗洞口、房间与面积），`sketchup/scripts/plan_builder.rb` 按它生成户型白模，`cad/scripts/plan_verify.py` 把模型实测尺寸与 plan.json 逐项核对。
+- **平面转模型**：`cad/scripts/plan_extract.py` 把任意 DWG / DXF 户型平面转成结构化的 `plan.json`（墙体、门窗洞口、房间与面积），`sketchup/scripts/plan_builder.rb` 按它生成户型白模，`cad/scripts/plan_verify.py` 把模型实测尺寸与 plan.json 逐项核对。施工图里常并排画着各层平面、剖面、立面，先 `--list-plans` 列出图框（编号、图名、框内图层），再用 `--frame N` 选一个提取；检测到多个图框却没指定时会拒绝提取并给出清单。
 - **规范初查与工程量**：`cad/scripts/plan_codecheck.py` 按 plan.json 检查房间面积、门洞、层高净高、窗台防护、采光（参考 GB 50096-2011，只作初查），输出问题清单和标注图；`cad/scripts/plan_quantity.py` 计算地面 / 墙面 / 顶棚 / 防水 / 踢脚线工程量和门窗表，套用单价表生成带公式的 Excel 报价单（示例单价表见 `resources/presets/price-table.sample.json`）。
 - **方案汇报包**：`report-pack` 技能把资料确认、平面数据、规范初查、工程量报价、情绪板、效果图、PPT 组装串成带检查点的七步流程；`report-pack/scripts/build_deck.py` 按清单生成汇报 PPT。
 - **效果图审查**：`review_image` 工具用视觉模型对照出图要求和项目档案检查效果图，不通过时给出改提示词的建议并重出。视觉模型可在「设置 → 视觉模型（审图）」里单独配置——生图渠道只出不看，主对话模型也常是纯文本的（如 DeepSeek），两者都不能替代审图；主模型本身看不了图时，`read_file` 读到的图片（参考图、现场照片、CAD 渲染结果、SketchUp 截图）也会先交给这个视觉模型转述成文字再返回。没配独立视觉模型时，只有主模型本身支持看图（Claude / GPT-4o / Gemini / Qwen-VL 等）才会启用该工具。

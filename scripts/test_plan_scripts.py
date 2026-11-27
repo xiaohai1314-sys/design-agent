@@ -306,6 +306,82 @@ def test_extract_roundtrip():
         check("提取后地面合计", q["floor_area_all"], 9.36)
 
 
+def test_extract_multi_frame():
+    section("分幅：一张图两个图框，必须用 --frame 选一个")
+    try:
+        import ezdxf
+    except ImportError:
+        print("  ⚠️ 没有 ezdxf，跳过")
+        return
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dxf_path = os.path.join(tmp, "two_frames.dxf")
+        doc = ezdxf.new("R2010")
+        doc.units = ezdxf.units.MM
+        for name in ("A-WALL", "PUB_TEXT"):
+            doc.layers.add(name)
+        doc.styles.add("CJK", font="simhei.ttf")
+        msp = doc.modelspace()
+        # 两个同尺寸图框，各放一间 4000×3000 的房
+        for offset, title in ((0, "一层平面图"), (20000, "二层平面图")):
+            msp.add_lwpolyline(
+                [(offset, 0), (offset + 10000, 0), (offset + 10000, 8000), (offset, 8000)],
+                close=True,
+                dxfattribs={"layer": "0"},
+            )
+            msp.add_lwpolyline(
+                [
+                    (offset + 1000, 1000),
+                    (offset + 5000, 1000),
+                    (offset + 5000, 4000),
+                    (offset + 1000, 4000),
+                ],
+                close=True,
+                dxfattribs={"layer": "A-WALL"},
+            )
+            # 墙厚 200：内外两条闭合多段线配对成墙段
+            msp.add_lwpolyline(
+                [
+                    (offset + 1200, 1200),
+                    (offset + 4800, 1200),
+                    (offset + 4800, 3800),
+                    (offset + 1200, 3800),
+                ],
+                close=True,
+                dxfattribs={"layer": "A-WALL"},
+            )
+            msp.add_text(
+                title, height=400, dxfattribs={"layer": "PUB_TEXT", "style": "CJK"}
+            ).set_placement((offset + 4000, 7000))
+        doc.saveas(dxf_path)
+
+        def run(*extra):
+            return subprocess.run(
+                [sys.executable, str(SCRIPTS / "plan_extract.py"), dxf_path, *extra],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+
+        listed = run("--list-plans")
+        check("列图框退出码", listed.returncode, 0)
+        check("列出两个图框", "共 2 个图框" in listed.stdout, True)
+        check("图名含一层平面图", "一层平面图" in listed.stdout, True)
+
+        blocked = run("--out", os.path.join(tmp, "all.json"))
+        check("不选图框时拒绝提取", blocked.returncode != 0, True)
+        check("拒绝时提示用 --frame", "--frame" in (blocked.stdout + blocked.stderr), True)
+
+        out_path = os.path.join(tmp, "frame1.json")
+        picked = run("--frame", "1", "--out", out_path)
+        check("按图框提取退出码", picked.returncode, 0)
+        if picked.returncode == 0:
+            with open(out_path, encoding="utf-8") as f:
+                plan = json.load(f)
+            check("只提取第一个图框：宽 4000", plan["bounds"]["width"], 4000, tol=1)
+            check("只提取第一个图框：深 3000", plan["bounds"]["depth"], 3000, tol=1)
+
+
 def main():
     test_quantity_bedroom()
     test_quantity_bathroom()
@@ -316,6 +392,7 @@ def main():
     test_xlsx()
     test_extract_two_rooms()
     test_extract_roundtrip()
+    test_extract_multi_frame()
 
     print(f"\n通过 {len(PASS)}，失败 {len(FAIL)}")
     if FAIL:
