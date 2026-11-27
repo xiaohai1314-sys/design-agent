@@ -18,10 +18,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "resources" / "skills" / "cad" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
+LAYOUT_SCRIPTS = ROOT / "resources" / "skills" / "residential-cad-planlayout" / "scripts"
+sys.path.insert(0, str(LAYOUT_SCRIPTS))
 
 import plan_quantity as pq  # noqa: E402
 import plan_codecheck as pc  # noqa: E402
 import plan_geom as pg  # noqa: E402
+import plan_to_layout as ptl  # noqa: E402
+import plan_dxf as pdx  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -1086,6 +1090,62 @@ def test_furnish_columns_and_coordinates():
     check("按原图坐标同样报压柱", any(f["check"] == "压柱" for f in findings), True)
 
 
+def test_plan_to_layout():
+    section("plan.json → layout.json")
+    plan = {
+        "schema": "design-agent/plan@1",
+        "units": "mm",
+        "storey": {"height": 2800},
+        "walls": [
+            {"id": "W1", "start": [0, 0], "end": [6000, 0], "thickness": 200},
+            {"id": "W2", "start": [6000, 0], "end": [6000, 4000], "thickness": 200},
+        ],
+        "openings": [
+            {"id": "D1", "type": "door", "wall": "W1", "offset": 1000, "width": 900},
+            {"id": "D2", "type": "window", "wall": "W2", "offset": 500, "width": 1200},
+        ],
+        "rooms": [
+            {"id": "R1", "name": "客厅", "polygon": [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], "area_m2": 24.0}
+        ],
+    }
+    layout = ptl.convert(plan)
+    check("墙数", len(layout["walls"]), 2)
+    check("洞口数", len(layout["openings"]), 2)
+    door, window = layout["openings"]
+    check("水平门起点 x", door["x"], 1000)
+    check("水平门起点 y", door["y"], 0)
+    check("水平门 orient", door["orient"], "h")
+    check("水平门 kind", door["kind"], "door")
+    check("竖直窗 x", window["x"], 6000)
+    check("竖直窗起点 y", window["y"], 500)
+    check("竖直窗 orient", window["orient"], "v")
+    check("竖直窗 kind", window["kind"], "window")
+    room = layout["rooms"][0]
+    check("房间外包宽", room["w"], 6000)
+    check("房间外包高", room["h"], 4000)
+    check("转换后面积", pdx.room_area_m2(room), 24.0)
+
+    # 墙朝负方向画时，洞口起点要取靠左下的那个，否则会画到墙外
+    reversed_plan = dict(plan, walls=[{"id": "W1", "start": [6000, 0], "end": [0, 0], "thickness": 200}])
+    reversed_layout = ptl.convert(reversed_plan)
+    check("反向墙洞口 x", reversed_layout["openings"][0]["x"], 4100)
+
+    # 找不到所属墙的洞口跳过，不让它把整批转换拖挂
+    orphan = dict(plan, openings=[{"id": "D9", "type": "door", "wall": "W404", "offset": 0, "width": 900}])
+    check("孤立洞口被跳过", len(ptl.convert(orphan)["openings"]), 0)
+
+
+def test_layout_polygon_rooms():
+    section("layout.json 多边形房间")
+    l_shape = {"name": "L厅", "points": [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 5000], [0, 5000]]}
+    check("L 形面积", pdx.room_area_m2(l_shape), 24.0)
+    anchor = pdx.room_label_anchor(l_shape)
+    check("L 形形心 x", anchor[0], 3000.0)
+    check("L 形形心 y", anchor[1], 2666.67)
+    check("矩形回退面积", pdx.room_area_m2({"x": 0, "y": 0, "w": 4000, "h": 3000}), 12.0)
+    check("矩形回退锚点 x", pdx.room_label_anchor({"x": 0, "y": 0, "w": 4000, "h": 3000})[0], 2000.0)
+
+
 def main():
     test_quantity_bedroom()
     test_quantity_bathroom()
@@ -1120,6 +1180,8 @@ def main():
     test_align_floors()
     test_room_column_cut()
     test_roof_levels()
+    test_plan_to_layout()
+    test_layout_polygon_rooms()
 
     print(f"\n通过 {len(PASS)}，失败 {len(FAIL)}")
     if FAIL:

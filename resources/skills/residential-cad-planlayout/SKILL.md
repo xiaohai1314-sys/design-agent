@@ -53,7 +53,17 @@ python <技能目录>/../cad/scripts/cad.py blocks 户型.dwg --frame N --name �
 
 ### 3. 排布并生成 DXF
 
-用 `layout.json` 描述方案，先校验再出图：
+如果户型已经用 cad 技能出过 `plan.json`，直接转成 `layout.json`，不要手抄一遍：
+
+```bash
+python <技能目录>/../cad/scripts/plan_extract.py 户型.dwg --out 户型.plan.json
+python <技能目录>/scripts/plan_to_layout.py --plan 户型.plan.json --out layout.json
+```
+
+转换会带上墙的中心线与厚度、门窗位置（按沿墙偏移算）和房间多边形。
+`plan.json` 里没有家具几何，`furniture` 输出为空数组，排布时自己补。
+
+没有 `plan.json` 时，用 `layout.json` 手写描述方案，先校验再出图：
 
 ```bash
 python <技能目录>/scripts/plan_dxf.py check layout.json
@@ -75,7 +85,7 @@ python <技能目录>/scripts/plan_dxf.py build layout.json 平面方案.dxf
 - `walls` 给中心线与厚度，脚本按双线绘制。
 - `openings` 的 `(x, y)` 是洞口起点，`orient` 是所在墙的走向（`h` 水平 / `v` 竖直），`kind` 取 `door` 或 `window`。
 - `furniture` 是外包矩形，`label` 写在矩形中心。
-- `rooms` 只用于面积统计和房间名标注，不参与几何。
+- `rooms` 只用于面积统计和房间名标注，不参与几何。可以只给 `points` 多边形（L 形、扣柱的房间），此时面积按多边形算、房间名放在形心；只给 `x/y/w/h` 时按矩形处理。
 
 校验会拦下：墙段长度为 0、门洞小于 600mm、房间尺寸无效。会提醒：门洞偏窄（< 700mm）、洞口没落在墙上（偏离 > 300mm）、单件家具单边超过 3.2m。
 

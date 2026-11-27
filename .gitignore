@@ -3,6 +3,7 @@ dist/
 out/
 *.tsbuildinfo
 *.log
+__pycache__/
 
 # Large bundled binaries & third-party runtime packages
 resources/runtime/

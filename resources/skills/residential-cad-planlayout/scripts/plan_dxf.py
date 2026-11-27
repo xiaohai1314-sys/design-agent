@@ -16,6 +16,10 @@ layout.json 结构（单位默认 mm）：
 }
 
 坐标一律是图纸坐标；门洞的 (x, y) 是洞口起点，orient 为 h/v 表示所在墙的走向。
+
+房间也可以只给 points（多边形，L 形、扣柱的房间用这个），此时面积按多边形算、
+房间名放在形心，x/y/w/h 可以不给：
+  "rooms": [{"name": "客厅", "points": [[0,0],[6000,0],[6000,3000],[3000,3000],[3000,5000],[0,5000]]}]
 """
 import json
 import math
@@ -32,6 +36,40 @@ def load(path):
 
 def wall_len(w):
     return math.hypot(w["x2"] - w["x1"], w["y2"] - w["y1"])
+
+
+def room_points(r):
+    """房间的多边形；只给 x/y/w/h 时返回 None，走矩形分支。"""
+    pts = r.get("points")
+    if not isinstance(pts, list) or len(pts) < 3:
+        return None
+    try:
+        return [(float(p[0]), float(p[1])) for p in pts]
+    except (TypeError, IndexError, ValueError):
+        return None
+
+
+def polygon_area(points):
+    total = 0.0
+    for i, (x1, y1) in enumerate(points):
+        x2, y2 = points[(i + 1) % len(points)]
+        total += x1 * y2 - x2 * y1
+    return abs(total) / 2.0
+
+
+def room_area_m2(r):
+    pts = room_points(r)
+    if pts is not None:
+        return polygon_area(pts) / 1e6
+    return float(r.get("w") or 0) * float(r.get("h") or 0) / 1e6
+
+
+def room_label_anchor(r):
+    """房间名的落点：多边形取顶点平均，矩形取中心。"""
+    pts = room_points(r)
+    if pts is not None:
+        return sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+    return r["x"] + r["w"] / 2, r["y"] + r["h"] / 2
 
 
 def point_seg_dist(px, py, w):
@@ -77,9 +115,9 @@ def validate(spec):
 
     total_area = 0.0
     for r in rooms:
-        area = r["w"] * r["h"] / 1e6
+        area = room_area_m2(r)
         total_area += area
-        if r["w"] <= 0 or r["h"] <= 0:
+        if area <= 0:
             errors.append(f"房间「{r.get('name', '?')}」尺寸无效。")
         elif area < 2:
             warns.append(f"房间「{r.get('name', '?')}」仅 {area:.1f}㎡，请确认。")
@@ -162,9 +200,10 @@ def build(spec, out_path):
     for r in spec.get("rooms") or []:
         if not r.get("name"):
             continue
+        cx, cy = room_label_anchor(r)
         msp.add_text(
             r["name"], height=300, dxfattribs={"layer": "标注", "style": "CJK"}
-        ).set_placement((r["x"] + r["w"] / 2 - len(r["name"]) * 150, r["y"] + r["h"] / 2))
+        ).set_placement((cx - len(r["name"]) * 150, cy))
 
     doc.saveas(out_path)
     return 0
