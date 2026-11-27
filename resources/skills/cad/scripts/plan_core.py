@@ -575,7 +575,8 @@ NON_ROOM_HINT_RE = re.compile(r"平面图|立面图|剖面图|详图|大样|面�
 NON_ROOM_LAYER_RE = re.compile(r"window|door|门窗|axis|轴|dim|标注|尺寸|elev|标高|title|图签|图框", re.I)
 HAS_WORD_RE = re.compile(r"[\u4e00-\u9fff]|[A-Za-z]{3,}")
 # 楼梯间、电梯井在模型里是通高的洞口：本层不铺地面、不做顶棚，上层也不铺地面
-STAIR_ROOM_RE = re.compile(r"楼梯|电梯|梯井|前室", re.I)
+# 注意不含「前室」：消防前室 / 合用前室是有楼板的房间，不是通高洞口
+STAIR_ROOM_RE = re.compile(r"楼梯|电梯|梯井", re.I)
 
 
 def is_label(text, layer=None):
@@ -730,6 +731,21 @@ def simplify_line(points, tolerance):
     return [point for point, kept in zip(points, keep) if kept]
 
 
+def merge_collinear_points(points):
+    """闭合的横平竖直折线：去掉同一条直线上的中间点，每条边是一整段（贴墙时按整段判重叠）。"""
+    if len(points) < 4:
+        return list(points)
+    out = []
+    n = len(points)
+    for k in range(n):
+        prev, cur, nxt = points[k - 1], points[k], points[(k + 1) % n]
+        same_x = abs(prev[0] - cur[0]) < 1e-6 and abs(cur[0] - nxt[0]) < 1e-6
+        same_y = abs(prev[1] - cur[1]) < 1e-6 and abs(cur[1] - nxt[1]) < 1e-6
+        if not (same_x or same_y):
+            out.append(cur)
+    return out if len(out) >= 3 else list(points)
+
+
 def simplify_closed(points, tolerance):
     """闭合折线：从离起点最远的点切开，两段分别简化后接回去。"""
     if len(points) < 5:
@@ -773,12 +789,44 @@ class RoomRegions:
         self._label()
         self.ok = True
 
+    def _end_reach(self, wall, t, outward):
+        """墙端沿墙方向要往外补多少才能把交接处封住。
+
+        墙端顶在另一面墙上时，只补到那面墙的外皮：没做过端部延伸的墙（端点停在对方中心线）
+        补上半个墙厚正好封住转角；已经延伸到外皮的墙就不再补 —— 一律外扩半个墙厚的话，
+        L 形转角的内侧（房间凹角）会被咬掉一块 半墙厚 × 半墙厚 的地面。
+        墙端悬空（独立墙垛、门垛）时外扩半个墙厚，和墙线画法一致。
+        """
+        base = wall["base"]
+        half = wall["thickness"] / 2
+        end = piece_point(base, t)
+        tol = max(self.cell, 1.0)
+        for other in self.walls:
+            if other is wall:
+                continue
+            ob = other["base"]
+            if abs(dot(ob["d"], base["d"])) > 0.1:
+                continue
+            across = dot(end, ob["n"]) - ob["offset"]
+            along = dot(end, ob["d"])
+            o_half = other["thickness"] / 2
+            if abs(across) <= o_half + tol and other["t0"] - tol <= along <= other["t1"] + tol:
+                # 对方墙的远侧外皮在本墙方向上的位置
+                sign = 1.0 if dot(ob["n"], base["d"]) * outward > 0 else -1.0
+                far = ob["offset"] + sign * o_half
+                # 本墙方向上，端点到对方远侧外皮的距离
+                step = (far - dot(end, ob["n"])) / (dot(ob["n"], base["d"]) * outward)
+                return max(0.0, min(step, half))
+        return half
+
     def _block(self, walls):
         cell, cols, rows, x0, y0 = self.cell, self.cols, self.rows, self.x0, self.y0
         for wall in walls:
             base = wall["base"]
             half = max(wall["thickness"] / 2, cell * 0.5)
-            a, c = piece_point(base, wall["t0"]), piece_point(base, wall["t1"])
+            lo = wall["t0"] - self._end_reach(wall, wall["t0"], -1.0)
+            hi = wall["t1"] + self._end_reach(wall, wall["t1"], 1.0)
+            a, c = piece_point(base, lo), piece_point(base, hi)
             i0 = max(0, int((min(a[0], c[0]) - half - x0) / cell))
             i1 = min(cols - 1, int((max(a[0], c[0]) + half - x0) / cell))
             j0 = max(0, int((min(a[1], c[1]) - half - y0) / cell))
@@ -792,7 +840,7 @@ class RoomRegions:
                     px = x0 + (i + 0.5) * cell
                     along = px * base["d"][0] + py * base["d"][1]
                     across = abs(px * base["n"][0] + py * base["n"][1] - base["offset"])
-                    if across <= half and wall["t0"] - half <= along <= wall["t1"] + half:
+                    if across <= half and lo <= along <= hi:
                         self.grid[index] = -1
 
     def _label(self):
@@ -855,7 +903,7 @@ class RoomRegions:
             return None
         if label not in self._outlines:
             self._outlines[label] = {
-                "polygon": self._snap(self._trace(self.cells[label])),
+                "polygon": self._trace(self.cells[label]),
                 "area": self.areas[label],
                 "enclosed": not self.touches[label],
                 "key": label,
@@ -894,18 +942,24 @@ class RoomRegions:
         """
         if len(points) < 3 or not self.walls:
             return points
-        cx = sum(p[0] for p in points) / len(points)
-        cy = sum(p[1] for p in points) / len(points)
         tolerance = self.cell * 1.5
+        original = [tuple(p) for p in points]
         out = [list(p) for p in points]
+        eps = self.cell * 0.5
         for index, a in enumerate(out):
             b = out[(index + 1) % len(out)]
+            # 房间在这条边的哪一侧：取边中点往两侧各探半格，落在轮廓里的那侧就是房间。
+            # 不能用整个轮廓的形心——L 形房间凹角处那条边，形心可能在墙的另一侧，会把边贴到墙的外皮上。
+            oa, ob = original[index], original[(index + 1) % len(original)]
+            mx, my = (oa[0] + ob[0]) / 2, (oa[1] + ob[1]) / 2
             if abs(a[1] - b[1]) <= 1e-6:
-                face = self._face(a[1], True, min(a[0], b[0]), max(a[0], b[0]), cy, tolerance)
+                side = my + eps if point_in_polygon((mx, my + eps), original) else my - eps
+                face = self._face(a[1], True, min(a[0], b[0]), max(a[0], b[0]), side, tolerance)
                 if face is not None:
                     a[1] = b[1] = face
             elif abs(a[0] - b[0]) <= 1e-6:
-                face = self._face(a[0], False, min(a[1], b[1]), max(a[1], b[1]), cx, tolerance)
+                side = mx + eps if point_in_polygon((mx + eps, my), original) else mx - eps
+                face = self._face(a[0], False, min(a[1], b[1]), max(a[1], b[1]), side, tolerance)
                 if face is not None:
                     a[0] = b[0] = face
         return [tuple(p) for p in out]
@@ -941,7 +995,9 @@ class RoomRegions:
             return []
         loop = max(loops, key=lambda points: abs(polygon_area(points)))
         points = [(self.x0 + i * self.cell, self.y0 + j * self.cell) for i, j in loop]
-        return simplify_closed(points, self.cell * 1.5)
+        # 先在原始的横平竖直格子边界上贴墙，再拉直：反过来的话，薄墙（≤ 一格多）围出的凹角会先被
+        # Douglas-Peucker 抹成一条斜边，斜边既贴不上墙、面积也偏小
+        return simplify_closed(self._snap(merge_collinear_points(points)), self.cell * 1.5)
 
 
 def room_regions(walls, cfg, max_cells=600000):

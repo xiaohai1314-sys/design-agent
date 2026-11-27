@@ -154,7 +154,7 @@ module DesignAgentPlanBuilder
     plan = floor[:plan]
     storey_h = (plan.dig('storey', 'height') || 2800).to_f
     walls = plan['walls'] || []
-    openings = (plan['openings'] || {}).group_by { |o| o['wall'] }
+    openings = (plan['openings'] || []).group_by { |o| o['wall'] }
     key = floor[:level].nil? ? nil : floor[:level].to_s
     suffix = floor[:name] ? " #{floor[:name]}" : ''
 

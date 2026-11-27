@@ -775,6 +775,40 @@ def test_columns_and_stairs():
     check("没有柱时不输出柱", ordinary["columns"], [])
 
 
+def test_room_outline_corners():
+    section("房间轮廓转角：薄墙凹角不被抹成斜边，L 形转角内侧不被咬一块，前室不是楼梯洞口")
+    import plan_core
+
+    def line(a, b):
+        return {"layer": "WALL", "type": "LINE", "points": [a, b], "closed": False}
+
+    def wall(x0, y0, x1, y1, t):
+        h = t / 2
+        if y0 == y1:
+            return [line((x0, y0 - h), (x1, y0 - h)), line((x0, y0 + h), (x1, y0 + h))]
+        return [line((x0 - h, y0), (x0 - h, y1)), line((x0 + h, y0), (x0 + h, y1))]
+
+    def l_room(t):
+        walls = []
+        for x0, y0, x1, y1 in ((0, 0, 6000, 0), (0, 6000, 3000, 6000), (0, 0, 0, 6000), (6000, 0, 6000, 3000), (3000, 3000, 6000, 3000), (3000, 3000, 3000, 6000)):
+            walls += wall(x0, y0, x1, y1, t)
+        texts = [{"text": "客厅", "anchor": (1000, 1000), "point": (1200, 1100), "height": 300, "layer": "T"}]
+        return plan_core.build_plan({"wall": walls, "door": [], "window": [], "room": []}, texts)["rooms"][0]
+
+    # 60 厚隔墙：净空 (6000-60)×(3000-60) + (3000-60)×3000 = 26.28㎡
+    thin = l_room(60)
+    check("薄墙 L 形：面积", thin["area_m2"], 26.28)
+    check("薄墙 L 形：6 个顶点（凹角没被拉成斜边）", len(thin["polygon"]), 6)
+    # 200 厚：(6000-200)×(3000-200) + (3000-200)×3000 = 24.64㎡
+    thick = l_room(200)
+    check("200 墙 L 形：面积", thick["area_m2"], 24.64)
+    check("200 墙 L 形：6 个顶点（转角内侧没被咬一块）", len(thick["polygon"]), 6)
+
+    check("楼梯间是通高洞口", bool(plan_core.STAIR_ROOM_RE.search("楼梯间")), True)
+    check("电梯井是通高洞口", bool(plan_core.STAIR_ROOM_RE.search("电梯井")), True)
+    check("消防前室有楼板，不是洞口", bool(plan_core.STAIR_ROOM_RE.search("消防前室")), False)
+
+
 def main():
     test_quantity_bedroom()
     test_quantity_bathroom()
@@ -800,6 +834,7 @@ def main():
     test_building_levels()
     test_verify_building()
     test_columns_and_stairs()
+    test_room_outline_corners()
 
     print(f"\n通过 {len(PASS)}，失败 {len(FAIL)}")
     if FAIL:

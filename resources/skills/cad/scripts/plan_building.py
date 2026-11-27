@@ -131,11 +131,18 @@ def main():
             extra += ["--wall-layer", args.wall_layer]
         if args.room_layer:
             extra += ["--room-layer", args.room_layer]
+        if args.storey:
+            # 层高必须同时传给提取：墙高、柱高、窗台校正都按 plan 里的 storey 算，
+            # 只改标高不改墙高的话，层高 4200 时每层墙只有 2800，楼层之间空出 1400 的缝
+            extra += ["--height", str(args.storey)]
 
         with tempfile.TemporaryDirectory() as tmp:
             plans = [(level, name, frame, extract(source, frame, tmp, extra)) for level, frame, name in picks]
 
         storey = args.storey or plans[0][3].get("storey", {}).get("height") or 2800.0
+        heights = {float(plan.get("storey", {}).get("height") or storey) for _level, _name, _frame, plan in plans}
+        if len(heights) > 1:
+            raise RuntimeError("各层平面的层高不一致（%s），请用 --storey 统一指定" % "、".join(str(h) for h in sorted(heights)))
         floors = []
         for level, name, frame, plan in plans:
             if args.building_type:
