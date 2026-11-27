@@ -955,3 +955,12 @@
 你原有的 test_furnish_checks（除 DXF 写出部分）在改动后照样通过；新增 test_furnish_columns_and_coordinates（6 项）。
 
 再补一处：回滚最初写的是 `ents.to_a - before`，`Array#-` 走 `hash` / `eql?`，而 SketchUp 每次 `to_a` 返回的包装对象未必是同一个 —— 一旦对不上，减法结果就是全部实体，失败时会把整棵 root 删掉。改成按 `entityID` 记快照（Hash 查表，O(1)），不依赖对象身份。
+
+
+## 复查：residential-2d-planlayout 等（2026-11-27 下午）
+
+- **修：新技能的生图调用与本机工具不符。** 技能按原平台写成 `generate_image(query, image_name, image_urls)`、首轮传「原图 + 引导图」两张参考；本机 `generate_image` 只有 `prompt / image_name / size`、不能带图，能带图的 `edit_image_with_ref` 只收一张 `reference_image_path`。照字面调用要么缺 `prompt` 报错，要么不带底图出一张与原户型无关的平面。已在 SKILL.md 开头加「本机生图工具对照（先读）」，改写「生图」段原句，并在 references/image-generation.md 开头加换算说明：有底图用 `edit_image_with_ref`，需要定位时只传同画幅引导图并在 prompt 里说明标记、要求成图去除；纯文字题才用 `generate_image`。其余参考文档（dimension-plan / plan-variants / stair-pair / locked-plan-edit）里的同类写法按此对照换算，未逐处改字。
+- 已核：内置 Python 有 cv2 / numpy / PIL；`read-rewrite-sections.py` 读 image-prompt-rewrite 两份模板均成功；技能对 DWG / DXF / 三维模型整项分流，与 plan.json 路线不冲突；`npm run test:plan` 的 run-plan-tests.mjs 存在。
+- 已核：plan_builder.rb 的 `attempt` 改为按 entityID 记录构件前的实体，比数组差集稳，保留。
+- 未看：App.tsx / ComposerCard.tsx、资源打包脚本、inspiration-search / regulation-consultation 的 SKILL.md。
+- 记一笔：residential-2d-planlayout 与 image-prompt-rewrite 来自知末，许可问题同 C2，自用不分发。

@@ -1,5 +1,7 @@
 # 生图参数和同画幅引导
 
+> 本机只有一张参考图的通道：有底图时用 `edit_image_with_ref(reference_image_path, prompt, image_name)`，纯文字题用 `generate_image(prompt, image_name)`。下文「第一张 / 第二张」「query」「image_urls」按 [SKILL.md 的本机生图工具对照](../SKILL.md#本机生图工具对照先读) 换算：需要定位时只传同画幅引导图，在 prompt 里说明标记用途并要求成图去除标记；否则只传原图。
+
 ## 生图参数
 
 以下图片顺序适用于常规首轮和整图返修。固定底图编辑、跨层定梯和尺寸图沿用各专项流程规定的生图底图、裁切与贴回参数。
