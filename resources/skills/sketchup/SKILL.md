@@ -41,8 +41,8 @@ python <技能目录>/scripts/ensure_sketchup.py
 ## 三条纪律
 
 **① 干活只用 `eval_ruby`。**
-用 `tool_search("select:sketchup__eval_ruby")` 直接取契约，不必先把 10 个工具列一遍；另外 9 个
-建筑场景用不上。`eval_ruby` 返回**最后一个表达式的 `to_s`**，要看什么就拼成字符串放最后一行。
+工具列表里有 `sketchup__eval_ruby` 就直接调用；只有 `mcp_tools` / `tool_search`（启用了延迟加载）时，
+用 `tool_search({ names: ['sketchup__eval_ruby'] })` 激活。另外 9 个工具建筑场景用不上。`eval_ruby` 返回**最后一个表达式的 `to_s`**，要看什么就拼成字符串放最后一行。
 **不要用 `puts`**——它返回 `nil`，你拿到的是空字符串。
 
 **② 不要自己拼 `open` / `start` 启动 SketchUp**，脚本已经处理好。
@@ -67,6 +67,31 @@ Sketchup.active_model&.path   # 必须等于你刚打开的那个路径，否则
 
 别假设是空的：读 `Sketchup.active_model` 的 `path` / `entities.length` / `layers`。有内容时默认在
 其基础上增改，**不要 `entities.clear!`**，确需清空先跟用户确认。
+
+## 按平面图建户型白模：plan_builder.rb
+
+用户给了户型平面图（DWG / DXF）要建模时，**不要现写墙体几何的 Ruby**，按下面的固定流程走：
+
+1. 用 cad 技能的 `plan_extract.py` 把平面图转成 plan.json，把识别结果和「需确认」的默认值告诉用户，确认或修正后再继续。
+2. 通过 `eval_ruby` 生成模型（路径用正斜杠）：
+
+```ruby
+load '<技能目录>/scripts/plan_builder.rb'
+DesignAgentPlanBuilder.build('<工作区>/.design-agent/plans/xxx.plan.json', {
+  style: 'modern_minimal',                       # 可选：new_chinese / wabi_wood / light_luxury
+  preset_dir: '<技能目录>/../../presets/living-room-modeling-v1',   # 有它时沿用该包的风格贴图
+  export_preview_path: '<工作区>/renders/plan_model.png',
+  output_skp_path: '<工作区>/plan_model.skp'
+})
+```
+
+   - 墙按洞口拆成墙段、窗台、过梁，不依赖布尔运算；门扇、推拉门、窗框玻璃，各房间地面与顶棚一并生成，分别放在 `DA_墙体`、`DA_门窗`、`DA_地面`、`DA_顶棚` 标记里，并建好 `DA_轴测`、`DA_俯视` 两个场景。
+   - 所有几何都在 `DesignAgentPlan_Root` 组里；重复执行只替换这个组，不动模型里其他内容。可选参数：`include_floors`、`include_ceilings`、`include_doors`、`include_windows`（默认都为 true）、`replace_existing`。
+   - 返回 JSON：`status`、墙和洞口数量、各房间地面实测面积、外包尺寸、`warnings`。
+3. **核对**：执行 `DesignAgentPlanBuilder.measure`，把返回的 JSON 原样写成 `measure.json`，再运行 cad 技能的 `plan_verify.py --plan … --model measure.json`。有不一致时修正后重建、再核对，通过后再导出和 `deliver`。
+4. 用户要改尺寸、开间、门窗位置时，改 plan.json 后重新 `build`，不要在模型里手工拉伸墙体（否则下次重建会覆盖，核对也会失效）。
+
+家具、软装仍可沿用客厅预置包的模块，或在 `DesignAgentPlan_Root` 之外另建组。
 
 ## 按需读取的二级文档
 

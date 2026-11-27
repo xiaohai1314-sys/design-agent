@@ -23,6 +23,7 @@ import {
   filterFeatures
 } from '../src/renderer/src/features/taskForm/compose'
 import { buildSystemMessage, offloadLargeToolOutput } from '../src/runtime/checkpoint'
+import { applyProfilePatch, emptyProfile, summarizeProfile } from '../src/runtime/projectProfile'
 import {
   listFileSnapshots,
   recordImageLineageSnapshot,
@@ -410,6 +411,32 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
   }
   if (!writeBlocked || !editBlocked) {
     throw new Error(`DESIGN-AGENT.md protection failed: writeBlocked=${writeBlocked}, editBlocked=${editBlocked}`)
+  }
+
+  // 1a. 项目档案合并规则：rooms 按名合并、约束取并集、null 删除、decisions 去重
+  let profile = applyProfilePatch(emptyProfile(), {
+    name: '测试项目',
+    rooms: [{ name: '客厅', area_m2: 25 }],
+    constraints: ['不要大理石'],
+    budget: { total: 300000 }
+  })
+  profile = applyProfilePatch(profile, {
+    rooms: [{ name: '客厅', function: '会客' }, { name: '主卧', area_m2: 15.3 }],
+    constraints: ['不要大理石', '保留原有窗户'],
+    decisions: ['主材用木饰面', '主材用木饰面'],
+    budget: null
+  })
+  const living = profile.rooms?.find((r) => r.name === '客厅')
+  if (
+    profile.rooms?.length !== 2 ||
+    living?.area_m2 !== 25 ||
+    living?.function !== '会客' ||
+    profile.constraints?.length !== 2 ||
+    profile.decisions?.length !== 1 ||
+    profile.budget !== undefined ||
+    !summarizeProfile(profile).includes('主卧 15.3㎡')
+  ) {
+    throw new Error(`project profile merge failed: ${JSON.stringify(profile)}`)
   }
 
   // 1b. 技能目录作为只读根：read_file 能读到工作区外的 SKILL.md，write_file 仍然被拦截

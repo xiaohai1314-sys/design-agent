@@ -63,6 +63,9 @@ import {
 } from './checkpoint'
 import { distillProjectMemory, generateNextSuggestions } from './distiller'
 import { resolveToolCallId } from './tools/callId'
+import { createProjectProfileTool } from './tools/projectProfileTool'
+import { createImageReviewTool } from './tools/imageReviewTool'
+import { loadProjectProfile, projectProfilePath, summarizeProfile } from './projectProfile'
 
 const parentPort = (
   process as unknown as {
@@ -616,7 +619,7 @@ function buildProjectContext(
   profile: 'ai-scheme-v1' | 'default' | undefined,
   imageGenCapability?: { enabled: boolean; modelName: string },
   presets?: ModelingPresetInfo[]
-): { projectMemoryFile: string; systemPrompt: string } {
+): { projectMemoryFile: string; projectProfileFile: string; systemPrompt: string } {
   const skills = discoverSkills(skillsRoot)
   const resolvedPresets = presets ?? discoverModelingPresets(undefined, skillsRoot)
   const workspacesBase = process.env.DESIGN_AGENT_WORKSPACES_DIR || join(rootDir, '.design-agent-workspaces')
@@ -648,9 +651,13 @@ function buildProjectContext(
   if (existsSync(projectMemoryFile)) memChunks.push(readFileSync(projectMemoryFile, 'utf8'))
   if (existsSync(projectDecisionsFile)) memChunks.push(readFileSync(projectDecisionsFile, 'utf8'))
   const projectMemory = memChunks.length > 0 ? memChunks.join('\n\n') : undefined
+  const projectProfileFile = projectProfilePath(projectMemoryFile)
+  const profileData = loadProjectProfile(projectProfileFile)
+  const projectProfile = profileData ? summarizeProfile(profileData) : undefined
 
   return {
     projectMemoryFile,
+    projectProfileFile,
     systemPrompt: buildSupervisorSystemPrompt({
       rootDir,
       skillsRoot,
@@ -659,6 +666,7 @@ function buildProjectContext(
       profile,
       projectMemory,
       projectCharter,
+      projectProfile,
       imageGenCapability
     })
   }
@@ -1281,7 +1289,7 @@ async function executeTurn(
       return
     }
 
-    const { projectMemoryFile, systemPrompt } = buildProjectContext(
+    const { projectMemoryFile, projectProfileFile, systemPrompt } = buildProjectContext(
       rootDir,
       projectId,
       skillsRoot,
@@ -1364,6 +1372,14 @@ async function executeTurn(
       onEmitProposal: (proposal: PptProposal) => {
         post({ type: 'ppt_proposal', requestId, threadId, proposal })
       }
+    })
+
+    const projectProfileTool = createProjectProfileTool({ profilePath: projectProfileFile, rootDir })
+    const imageReviewTool = createImageReviewTool({
+      rootDir,
+      modelProfile,
+      profilePath: projectProfileFile,
+      signal: abortController.signal
     })
 
     const deliverTool = createDeliverTool({
@@ -1499,6 +1515,8 @@ async function executeTurn(
       ...(webSearchTool ? [webSearchTool] : []),
       ...(pptWorkbenchTool ? [pptWorkbenchTool] : []),
       deliverTool,
+      projectProfileTool,
+      ...(imageCapable ? [imageReviewTool] : []),
       taskSubagentTool,
       ...asyncSub.tools
     ]

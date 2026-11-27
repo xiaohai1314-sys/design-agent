@@ -1,0 +1,26 @@
+{
+  "name": "住宅户内基本尺寸（参考 GB 50096-2011《住宅设计规范》）",
+  "note": "以下限值按 GB 50096-2011 整理，供快速初查使用；规范可能已修订或有地方标准，出具正式结论前请用 retrieve_regulation_chunks 检索现行条文逐条核对。可以复制本文件按项目所在地要求修改，再用 --rules 指定。",
+  "room_area": [
+    { "type": "bedroom_double", "min_m2": 9.0, "level": "must", "clause": "GB 50096-2011 第 5.2.1 条", "text": "双人卧室使用面积不应小于 9㎡" },
+    { "type": "bedroom_single", "min_m2": 5.0, "level": "must", "clause": "GB 50096-2011 第 5.2.1 条", "text": "单人卧室使用面积不应小于 5㎡" },
+    { "type": "living", "min_m2": 10.0, "level": "must", "clause": "GB 50096-2011 第 5.2.2 条", "text": "起居室（厅）使用面积不应小于 10㎡" },
+    { "type": "kitchen", "min_m2": 4.0, "level": "must", "clause": "GB 50096-2011 第 5.3.1 条", "text": "由卧室、起居室、厨房和卫生间等组成的套型，厨房使用面积不应小于 4.0㎡" },
+    { "type": "bathroom", "min_m2": 2.5, "level": "must", "clause": "GB 50096-2011 第 5.4.1 条", "text": "便器、洗浴器、洗面器集中配置的卫生间使用面积不应小于 2.50㎡" }
+  ],
+  "door_width": [
+    { "type": "entry", "min_mm": 1000, "min_height_mm": 2000, "clause": "GB 50096-2011 第 5.8.7 条", "text": "户（套）门洞口宽度不应小于 1.00m" },
+    { "type": "living", "min_mm": 900, "min_height_mm": 2000, "clause": "GB 50096-2011 第 5.8.7 条", "text": "起居室（厅）门洞口宽度不应小于 0.90m" },
+    { "type": "bedroom", "min_mm": 900, "min_height_mm": 2000, "clause": "GB 50096-2011 第 5.8.7 条", "text": "卧室门洞口宽度不应小于 0.90m" },
+    { "type": "kitchen", "min_mm": 800, "min_height_mm": 2000, "clause": "GB 50096-2011 第 5.8.7 条", "text": "厨房门洞口宽度不应小于 0.80m" },
+    { "type": "bathroom", "min_mm": 700, "min_height_mm": 2000, "clause": "GB 50096-2011 第 5.8.7 条", "text": "卫生间门洞口宽度不应小于 0.70m" },
+    { "type": "balcony", "min_mm": 700, "min_height_mm": 2000, "clause": "GB 50096-2011 第 5.8.7 条", "text": "阳台门（单扇）洞口宽度不应小于 0.70m" }
+  ],
+  "height": [
+    { "type": "storey", "min_mm": 2800, "level": "should", "clause": "GB 50096-2011 第 5.5.1 条", "text": "住宅层高宜为 2.80m" },
+    { "type": "clear_main", "min_mm": 2400, "level": "must", "clause": "GB 50096-2011 第 5.5.2 条", "text": "卧室、起居室（厅）的室内净高不应低于 2.40m" },
+    { "type": "clear_wet", "min_mm": 2200, "level": "must", "clause": "GB 50096-2011 第 5.5.4 条", "text": "厨房、卫生间的室内净高不应低于 2.20m" }
+  ],
+  "window_guard": { "min_sill_mm": 900, "clause": "GB 50096-2011 第 5.8.1 条", "text": "窗外没有阳台或平台的外窗，窗台距楼面净高低于 0.90m 时应设置防护设施" },
+  "daylight": { "types": ["bedroom", "living", "kitchen"], "clause": "GB 50096-2011 第 7.1.1 条", "text": "卧室、起居室（厅）、厨房应有直接天然采光" }
+}

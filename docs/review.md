@@ -658,3 +658,63 @@
 
 - `remember` 不再需要审批（`src/runtime/index.ts` 的 `gatedToolNames`，加回 `'remember'` 即可恢复）。
 - 打包版 CSP 允许从 `https:` 加载脚本、样式、字体、图片和媒体；`connect-src` 仍只允许本地，页面里的 fetch / XHR 访问外部接口会被拦截。
+
+
+---
+
+## 功能升级（2026-11-27）
+
+按“先打数据基础、再做闭环”的顺序实现了三项：
+
+### 1. 任意户型平面转模型
+
+| 文件 | 作用 |
+|---|---|
+| `resources/skills/cad/scripts/plan_core.py` | 纯几何核心（不依赖 ezdxf）：成对平行墙线 → 墙段；同线墙段按门窗 / 交叉墙 / 空缺口合并；门按门弧反求铰点与门宽，窗与推拉门取墙厚内图元；L 形转角补到外皮、T 形补到中心线；房间优先用轮廓线，没有时从房间名向四周找墙内皮推断矩形；输出自检与需确认项 |
+| `resources/skills/cad/scripts/plan_extract.py` | 命令行入口：读 DWG / DXF、自动识别图层、单位换算到毫米、写出 plan.json |
+| `resources/skills/sketchup/scripts/plan_builder.rb` | 读 plan.json 生成白模：墙按洞口拆成墙段 / 窗台 / 过梁（不依赖布尔运算），门扇、推拉门、窗框玻璃、地面、顶棚，分标记、建场景；可沿用客厅预置包的风格贴图；`measure` 读回实测尺寸 |
+
+在示例图 `seed/plan.dxf` 上测试（用云端最小 DXF 解析器喂给 `plan_core`）：识别出 11 段墙、8 个门（7 平开 + 1 推拉）、7 个窗、8 个房间，面积与图上标注逐一一致，合计 88.53㎡；整张图旋转 30° 后结果不变。另用“外墙画成两条闭合轮廓、窗画在连续墙线上、门开在墙尽端”的合成图测试通过。
+
+### 2. 建模后自动核对
+
+- `resources/skills/cad/scripts/plan_verify.py`：对比 plan.json 与模型实测（墙长 / 厚 / 高 / 体积、洞口宽 / 窗台 / 高、房间面积、外包尺寸），不一致时退出码为 1 并逐条列出。用模拟模型测试：完全一致时 114 项全过；人为改错墙体体积、窗宽、删掉一个房间后，三处差异都被报出。
+- 系统提示词要求：按平面建模后必须核对通过再交付；出图后先 `read_file` 自查一次，明显不符时调整提示词重出一次。
+
+### 3. 结构化项目档案
+
+- `src/runtime/projectProfile.ts`：`project.json` 的格式、合并规则（标量覆盖、`null` 删除、房间按名合并、约束取并集、决策去重追加）、从 plan.json 同步房间、生成提示词摘要。
+- `src/runtime/tools/projectProfileTool.ts`：新工具 `project_profile`（`get` / `update` / `import_plan`），自用不审批。
+- 系统提示词注入 `<project-profile>` 摘要，并规定它是尺寸、风格、主材、约束的唯一来源；记忆提炼器把“已确认 / 否决”同步写入 project.json。
+- `scripts/verify-runtime.ts` 新增档案合并规则的测试。
+
+### 验证状态与已知限制
+
+- Python 几何核心已在云端用示例图和合成图测试；`plan_extract.py`（依赖 ezdxf）、`plan_builder.rb`（依赖 SketchUp）、TypeScript 改动**都还没有在本机实际运行过**。请依次验证：
+  1. `npm run typecheck`、`npm run build`、`npm run test:runtime`
+  2. `resources\runtime\python\python.exe resources\skills\cad\scripts\plan_extract.py resources\presets\cad-plan-modeling-v1\seed\plan.dxf`，应得到 11 墙 / 8 门 / 7 窗 / 8 房间
+  3. 打开 SketchUp，让智能体按示例图建模并核对
+- 只处理单层、直线墙；弧形墙、斜屋顶、多层与楼梯不识别。天正图纸需先导出 T3。
+- 房间推断矩形只适用于正交户型；有房间轮廓线的图最准确。
+- project.json 目前只能通过对话修改，界面上还没有编辑入口；规范自动审图、工程量报价、多方案对比还没做。
+
+
+### 第二批（2026-11-27）：工程量报价、规范初查、方案汇报包、效果图审查
+
+| 文件 | 作用 |
+|---|---|
+| `resources/skills/cad/scripts/plan_geom.py` | 共用几何：洞口两侧各是哪个房间、外墙判定、房间分类与湿区识别、平面示意图绘制 |
+| `resources/skills/cad/scripts/plan_quantity.py` | 工程量（地面 / 墙面扣洞口 / 顶棚 / 踢脚线 / 防水 / 门窗表 / 墙体体积）与报价，Excel 三张表、金额为公式 |
+| `resources/presets/price-table.sample.json` | 示例单价表（数值仅作演示，不是市场价） |
+| `resources/skills/cad/scripts/plan_codecheck.py` + `plan_rules.residential.json` | 规范初查：房间面积、门洞宽高（户门 / 卧室 / 厨房 / 卫生间 / 阳台门）、层高净高、窗台防护、直接采光，输出问题清单与红圈标注图 |
+| `resources/skills/report-pack/SKILL.md` + `scripts/build_deck.py` | 七步带检查点的方案汇报流程；按清单组装 16:9 汇报 PPT（封面、概况、空间清单、平面、分析、意向、效果图、规范、造价、下一步） |
+| `src/runtime/tools/imageReviewTool.ts` | `review_image` 工具：视觉模型对照要求与项目档案审图，返回 pass / issues / prompt_fix；模型不能看图时如实返回，改由 `read_file` 人工判断 |
+
+云端测试（用示例图的 plan.json）：
+- **工程量**：干区地面 60.88㎡、湿区 27.65㎡（合计 88.53㎡，与房间面积一致），平开门 7 樘、推拉门 1 樘、窗 7 樘；15 个洞口两侧房间的归属全部正确；Excel 报价单公式正确（示例单价下合计 114,674.70 元，仅演示）。
+- **规范初查**：29 项。示例图本身的户门 D1 洞口 900mm，按户门 ≥1000mm 判为不满足；人为把卫生间门改成 650mm、窗台改成 500mm、净高设为 2350mm 后，三处都被报出，标注图编号与清单对应。
+- **汇报 PPT**：按测试清单生成 8 页，缺失的效果图被跳过并提示，版式检查无溢出。
+
+注意：
+- 规则限值按 GB 50096-2011 整理，**没有联网核对是否有新版或地方标准**，规则文件和报告里都写明了“只作初查、以现行条文为准”。
+- `review_image`、`build_deck.py`（在本机 python-pptx 下）、`plan_codecheck.py` 的中文字体渲染都还没在本机跑过；TypeScript 改动同样需要 `npm run typecheck` 验证。

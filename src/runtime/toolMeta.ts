@@ -20,6 +20,8 @@ const TOOL_LABELS: Readonly<Record<string, string>> = {
   ask_image_edit: '图片标注',
   ask_user: '需求澄清',
   remember: '标记项目记忆',
+  project_profile: '项目档案',
+  review_image: '审查效果图',
   task: '子任务',
   start_async_task: '启动后台子任务',
   check_async_task: '查询后台子任务',

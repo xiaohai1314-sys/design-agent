@@ -5,6 +5,7 @@ import { BaseMessage, HumanMessage, SystemMessage } from '@langchain/core/messag
 import type { PersistedTurnItem } from '@shared/ipc'
 import type { ModelProviderProfile } from '@shared/protocol'
 import { createChatModel } from './modelFactory'
+import { applyProfilePatch, emptyProfile, loadProjectProfile, saveProjectProfile } from './projectProfile'
 
 /** 100% 对齐原版 s3r「下一步建议」生成器系统提示词 */
 const NEXT_SUGGESTIONS_SYSTEM_PROMPT = `你是「下一步建议」生成器，服务于室内设计、建筑设计、景观设计师使用的 AI 设计智能体。
@@ -166,6 +167,21 @@ export async function distillProjectMemory(params: {
     writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8')
 
     if (confirmed.length === 0 && rejected.length === 0) return false
+
+    // 同步写入结构化项目档案：已确认 → decisions，否决 → rejected
+    try {
+      const profilePath = join(projDir, 'project.json')
+      const profile = loadProjectProfile(profilePath) ?? emptyProfile()
+      saveProjectProfile(
+        profilePath,
+        applyProfilePatch(profile, {
+          decisions: confirmed.map((text) => ({ text: text.trim(), source: `会话${params.conversationId.slice(0, 8)}` })),
+          rejected
+        })
+      )
+    } catch {
+      // 档案写入失败不影响 project_decisions.md
+    }
 
     const today = new Date().toISOString().slice(0, 10)
     const shortConv = params.conversationId.slice(0, 8)

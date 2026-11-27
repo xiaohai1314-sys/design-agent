@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+"""按 plan.json 做住宅户内规范初查：房间面积、门洞宽高、层高 / 净高、外窗防护、直接采光，输出问题清单与标注图。
+
+用法：
+  python plan_codecheck.py --plan xxx.plan.json [--rules 规则.json] [--ceiling-height 2600] [--out 报告.md]
+
+- 默认规则是同目录的 plan_rules.residential.json（参考 GB 50096-2011 整理）。限值只用于初查：
+  报告里列出的每一条，出具正式结论前都要用 retrieve_regulation_chunks 检索现行条文核对，地方标准更严时以地方为准。
+- 输出 <图名>.codecheck.md（问题清单）、同名 .json、同名 .png（问题位置用红圈编号标在平面上）。
+- 退出码：有“不满足”项时为 1，只有“需注意”或全部满足时为 0。
+"""
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+import plan_geom as pg  # noqa: E402
+
+DOOR_PRIORITY = ["bathroom", "kitchen", "bedroom", "study", "storage", "balcony", "living", "dining", "other"]
+
+
+def centroid(poly):
+    return (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))
+
+
+def door_requirement(item, rules):
+    """门的规范类型：外墙上通往室内（非阳台）的门按户门；否则按它服务的房间中“更私密”的一侧。"""
+    by_type = {r["type"]: r for r in rules["door_width"]}
+    types = [pg.room_type(r["name"]) for r in item["rooms"]]
+    if item["exterior"] and len(item["rooms"]) == 1 and types[0] != "balcony":
+        return by_type.get("entry"), "户门"
+    for key in DOOR_PRIORITY:
+        if key in types:
+            mapped = {"study": "bedroom", "storage": None, "dining": "living", "other": None}.get(key, key)
+            if mapped and mapped in by_type:
+                return by_type[mapped], f"{pg.ROOM_TYPE_LABELS[key]}门"
+    return None, None
+
+
+def check(plan, rules, ceiling_height=None):
+    findings = []
+
+    def add(status, item, location, xy, detail, rule):
+        findings.append({"status": status, "item": item, "location": location, "xy": [round(xy[0]), round(xy[1])] if xy else None, "detail": detail, "clause": rule.get("clause", ""), "requirement": rule.get("text", "")})
+
+    area_rules = {r["type"]: r for r in rules.get("room_area", [])}
+    for room in plan.get("rooms", []):
+        rtype = pg.room_type(room["name"])
+        area = float(room["area_m2"])
+        xy = centroid(room["polygon"])
+        if rtype == "bedroom":
+            double = bool(re.search(r"主卧|双人", room["name"]))
+            rule = area_rules.get("bedroom_double" if double else "bedroom_single")
+            if rule:
+                ok = area >= rule["min_m2"]
+                add("pass" if ok else "fail", "卧室面积", room["name"], xy, f"{area:.2f}㎡ / 要求 ≥{rule['min_m2']}㎡", rule)
+                single_rule = area_rules.get("bedroom_double")
+                if ok and not double and single_rule and area < single_rule["min_m2"]:
+                    add("warn", "卧室面积", room["name"], xy, f"{area:.2f}㎡，按单人卧室满足；如作双人卧室需 ≥{single_rule['min_m2']}㎡", single_rule)
+        elif rtype in area_rules:
+            rule = area_rules[rtype]
+            add("pass" if area >= rule["min_m2"] else "fail", f"{pg.ROOM_TYPE_LABELS[rtype]}面积", room["name"], xy, f"{area:.2f}㎡ / 要求 ≥{rule['min_m2']}㎡", rule)
+
+    for item in pg.opening_index(plan):
+        o = item["opening"]
+        if o["type"] not in ("door", "passage"):
+            continue
+        rule, label = door_requirement(item, rules)
+        if not rule:
+            continue
+        xy = pg.opening_center(o, item["wall"])
+        where = f"{o['id']}（{label}，{' / '.join(r['name'] for r in item['rooms']) or '室外'}）"
+        width, height = float(o["width"]), float(o["height"])
+        ok_w = width >= rule["min_mm"]
+        add("pass" if ok_w else "fail", "门洞宽度", where, xy, f"{width:.0f}mm / 要求 ≥{rule['min_mm']}mm", rule)
+        if rule.get("min_height_mm"):
+            ok_h = height >= rule["min_height_mm"]
+            add("pass" if ok_h else "fail", "门洞高度", where, xy, f"{height:.0f}mm / 要求 ≥{rule['min_height_mm']}mm", rule)
+
+    storey = float(plan.get("storey", {}).get("height", 0))
+    clear = float(ceiling_height) if ceiling_height else storey
+    height_rules = {r["type"]: r for r in rules.get("height", [])}
+    if "storey" in height_rules and storey:
+        rule = height_rules["storey"]
+        add("pass" if storey >= rule["min_mm"] else "warn", "层高", "全套", None, f"{storey:.0f}mm / 宜为 {rule['min_mm']}mm", rule)
+    for key, types, label in (("clear_main", ("bedroom", "living"), "卧室 / 起居室净高"), ("clear_wet", ("kitchen", "bathroom"), "厨房 / 卫生间净高")):
+        rule = height_rules.get(key)
+        if not rule or not any(pg.room_type(r["name"]) in types for r in plan.get("rooms", [])):
+            continue
+        status = "pass" if clear >= rule["min_mm"] else "fail"
+        note = "" if ceiling_height else "（未提供吊顶后净高，按层高计；做吊顶后需复核）"
+        add(status, label, "全套", None, f"{clear:.0f}mm / 要求 ≥{rule['min_mm']}mm{note}", rule)
+
+    guard = rules.get("window_guard")
+    daylight = rules.get("daylight")
+    lit_rooms = set()
+    for item in pg.opening_index(plan):
+        o = item["opening"]
+        if o["type"] != "window":
+            continue
+        for r in item["rooms"]:
+            if item["exterior"]:
+                lit_rooms.add(r["id"])
+        if guard and item["exterior"] and float(o.get("sill", 0)) < guard["min_sill_mm"]:
+            inner = [r for r in item["rooms"] if pg.room_type(r["name"]) != "balcony"]
+            if inner:
+                xy = pg.opening_center(o, item["wall"])
+                add("warn", "外窗防护", f"{o['id']}（{inner[0]['name']}）", xy, f"窗台 {float(o['sill']):.0f}mm < {guard['min_sill_mm']}mm，需设防护设施（窗外有阳台或平台时除外）", guard)
+    if daylight:
+        for room in plan.get("rooms", []):
+            if pg.room_type(room["name"]) not in daylight["types"]:
+                continue
+            xy = centroid(room["polygon"])
+            if room["id"] in lit_rooms:
+                add("pass", "直接采光", room["name"], xy, "有外墙窗", daylight)
+            else:
+                add("warn", "直接采光", room["name"], xy, "平面上没有直接对外的窗（可能经阳台间接采光），需核对采光条件", daylight)
+    return findings
+
+
+def render_markdown(plan_path, plan, rules, findings, image_name):
+    fails = [f for f in findings if f["status"] == "fail"]
+    warns = [f for f in findings if f["status"] == "warn"]
+    passes = [f for f in findings if f["status"] == "pass"]
+    lines = [
+        f"# 规范初查：{Path(plan_path).name}",
+        "",
+        f"> 规则：{rules.get('name', '')}。{rules.get('note', '')}",
+        "",
+        f"共 {len(findings)} 项：❌ 不满足 {len(fails)}，⚠️ 需注意 {len(warns)}，✅ 满足 {len(passes)}。",
+        "",
+    ]
+    if image_name:
+        lines += [f"![问题位置]({image_name})", ""]
+    marked = fails + warns
+    if marked:
+        lines += ["## 问题清单", "", "| 图上编号 | 状态 | 项目 | 位置 | 实际 / 要求 | 依据 |", "|---|---|---|---|---|---|"]
+        number = 0
+        for f in marked:
+            tag = ""
+            if f["xy"]:
+                number += 1
+                tag = str(number)
+            lines.append(f"| {tag} | {'❌ 不满足' if f['status'] == 'fail' else '⚠️ 需注意'} | {f['item']} | {f['location']} | {f['detail']} | {f['clause']}：{f['requirement']} |")
+        lines.append("")
+    lines += ["## 满足的项目", "", "| 项目 | 位置 | 实际 / 要求 | 依据 |", "|---|---|---|---|"]
+    for f in passes:
+        lines.append(f"| {f['item']} | {f['location']} | {f['detail']} | {f['clause']} |")
+    lines += ["", "## 未检查的内容", "", "- 疏散距离、楼梯、无障碍、防火分隔等需要建筑整体信息，本工具不判断。", "- 门洞宽度按 plan.json 中的洞口宽度判断；净宽另需扣除门框。", "- 房间类型按房间名识别，名称不规范时可能归类错误。"]
+    return "\n".join(lines) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description="plan.json 规范初查")
+    parser.add_argument("--plan", required=True)
+    parser.add_argument("--rules", help="规则 JSON，默认 plan_rules.residential.json")
+    parser.add_argument("--ceiling-height", type=float, help="吊顶后净高（mm），默认按层高计")
+    parser.add_argument("--out", help="报告 .md 路径，默认与 plan.json 同目录")
+    parser.add_argument("--no-image", action="store_true", help="不生成标注图")
+    args = parser.parse_args()
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    try:
+        plan = pg.load_plan(args.plan)
+        rules_path = Path(args.rules) if args.rules else SCRIPT_DIR / "plan_rules.residential.json"
+        rules = json.loads(rules_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        sys.exit(f"ERROR: {error}")
+    findings = check(plan, rules, args.ceiling_height)
+
+    plan_path = Path(args.plan)
+    stem = plan_path.name.replace(".plan.json", "").replace(".json", "")
+    md_path = Path(args.out) if args.out else plan_path.with_name(f"{stem}.codecheck.md")
+    image_path = md_path.with_suffix(".png")
+    image_name = None
+    if not args.no_image:
+        # 编号顺序与报告“问题清单”一致：先不满足、后需注意
+        ordered = [f for f in findings if f["status"] == "fail"] + [f for f in findings if f["status"] == "warn"]
+        marks = [{"xy": f["xy"], "label": f["item"]} for f in ordered if f["xy"]]
+        try:
+            pg.draw_plan(plan, image_path, marks, title=f"规范初查：{stem}")
+            image_name = image_path.name
+        except Exception as error:  # 缺少 matplotlib 或字体时不影响清单
+            print(f"- 警告：标注图生成失败：{error}")
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    md_path.write_text(render_markdown(plan_path, plan, rules, findings, image_name), encoding="utf-8")
+    md_path.with_suffix(".json").write_text(json.dumps({"rules": rules.get("name"), "findings": findings}, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    fails = [f for f in findings if f["status"] == "fail"]
+    warns = [f for f in findings if f["status"] == "warn"]
+    print(f"# 规范初查：{plan_path.name}")
+    print(f"- 已写入 {md_path.resolve()}" + (f"，标注图 {image_path.resolve()}" if image_name else ""))
+    print(f"- 共 {len(findings)} 项：不满足 {len(fails)}，需注意 {len(warns)}，满足 {len(findings) - len(fails) - len(warns)}")
+    for f in fails + warns:
+        print(f"- {'❌' if f['status'] == 'fail' else '⚠️'} {f['item']}｜{f['location']}｜{f['detail']}｜{f['clause']}")
+    print("- 说明：限值为初查参考值，正式结论前请用 retrieve_regulation_chunks 检索现行条文核对。")
+    sys.exit(1 if fails else 0)
+
+
+if __name__ == "__main__":
+    main()

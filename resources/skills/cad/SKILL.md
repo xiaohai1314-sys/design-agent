@@ -24,6 +24,40 @@ DWG 首次使用时自动转换并缓存。遍历整张图的结果（文字、�
 3. **需要看图时用 `render`**：输出 `design-agent-cad-*.png` 后用 read_file 读取，原像素传入。
 4. **建模要底图时用 `export`**：导出平移到原点、按 1:1 比例的 DXF，用于导入 SU/Rhino 或做叠合校核。
 
+## 平面转模型：plan_extract.py
+
+用户要**按自己的户型平面图建三维模型**时，不要手工读线再现写建模脚本，先把平面图转成结构化的 plan.json：
+
+```bash
+python <技能目录>/scripts/plan_extract.py 平面图.dwg [--bbox x0,y0,x1,y1] [--height 2800]
+```
+
+- 输出 `<当前目录>/.design-agent/plans/<图名>.plan.json`：墙体中心线与厚度、挂在墙上的门窗洞口（偏移、宽、窗台、高、平开 / 推拉）、房间轮廓与面积，坐标单位统一为毫米、以外包框左下角为原点。
+- 墙体从成对的平行墙线识别（厚 50–600），门按门弧定位，窗与推拉门取墙厚范围内的图元；房间优先用闭合的房间轮廓线，没有时从房间名文字向四周找墙内皮推断矩形。
+- 图层按名称自动识别（墙 / WALL、门 / DOOR、窗 / WIND、房间 / ROOM）；识别不到墙体时脚本会列出图层清单，用 `--wall-layer` 等参数指定。一张图里有多个平面时先 `info` / `render` 找到范围，再用 `--bbox` 只提取一个。
+- stdout 的「需确认」是默认值和推断结果（层高、门高、窗台、推断的过道和房间），**必须先告诉用户、得到确认或修正后再建模**；「自检」里房间轮廓面积与图上面积文字不一致的，要指出来。修改可以直接编辑 plan.json。
+- 天正图纸先按下文「注意」里的方法导出 T3 再提取。
+- 建模用 sketchup 技能的 `plan_builder.rb`；建完把模型实测结果交给 `plan_verify.py` 核对：
+
+```bash
+python <技能目录>/scripts/plan_verify.py --plan xxx.plan.json --model measure.json
+```
+
+`measure.json` 是 `DesignAgentPlanBuilder.measure` 返回的 JSON 原样保存的文件。退出码 0 表示全部一致；有差异时逐条修正（改 plan.json 重建，或在模型里补改）后再核对一次，**核对通过之前不要交付**。
+
+## 基于 plan.json 的规范初查与工程量
+
+同一份 plan.json 还能直接用于：
+
+```bash
+python <技能目录>/scripts/plan_codecheck.py --plan xxx.plan.json [--ceiling-height 2600] [--rules 规则.json]
+python <技能目录>/scripts/plan_quantity.py --plan xxx.plan.json [--prices 单价表.json] [--ceiling-height 2600] [--out 报价.xlsx]
+```
+
+- **`plan_codecheck.py`**：检查房间面积、门洞宽高（自动区分户门、卧室门、厨房门、卫生间门、阳台门）、层高与净高、外窗窗台防护、直接采光。输出问题清单（.md / .json）和标注图（.png，问题位置画红圈编号）。默认规则 `plan_rules.residential.json` 参考 GB 50096-2011 整理，**只作初查**：对“不满足”的条目，下结论前用 `retrieve_regulation_chunks` 检索现行条文核对；项目所在地有更严的地方标准时，复制规则文件修改后用 `--rules` 指定。
+- **`plan_quantity.py`**：按房间计算地面、墙面（扣门窗洞口）、顶棚、踢脚线、防水面积，统计门窗表和墙体体积；给了 `--prices` 时生成报价单。输出 `.xlsx` 时包含「报价单 / 房间明细 / 工程量汇总」三张表，金额是公式，用户改单价会自动重算；输出 `.json` 时供汇报包使用。单价表格式见 `resources/presets/price-table.sample.json`，**其中的数值只是示例，不是市场价**，用户没有提供单价表时要明确告诉他。
+- 两个脚本都需要吊顶后的净高时用 `--ceiling-height`，不给则按层高计算并在结果里注明。
+
 ## 公共参数
 
 | 参数 | 作用 |

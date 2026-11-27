@@ -1,0 +1,22 @@
+{
+  "currency": "CNY",
+  "note": "示例单价表：数值只用于演示计算流程，不是任何地区的市场价。请复制一份改成自己的单价，再用 --prices 指定。",
+  "items": [
+    { "category": "地面", "code": "F01", "name": "木地板（含辅料安装）", "spec": "实木复合 15mm", "basis": "floor_area_dry", "waste": 0.05, "price": 260 },
+    { "category": "地面", "code": "F02", "name": "地砖铺贴（含砖）", "spec": "600×600 防滑砖", "basis": "floor_area_wet", "waste": 0.08, "price": 220 },
+    { "category": "地面", "code": "F03", "name": "地面找平", "spec": "自流平 / 水泥砂浆", "basis": "floor_area_all", "waste": 0, "price": 45 },
+    { "category": "墙面", "code": "W01", "name": "墙面乳胶漆", "spec": "腻子三遍 + 底漆一遍 + 面漆两遍", "basis": "wall_area_dry", "waste": 0, "price": 48 },
+    { "category": "墙面", "code": "W02", "name": "墙砖铺贴（含砖）", "spec": "300×600 釉面砖", "basis": "wall_area_wet", "waste": 0.08, "price": 210 },
+    { "category": "防水", "code": "S01", "name": "防水涂料", "spec": "聚合物水泥 JS 两遍", "basis": "waterproof_area", "waste": 0, "price": 75 },
+    { "category": "顶面", "code": "C01", "name": "石膏板吊顶", "spec": "轻钢龙骨 + 双层石膏板", "basis": "ceiling_area_dry", "waste": 0, "price": 160 },
+    { "category": "顶面", "code": "C02", "name": "铝扣板吊顶", "spec": "300×300", "basis": "ceiling_area_wet", "waste": 0.03, "price": 150 },
+    { "category": "收口", "code": "K01", "name": "踢脚线", "spec": "实木 80mm", "basis": "skirting_length", "waste": 0.05, "price": 55, "unit": "m" },
+    { "category": "门窗", "code": "D01", "name": "室内平开门（含套、五金）", "spec": "实木复合", "basis": "door_swing_count", "waste": 0, "price": 2200 },
+    { "category": "门窗", "code": "D02", "name": "推拉门", "spec": "极窄边框玻璃", "basis": "door_sliding_count", "waste": 0, "price": 3800 },
+    { "category": "其他", "code": "X01", "name": "垃圾清运与成品保护", "spec": "", "basis": "lump_sum", "waste": 0, "price": 3000 }
+  ],
+  "fees": [
+    { "name": "管理费", "rate": 0.08 },
+    { "name": "税金", "rate": 0.03 }
+  ]
+}
