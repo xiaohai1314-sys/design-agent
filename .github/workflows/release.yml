@@ -69,6 +69,18 @@ jobs:
             exit 1
           fi
 
+      # 没有令牌时 fetch:resources 只会打一行提示就退出，放在最前面失败才看得明白
+      - name: 检查资源包令牌
+        shell: bash
+        env:
+          RESOURCES_TOKEN: ${{ secrets.RESOURCES_TOKEN }}
+        run: |
+          if [ -z "$RESOURCES_TOKEN" ]; then
+            echo "::error::缺少 Secret RESOURCES_TOKEN。到 Settings → Secrets and variables → Actions 添加：只读 Fine-grained token，只授权 design-agent-resources 仓库的 Contents (Read-only)。"
+            exit 1
+          fi
+          echo "令牌已配置（长度 ${#RESOURCES_TOKEN}）"
+
       - run: npm ci
 
       - name: 读取资源包哈希
