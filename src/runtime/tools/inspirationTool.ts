@@ -163,7 +163,8 @@ export function createSearchInspirationTool(params: {
   return new DynamicStructuredTool({
     name: 'search_inspiration',
     description:
-      '本地灵感/素材检索工具（任务「搜索」专用）：先检索本机灵感库中的建筑参考图与生图配方（recipe，含提示词、风格与建筑类型）及 3D 模型/贴图/HDRI 素材（asset），返回名称、风格、类型、本地文件路径与来源；支持语义检索（换个说法也能找到）与以图搜图（传 image_path 找视觉相近的参考图）；本地结果不足时自动联网补充公开资料。找参考图、找素材、查产品资料时优先调用本工具，不要直接凭记忆编造素材来源。',
+      '本地灵感/素材检索工具（任务「搜索」专用）：先检索本机灵感库中的建筑参考图与生图配方（recipe，含提示词、风格与建筑类型）及 3D 模型/贴图/HDRI 素材（asset），返回名称、风格、类型、本地文件路径与来源；支持语义检索（换个说法也能找到）与以图搜图（传 image_path 找视觉相近的参考图）；本地结果不足时自动联网补充公开资料。找参考图、找素材、查产品资料时优先调用本工具，不要直接凭记忆编造素材来源。' +
+      '拿到结果后按 inspiration-search 技能讲给用户：hits 最多 8 条、未经二次筛选，不要说成「精选」；vectorUsed=false 时不能说「语义匹配」；webFallback 的结果要单独标出是联网补充的。',
     schema: z.object({
       query: z.string().min(1).describe('检索目标关键词或描述（如“现代独栋住宅 效果图”“木质家具 模型”）'),
       kind: z
