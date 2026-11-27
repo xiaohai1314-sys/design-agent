@@ -1,6 +1,6 @@
 {
   "name": "design-agent-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "空间设计智能体桌面工作台（自定义 API 纯净版）",
   "main": "./out/main/index.js",
