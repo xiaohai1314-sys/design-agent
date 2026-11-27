@@ -8,6 +8,7 @@
 用法：npm run test:plan   （或 python scripts/test_plan_scripts.py）
 """
 import json
+import math
 import os
 import subprocess
 import sys
@@ -20,6 +21,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import plan_quantity as pq  # noqa: E402
 import plan_codecheck as pc  # noqa: E402
+import plan_geom as pg  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -191,6 +193,7 @@ def test_xlsx():
         detail = wb["房间明细"]
         check("房间明细首行地面面积", detail["E2"].value, 12.0, tol=0.01)
         check("房间明细首行墙面面积", detail["G2"].value, 35.51, tol=0.01)
+        check("房间明细含置信度列", detail["K1"].value, "面积置信度")
         check("房间明细合计行是公式", str(detail["E3"].value).startswith("=SUM("), True)
 
         quote_ws = wb["报价单"]
@@ -302,6 +305,7 @@ def test_extract_roundtrip():
         check("房间数", len(plan["rooms"]), 1)
         # 内净空 3600×2600 = 9.36㎡
         check("房间面积", plan["rooms"][0]["area_m2"], 9.36)
+        check("闭合轮廓线的房间置信度高", plan["rooms"][0].get("confidence"), "high")
         q = pq.compute(plan)["quantities"]
         check("提取后地面合计", q["floor_area_all"], 9.36)
 
@@ -382,6 +386,152 @@ def test_extract_multi_frame():
             check("只提取第一个图框：深 3000", plan["bounds"]["depth"], 3000, tol=1)
 
 
+def test_opening_width_from_code():
+    section("门窗宽度：实测比编号小 2.5% 时以编号为准")
+    import plan_core
+
+    def line(a, b, layer):
+        return {"layer": layer, "type": "LINE", "points": [a, b], "closed": False}
+
+    # 240 厚墙，x=1000–1877.5 是门洞（比 M0921 的 900 小 2.5%，门窗块常这么画）
+    walls = [line((x0, y), (x1, y), "WALL") for y in (-120, 120) for x0, x1 in ((0, 1000), (1877.5, 5000))]
+    arc = [(1000 + 877.5 * math.cos(math.radians(90 * i / 12)), 120 + 877.5 * math.sin(math.radians(90 * i / 12))) for i in range(13)]
+    door = [line((1000, 120), (1000, 997.5), "DOOR"), {"layer": "DOOR", "type": "ARC", "points": arc, "closed": False}]
+    texts = [{"text": "M0921", "anchor": (1438, -600), "height": 300, "layer": "TEXT"}]
+    roles = {"wall": walls, "door": door, "window": [], "room": [], "column": []}
+    plan = plan_core.build_plan(roles, texts)
+    d = next(o for o in plan["openings"] if o["type"] == "door")
+    check("实测 877.5 按编号取 900", d["width"], 900, tol=1)
+    check("高度取编号的 2100", d["height"], 2100, tol=1)
+    check("编号", d.get("code"), "M0921")
+    check("洞口中心不动（原来 1438.75）", d["offset"] + d["width"] / 2, 1438.75, tol=2)
+    check("注明按编号取宽", any("宽度按图上编号" in a for a in plan["assumptions"]), True)
+    check("结构校验", plan_core.validate_plan(plan), [])
+
+    # 差 9%（820 vs 900）超出「以编号为准」的 5%：宽度按实测，并给出核对提示
+    walls2 = [line((x0, y), (x1, y), "WALL") for y in (-120, 120) for x0, x1 in ((0, 1000), (1820, 5000))]
+    arc2 = [(1000 + 820 * math.cos(math.radians(90 * i / 12)), 120 + 820 * math.sin(math.radians(90 * i / 12))) for i in range(13)]
+    door2 = [line((1000, 120), (1000, 940), "DOOR"), {"layer": "DOOR", "type": "ARC", "points": arc2, "closed": False}]
+    plan2 = plan_core.build_plan(dict(roles, wall=walls2, door=door2), texts)
+    d2 = next(o for o in plan2["openings"] if o["type"] == "door")
+    check("差 9% 时宽度按实测", d2["width"], 820, tol=1)
+    check("并提示核对编号", any("相差超过" in w for w in plan2["warnings"]), True)
+
+
+def test_room_confidence():
+    section("房间面积置信度：四面被墙围住才是高，推断矩形没围住要标低")
+    import plan_core
+
+    def hwall(y, x0, x1):
+        return {"base": {"d": (1.0, 0.0), "n": (0.0, 1.0), "offset": y}, "t0": x0, "t1": x1, "thickness": 200}
+
+    def vwall(x, y0, y1):
+        return {"base": {"d": (0.0, 1.0), "n": (-1.0, 0.0), "offset": -x}, "t0": y0, "t1": y1, "thickness": 200}
+
+    closed = [hwall(0, 0, 4000), hwall(3000, 0, 4000), vwall(0, 0, 3000), vwall(4000, 0, 3000)]
+    rooms = plan_core.rooms_from_labels([{"text": "主卧", "anchor": (900, 1500), "height": 300, "layer": "ROOM"}], closed, plan_core.DEFAULTS)
+    check("四面围合：面积", round(plan_core.polygon_area(rooms[0]["polygon"]) / 1e6, 2), 10.64)
+    check("四面围合：置信度高", plan_core.room_confidence(rooms[0], 10.64), "high")
+
+    # 上下两道墙只盖住房间宽度的 1/4 和 3/8：这个「房间」其实不是矩形
+    open_sides = [hwall(0, 0, 1000), hwall(3000, 0, 1500), vwall(0, 0, 3000), vwall(4000, 0, 3000)]
+    rooms2 = plan_core.rooms_from_labels([{"text": "门厅", "anchor": (900, 1500), "height": 300, "layer": "ROOM"}], open_sides, plan_core.DEFAULTS)
+    check("墙只盖住部分：支撑率 < 0.7", rooms2[0]["support"] < 0.7, True)
+    check("墙只盖住部分：置信度低", plan_core.room_confidence(rooms2[0], 10.64), "low")
+
+    # 图上标了面积且算出来的对得上：即使轮廓是推断的也算高
+    rooms2[0]["label_area_m2"] = round(plan_core.polygon_area(rooms2[0]["polygon"]) / 1e6, 2)
+    check("与图上标注一致时置信度高", plan_core.room_confidence(rooms2[0], plan_core.polygon_area(rooms2[0]["polygon"]) / 1e6), "high")
+
+    poly_room = {"source": "polyline", "label_area_m2": None}
+    check("闭合轮廓线：置信度高", plan_core.room_confidence(poly_room, 12.0), "high")
+
+
+def test_building_type():
+    section("建筑类型识别")
+    check("主卧 → 住宅", pg.infer_building_type(bedroom_plan()), "residential")
+    check("两间教室 → 教育", pg.infer_building_type({"rooms": [{"name": "教室"}, {"name": "教室"}, {"name": "开水间"}]}), "education")
+    check("教室和办公室打平 → 未识别", pg.infer_building_type({"rooms": [{"name": "教室"}, {"name": "办公室"}]}), "unknown")
+    check("认不出 → 未识别", pg.infer_building_type({"rooms": [{"name": "房间1"}]}), "unknown")
+    check("没有房间 → 未识别", pg.infer_building_type({"rooms": []}), "unknown")
+
+
+def test_codecheck_uncovered():
+    section("规范初查：规则库不覆盖的建筑类型不做判定")
+    plan = bedroom_plan()
+    plan["rooms"] = [
+        {"id": "R1", "name": "教室", "area_m2": 12.0, "polygon": [[0, 0], [4000, 0], [4000, 3000], [0, 3000]]},
+        {"id": "R2", "name": "教室", "area_m2": 12.0, "polygon": [[0, 0], [4000, 0], [4000, 3000], [0, 3000]]},
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "school.plan.json")
+        Path(path).write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+
+        def run(*extra):
+            return subprocess.run(
+                [sys.executable, str(SCRIPTS / "plan_codecheck.py"), "--plan", path, "--no-image", *extra],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+
+        refused = run()
+        check("不覆盖时退出码为 2", refused.returncode, 2)
+        check("说明没有做判定", "没有做判定" in refused.stdout, True)
+        check("报告里写了怎么继续", "plan_rules.residential.json" in refused.stdout or "规则库" in refused.stdout, True)
+        report = Path(tmp) / "school.codecheck.md"
+        check("写出了说明报告", report.exists(), True)
+
+        forced = run("--building-type", "residential")
+        check("指定住宅后照常判定（900 户门 < 1000）", forced.returncode, 1)
+        check("判定里出现门洞宽度", "门洞宽度" in forced.stdout, True)
+
+
+def test_extract_columns_and_codes():
+    section("实测图纸回归：柱断墙线 / 门窗同图层 / 门窗编号 / 非房间名文字")
+    import plan_core
+
+    def line(a, b, layer):
+        return {"layer": layer, "type": "LINE", "points": [a, b], "closed": False}
+
+    # 一道 240 厚的墙，x=4700–5300 被 600×600 的柱子断开，x=7000–7900 是门洞
+    walls = [line((x0, y), (x1, y), "WALL") for y in (-120, 120) for x0, x1 in ((0, 4700), (5300, 7000), (7900, 10000))]
+    # 窗和门都画在 WINDOW 图层（天正 T3 导出就是这样）：窗是四条平行线，门是门扇线 + 门弧
+    window = [line((1000, y), (2500, y), "WINDOW") for y in (-120, -40, 40, 120)]
+    window += [line((1000, -120), (1000, 120), "WINDOW"), line((2500, -120), (2500, 120), "WINDOW")]
+    arc_pts = [(7000 + 900 * math.cos(math.radians(90 * i / 12)), 120 + 900 * math.sin(math.radians(90 * i / 12))) for i in range(13)]
+    door = [line((7000, 120), (7000, 1020), "WINDOW"), {"layer": "WINDOW", "type": "ARC", "points": arc_pts, "closed": False}]
+    column = [{"layer": "COLUMN", "type": "LWPOLYLINE", "points": [(4700, -300), (5300, -300), (5300, 300), (4700, 300)], "closed": True}]
+    texts = [
+        {"text": "C1515", "anchor": (1750, -600), "height": 300, "layer": "WINDOW_TEXT"},
+        {"text": "M0921", "anchor": (7450, -600), "height": 300, "layer": "WINDOW_TEXT"},
+    ]
+    roles = {"wall": walls, "door": [], "window": window + door, "room": [], "column": column}
+    plan = plan_core.build_plan(roles, texts)
+    s = plan["summary"]
+    check("柱子补成墙段：不出推断过道", s["passages"], 0)
+    check("柱子补成墙段：一整段墙", s["walls"], 1)
+    check("识别到柱", s["columns"], 1)
+    check("窗图层上带门弧的一组按门处理", s["doors"], 1)
+    check("窗", s["windows"], 1)
+    by_type = {o["type"]: o for o in plan["openings"]}
+    check("窗按编号 C1515 取高 1500", by_type["window"]["height"], 1500, tol=1)
+    check("窗编号", by_type["window"].get("code"), "C1515")
+    check("门编号", by_type["door"].get("code"), "M0921")
+    check("结构校验", plan_core.validate_plan(plan), [])
+
+    no_col = plan_core.build_plan(dict(roles, column=[]), texts)
+    check("不给柱图层时柱位当过道（对照）", no_col["summary"]["passages"], 1)
+
+    for text in ("M1021", "C1815", "FM甲1022", "%%P0.000", "±0.000", "-0.450", "上", "北", "1:100", "首层平面图", "963.80m", "A", "11"):
+        check(f"不是房间名：{text}", plan_core.is_label(text), False)
+    for text in ("教室", "卫生间", "Lobby"):
+        check(f"是房间名：{text}", plan_core.is_label(text), True)
+    check("门窗图层上的文字不当房间名", plan_core.is_label("教室", "WINDOW_TEXT"), False)
+    check("M1021 = 门 1000×2100", plan_core.parse_opening_code("M1021"), {"code": "M1021", "kind": "door", "width": 1000, "height": 2100})
+    check("C1815 = 窗 1800×1500", plan_core.parse_opening_code("C1815")["height"], 1500)
+
+
 def main():
     test_quantity_bedroom()
     test_quantity_bathroom()
@@ -393,6 +543,11 @@ def main():
     test_extract_two_rooms()
     test_extract_roundtrip()
     test_extract_multi_frame()
+    test_extract_columns_and_codes()
+    test_opening_width_from_code()
+    test_room_confidence()
+    test_building_type()
+    test_codecheck_uncovered()
 
     print(f"\n通过 {len(PASS)}，失败 {len(FAIL)}")
     if FAIL:

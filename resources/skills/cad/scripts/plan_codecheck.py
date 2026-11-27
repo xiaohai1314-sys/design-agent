@@ -2,12 +2,15 @@
 """按 plan.json 做住宅户内规范初查：房间面积、门洞宽高、层高 / 净高、外窗防护、直接采光，输出问题清单与标注图。
 
 用法：
-  python plan_codecheck.py --plan xxx.plan.json [--rules 规则.json] [--ceiling-height 2600] [--out 报告.md]
+  python plan_codecheck.py --plan xxx.plan.json [--rules 规则.json] [--building-type residential]
+                           [--ceiling-height 2600] [--out 报告.md]
 
 - 默认规则是同目录的 plan_rules.residential.json（参考 GB 50096-2011 整理）。限值只用于初查：
   报告里列出的每一条，出具正式结论前都要用 retrieve_regulation_chunks 检索现行条文核对，地方标准更严时以地方为准。
+- 规则文件用 building_types 声明适用范围。图上判断出的建筑类型不在范围内时不做判定，只出一份说明为什么没判的报告：
+  拿住宅限值去判教室、病房，报出来的「不满足」全是误报，比不判更糟。建筑类型按房间名猜，猜不出时用 --building-type 指定。
 - 输出 <图名>.codecheck.md（问题清单）、同名 .json、同名 .png（问题位置用红圈编号标在平面上）。
-- 退出码：有“不满足”项时为 1，只有“需注意”或全部满足时为 0。
+- 退出码：0 = 全部满足或只有“需注意”；1 = 有“不满足”项；2 = 规则库不覆盖这个建筑类型，未做判定。
 """
 import argparse
 import json
@@ -22,6 +25,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import plan_geom as pg  # noqa: E402
 
 DOOR_PRIORITY = ["bathroom", "kitchen", "bedroom", "study", "storage", "balcony", "living", "dining", "other"]
+CONFIDENCE_LABELS = {"high": "高", "medium": "中", "low": "低"}
 
 
 def centroid(poly):
@@ -49,22 +53,34 @@ def check(plan, rules, ceiling_height=None):
         findings.append({"status": status, "item": item, "location": location, "xy": [round(xy[0]), round(xy[1])] if xy else None, "detail": detail, "clause": rule.get("clause", ""), "requirement": rule.get("text", "")})
 
     area_rules = {r["type"]: r for r in rules.get("room_area", [])}
+
+    def area_status(room, ok):
+        # 房间轮廓本身不可信时（置信度低），不判「不满足」，只提醒核对：错的是轮廓，不是设计
+        if ok:
+            return "pass"
+        return "warn" if room.get("confidence") == "low" else "fail"
+
+    def area_note(room):
+        return "（面积置信度低，请先核对房间轮廓）" if room.get("confidence") == "low" else ""
+
     for room in plan.get("rooms", []):
         rtype = pg.room_type(room["name"])
         area = float(room["area_m2"])
         xy = centroid(room["polygon"])
+        note = area_note(room)
         if rtype == "bedroom":
             double = bool(re.search(r"主卧|双人", room["name"]))
             rule = area_rules.get("bedroom_double" if double else "bedroom_single")
             if rule:
                 ok = area >= rule["min_m2"]
-                add("pass" if ok else "fail", "卧室面积", room["name"], xy, f"{area:.2f}㎡ / 要求 ≥{rule['min_m2']}㎡", rule)
+                add(area_status(room, ok), "卧室面积", room["name"], xy, f"{area:.2f}㎡ / 要求 ≥{rule['min_m2']}㎡{note}", rule)
                 single_rule = area_rules.get("bedroom_double")
                 if ok and not double and single_rule and area < single_rule["min_m2"]:
-                    add("warn", "卧室面积", room["name"], xy, f"{area:.2f}㎡，按单人卧室满足；如作双人卧室需 ≥{single_rule['min_m2']}㎡", single_rule)
+                    add("warn", "卧室面积", room["name"], xy, f"{area:.2f}㎡，按单人卧室满足；如作双人卧室需 ≥{single_rule['min_m2']}㎡{note}", single_rule)
         elif rtype in area_rules:
             rule = area_rules[rtype]
-            add("pass" if area >= rule["min_m2"] else "fail", f"{pg.ROOM_TYPE_LABELS[rtype]}面积", room["name"], xy, f"{area:.2f}㎡ / 要求 ≥{rule['min_m2']}㎡", rule)
+            ok = area >= rule["min_m2"]
+            add(area_status(room, ok), f"{pg.ROOM_TYPE_LABELS[rtype]}面积", room["name"], xy, f"{area:.2f}㎡ / 要求 ≥{rule['min_m2']}㎡{note}", rule)
 
     for item in pg.opening_index(plan):
         o = item["opening"]
@@ -123,7 +139,7 @@ def check(plan, rules, ceiling_height=None):
     return findings
 
 
-def render_markdown(plan_path, plan, rules, findings, image_name):
+def render_markdown(plan_path, plan, rules, findings, image_name, building_type=None):
     fails = [f for f in findings if f["status"] == "fail"]
     warns = [f for f in findings if f["status"] == "warn"]
     passes = [f for f in findings if f["status"] == "pass"]
@@ -132,6 +148,10 @@ def render_markdown(plan_path, plan, rules, findings, image_name):
         "",
         f"> 规则：{rules.get('name', '')}。{rules.get('note', '')}",
         "",
+    ]
+    if building_type:
+        lines += [f"> 建筑类型：{pg.building_type_label(building_type)}（按房间名识别，识别错了用 --building-type 指定）。", ""]
+    lines += [
         f"共 {len(findings)} 项：❌ 不满足 {len(fails)}，⚠️ 需注意 {len(warns)}，✅ 满足 {len(passes)}。",
         "",
     ]
@@ -155,10 +175,54 @@ def render_markdown(plan_path, plan, rules, findings, image_name):
     return "\n".join(lines) + "\n"
 
 
+def render_uncovered(plan_path, plan, rules, building_type, covered_types):
+    covered = "、".join(pg.building_type_label(k) for k in covered_types) if covered_types else "未声明"
+    example = covered_types[0] if covered_types else "residential"
+    intro = "没能从房间名判断出这份图的建筑类型" if building_type == "unknown" else f"这份图判断为「{pg.building_type_label(building_type)}」"
+    lines = [
+        f"# 规范初查：{Path(plan_path).name}",
+        "",
+        f"> {intro}，而规则库「{rules.get('name', '')}」只适用于{covered}，**没有做判定**。",
+        "",
+        f"拿{covered}的限值去判别的建筑类型，报出来的「不满足」基本都是误报，比不判更糟，所以这里直接停下。",
+        "",
+        "## 怎么继续",
+        "",
+        f"- 如果这确实是{covered}，用 `--building-type {example}` 指定后重跑；",
+        f"- 要查这类建筑的同类问题（房间面积、门洞宽高、层高净高、外窗防护、直接采光），需要对应的规则库："
+        f"复制 `plan_rules.residential.json`，把 `building_types` 改成 `[\"{building_type}\"]`，"
+        "按对应规范（如中小学校设计规范 GB 50099、办公建筑设计标准 JGJ/T 67）填写限值，再用 `--rules` 指定；",
+        "- 规则库里的每一条限值都要用 `retrieve_regulation_chunks` 检索现行条文核对后再用。",
+        "",
+        "## 图上识别到的房间（未做判定，仅供参考）",
+        "",
+        "| 房间 | 面积㎡ | 置信度 | 依据 |",
+        "|---|---|---|---|",
+    ]
+    for room in plan.get("rooms", []):
+        lines.append(
+            "| %s | %s | %s | %s |"
+            % (
+                room.get("name", ""),
+                room.get("area_m2", ""),
+                CONFIDENCE_LABELS.get(room.get("confidence"), "—"),
+                "轮廓线" if room.get("source") == "polyline" else "从房间名推断",
+            )
+        )
+    lines += ["", "## 未检查的内容", "", "- 本工具的全部检查项（见上）。", "- 疏散距离、楼梯、无障碍、防火分隔等需要建筑整体信息，本工具不判断。"]
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description="plan.json 规范初查")
     parser.add_argument("--plan", required=True)
     parser.add_argument("--rules", help="规则 JSON，默认 plan_rules.residential.json")
+    parser.add_argument(
+        "--building-type",
+        choices=["auto", "unknown", *pg.BUILDING_TYPES],
+        default="auto",
+        help="建筑类型，默认按房间名识别；规则库不覆盖这个类型时不做判定",
+    )
     parser.add_argument("--ceiling-height", type=float, help="吊顶后净高（mm），默认按层高计")
     parser.add_argument("--out", help="报告 .md 路径，默认与 plan.json 同目录")
     parser.add_argument("--no-image", action="store_true", help="不生成标注图")
@@ -174,11 +238,30 @@ def main():
         rules = json.loads(rules_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         sys.exit(f"ERROR: {error}")
-    findings = check(plan, rules, args.ceiling_height)
 
     plan_path = Path(args.plan)
     stem = plan_path.name.replace(".plan.json", "").replace(".json", "")
     md_path = Path(args.out) if args.out else plan_path.with_name(f"{stem}.codecheck.md")
+
+    building_type = pg.infer_building_type(plan) if args.building_type == "auto" else args.building_type
+    covered_types = rules.get("building_types")
+    if covered_types is not None and building_type not in covered_types:
+        covered = "、".join(pg.building_type_label(k) for k in covered_types) or "未声明"
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        md_path.write_text(render_uncovered(plan_path, plan, rules, building_type, covered_types), encoding="utf-8")
+        md_path.with_suffix(".json").write_text(
+            json.dumps({"rules": rules.get("name"), "building_type": building_type, "covered": False, "findings": []}, ensure_ascii=False, indent=1),
+            encoding="utf-8",
+        )
+        print(f"# 规范初查：{plan_path.name}")
+        print(f"- 已写入 {md_path.resolve()}")
+        kind = "没能从房间名判断出建筑类型" if building_type == "unknown" else f"这份图判断为「{pg.building_type_label(building_type)}」"
+        print(f"- {kind}，规则库「{rules.get('name', '')}」只适用于{covered}，没有做判定。")
+        print("- 判断错了就用 --building-type 指定；要查这类建筑请准备对应的规则库（报告里写了怎么加）。")
+        sys.exit(2)
+
+    findings = check(plan, rules, args.ceiling_height)
+
     image_path = md_path.with_suffix(".png")
     image_name = None
     if not args.no_image:
@@ -191,13 +274,17 @@ def main():
         except Exception as error:  # 缺少 matplotlib 或字体时不影响清单
             print(f"- 警告：标注图生成失败：{error}")
     md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text(render_markdown(plan_path, plan, rules, findings, image_name), encoding="utf-8")
-    md_path.with_suffix(".json").write_text(json.dumps({"rules": rules.get("name"), "findings": findings}, ensure_ascii=False, indent=1), encoding="utf-8")
+    md_path.write_text(render_markdown(plan_path, plan, rules, findings, image_name, building_type), encoding="utf-8")
+    md_path.with_suffix(".json").write_text(
+        json.dumps({"rules": rules.get("name"), "building_type": building_type, "covered": True, "findings": findings}, ensure_ascii=False, indent=1),
+        encoding="utf-8",
+    )
 
     fails = [f for f in findings if f["status"] == "fail"]
     warns = [f for f in findings if f["status"] == "warn"]
     print(f"# 规范初查：{plan_path.name}")
     print(f"- 已写入 {md_path.resolve()}" + (f"，标注图 {image_path.resolve()}" if image_name else ""))
+    print(f"- 建筑类型：{pg.building_type_label(building_type)}（按房间名识别，识别错了用 --building-type 指定）")
     print(f"- 共 {len(findings)} 项：不满足 {len(fails)}，需注意 {len(warns)}，满足 {len(findings) - len(fails) - len(warns)}")
     for f in fails + warns:
         print(f"- {'❌' if f['status'] == 'fail' else '⚠️'} {f['item']}｜{f['location']}｜{f['detail']}｜{f['clause']}")

@@ -1,6 +1,7 @@
 {
   "name": "住宅户内基本尺寸（参考 GB 50096-2011《住宅设计规范》）",
-  "note": "以下限值按 GB 50096-2011 整理，供快速初查使用；规范可能已修订或有地方标准，出具正式结论前请用 retrieve_regulation_chunks 检索现行条文逐条核对。可以复制本文件按项目所在地要求修改，再用 --rules 指定。",
+  "building_types": ["residential"],
+  "note": "以下限值按 GB 50096-2011 整理，供快速初查使用；规范可能已修订或有地方标准，出具正式结论前请用 retrieve_regulation_chunks 检索现行条文逐条核对。可以复制本文件按项目所在地要求修改，再用 --rules 指定。这份规则只适用于住宅：图上的建筑类型不是住宅时，plan_codecheck 会拒绝判定并说明原因，而不是拿住宅限值去判教室和病房。",
   "room_area": [
     { "type": "bedroom_double", "min_m2": 9.0, "level": "must", "clause": "GB 50096-2011 第 5.2.1 条", "text": "双人卧室使用面积不应小于 9㎡" },
     { "type": "bedroom_single", "min_m2": 5.0, "level": "must", "clause": "GB 50096-2011 第 5.2.1 条", "text": "单人卧室使用面积不应小于 5㎡" },

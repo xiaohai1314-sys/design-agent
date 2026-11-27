@@ -32,6 +32,38 @@ ROOM_TYPE_LABELS = {
     "other": "其他",
 }
 
+# 建筑类型：规范库只对某几类建筑适用（GB 50096 是住宅规范，拿去判教学楼就是误报）。
+# 这里只做粗略识别，识别不出时返回 unknown，由调用方要求用户用 --building-type 指定。
+BUILDING_TYPES = {
+    "residential": ("住宅", re.compile(r"主卧|次卧|卧室|起居|客厅|餐厅|厨房|卫生间|浴室|阳台|书房|衣帽间|玄关|儿童房|老人房", re.I)),
+    "education": ("教育（学校）", re.compile(r"教室|实验室|图书|阅览|音乐|美术|舞蹈|报告厅|多功能厅|教师办公", re.I)),
+    "office": ("办公", re.compile(r"办公|会议|前台|接待|洽谈|档案", re.I)),
+    "medical": ("医疗", re.compile(r"病房|诊室|手术|护士站|药房|候诊|处置|治疗", re.I)),
+    "commercial": ("商业", re.compile(r"营业厅|商铺|店铺|收银|超市|餐饮|包间|展示", re.I)),
+    "industrial": ("工业", re.compile(r"车间|厂房|仓库|生产线", re.I)),
+}
+
+
+def building_type_label(key):
+    return BUILDING_TYPES.get(key, ("未识别", None))[0]
+
+
+def infer_building_type(plan):
+    """按房间名猜建筑类型；命中最多的类型要明显多于第二名，打平或一个都认不出时返回 unknown。"""
+    counts = {}
+    for room in plan.get("rooms", []):
+        name = room.get("name") or ""
+        for key, (_label, pattern) in BUILDING_TYPES.items():
+            if pattern.search(name):
+                counts[key] = counts.get(key, 0) + 1
+                break
+    if not counts:
+        return "unknown"
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])
+    if len(ranked) > 1 and ranked[0][1] <= ranked[1][1]:
+        return "unknown"
+    return ranked[0][0]
+
 
 def load_plan(path):
     plan = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -157,6 +189,9 @@ def draw_plan(plan, out_path, marks=None, title=None):
     fig, ax = plt.subplots(figsize=(fig_w, fig_w * depth / max(width, 1) + 0.8))
     for room in plan.get("rooms", []):
         ax.add_patch(Polygon(room["polygon"], closed=True, facecolor="#dbe8f4" if is_wet(room["name"]) else "#f4ede2", edgecolor="none"))
+        if room.get("confidence") == "low":
+            # 面积待核的房间用红色虚线框出来，看图和算量时一眼能认出来
+            ax.add_patch(Polygon(room["polygon"], closed=True, facecolor="none", edgecolor="#e8341c", linestyle="--", linewidth=1.5))
         xs = [p[0] for p in room["polygon"]]
         ys = [p[1] for p in room["polygon"]]
         ax.text(sum(xs) / len(xs), sum(ys) / len(ys), f"{room['name']}\n{room['area_m2']}㎡", ha="center", va="center", fontsize=10, color="#333")

@@ -25,6 +25,11 @@ DEFAULTS = {
     "tolerance": 3.0,
 }
 
+# 门窗编号（M0921 = 门 900×2100）是图上写明的名义尺寸。门窗块通常比洞口画小一圈（实测普遍差 1%–3%），
+# 实测宽度与编号相差在 CODE_SNAP_TOL 以内时以编号为准；超过 CODE_WIDTH_TOL 就当匹配错了，不用它的宽度。
+CODE_WIDTH_TOL = 0.10
+CODE_SNAP_TOL = 0.05
+
 AREA_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2|m²|平方米|平米|平)", re.I)
 NUMERIC_RE = re.compile(r"^[\s0-9.,，xX×*+\-_/()（）㎡m²平方米]*$")
 
@@ -185,6 +190,37 @@ def pair_wall_lines(lines, cfg):
     return pieces
 
 
+def column_pieces(pieces, columns, cfg):
+    """柱子当作墙段补进它所在的每条墙中心线：墙线到柱边就断开（天正 T3 导出、多数结构图都这样），
+    不补的话柱位会被当成过道洞口，挨着柱子的窗也找不到所在的墙。"""
+    tol = cfg["tolerance"]
+    lines = []
+    for p in pieces:
+        for line in lines:
+            q = line["base"]
+            if same_direction(q["d"], p["d"]) and abs(q["offset"] - p["offset"] * dot(q["n"], p["n"])) <= tol and abs(q["thickness"] - p["thickness"]) <= tol:
+                line["t0"], line["t1"] = min(line["t0"], p["t0"]), max(line["t1"], p["t1"])
+                break
+        else:
+            lines.append({"base": p, "t0": p["t0"], "t1": p["t1"]})
+    extra = []
+    for box in columns:
+        corners = [(box[0], box[1]), (box[2], box[1]), (box[2], box[3]), (box[0], box[3])]
+        size = max(box[2] - box[0], box[3] - box[1])
+        for line in lines:
+            b = line["base"]
+            offs = [dot(c, b["n"]) for c in corners]
+            if not (min(offs) - tol <= b["offset"] <= max(offs) + tol):
+                continue
+            ts = [dot(c, b["d"]) for c in corners]
+            c0, c1 = min(ts), max(ts)
+            # 柱子要落在这条墙线的范围内或紧挨端头，避免把远处同一条直线上的柱子也算进来
+            if c1 < line["t0"] - size - tol or c0 > line["t1"] + size - tol:
+                continue
+            extra.append(dict(b, t0=c0, t1=c1, column=True))
+    return extra
+
+
 def piece_point(piece, t):
     return add(mul(piece["d"], t), mul(piece["n"], piece["offset"]))
 
@@ -297,20 +333,42 @@ def place_swing_door(arc, pieces, cfg):
     return best
 
 
+DOOR_BLOCK_RE = re.compile(r"door|dor|门|men", re.I)
+
+
 def opening_candidates(groups, kind, pieces, cfg):
-    """把一组门 / 窗图元落到最合适的墙段所在的中心线上，得到沿墙方向的区间。"""
+    """把一组门 / 窗图元落到最合适的墙段所在的中心线上，得到沿墙方向的区间。
+
+    门窗画在同一图层时（天正 T3 导出常见），带门弧或块名像门的一组按门处理。
+    """
     tol = cfg["tolerance"]
     out = []
     for g in groups:
         arcs = [a for a in (arc_info(rec) for rec in g["records"] if rec.get("type") == "ARC") if a]
-        placed = False
-        for arc in arcs:
-            hit = place_swing_door(arc, pieces, cfg)
-            if hit:
-                _, idx, span = hit
-                out.append({"kind": kind, "piece": idx, "t0": span[0], "t1": span[1], "has_arc": True, "bbox": g["bbox"]})
-                placed = True
-        if placed:
+        block_says_door = any(DOOR_BLOCK_RE.search(str(rec.get("block") or "")) for rec in g["records"])
+        group_kind = "door" if (arcs or block_says_door) and kind == "window" else kind
+        hits = [h for h in (place_swing_door(arc, pieces, cfg) for arc in arcs) if h]
+        if hits:
+            # 双开门的两扇门弧属于同一组：同一墙上相接的门扇合成一樘门
+            # 两扇门的铰点可能分别落在墙段和柱段上：按所在墙中心线（而不是具体墙段）归并
+            by_piece = {}
+            for _, idx, span in hits:
+                pc_ = pieces[idx]
+                d_ = canonical_direction(pc_["d"])
+                key = (round(d_[0], 3), round(d_[1], 3), round(pc_["offset"] * dot(pc_["n"], (-d_[1], d_[0]))), round(pc_["thickness"]))
+                entry = by_piece.setdefault(key, {"idx": idx, "spans": []})
+                entry["spans"].append(list(span))
+            for entry in by_piece.values():
+                idx, spans = entry["idx"], entry["spans"]
+                spans.sort()
+                merged = [spans[0]]
+                for a, b in spans[1:]:
+                    if a <= merged[-1][1] + max(tol, 60):
+                        merged[-1][1] = max(merged[-1][1], b)
+                    else:
+                        merged.append([a, b])
+                for a, b in merged:
+                    out.append({"kind": "door", "piece": idx, "t0": a, "t1": b, "has_arc": True, "bbox": g["bbox"]})
             continue
         points = [p for rec in g["records"] for p in rec["points"]]
         best = None
@@ -323,17 +381,19 @@ def opening_candidates(groups, kind, pieces, cfg):
             span = (min(ts_in), max(ts_in))
             if span[1] - span[0] < 200:
                 continue
-            # 洞口要与这段墙重叠或首尾相接（墙线在洞口处断开时，窗正好填在两段墙之间）
-            if span[0] > p["t1"] + tol or span[1] < p["t0"] - tol:
+            # 洞口要与这段墙重叠或首尾相接（墙线在洞口处断开时，窗正好填在两段墙之间）；
+            # 窗框常比墙 / 柱边缩进几十到一两百毫米，相接的容差按墙厚放宽
+            reach = max(tol, p["thickness"], 150.0)
+            if span[0] > p["t1"] + reach or span[1] < p["t0"] - reach:
                 continue
             score = len(inside) / len(points)
             if best is None or score > best[0]:
                 best = (score, idx, span)
         if best is None:
-            out.append({"kind": kind, "unplaced": True, "bbox": g["bbox"], "has_arc": bool(arcs)})
+            out.append({"kind": group_kind, "unplaced": True, "bbox": g["bbox"], "has_arc": bool(arcs)})
             continue
         _, idx, span = best
-        out.append({"kind": kind, "piece": idx, "t0": span[0], "t1": span[1], "has_arc": False, "bbox": g["bbox"]})
+        out.append({"kind": group_kind, "piece": idx, "t0": span[0], "t1": span[1], "has_arc": False, "bbox": g["bbox"]})
     return out
 
 
@@ -394,23 +454,28 @@ def merge_collinear(pieces, openings, cfg):
         segs = sorted(line, key=lambda i: pieces[i]["t0"])
         base = pieces[segs[0]]
         line_openings = [o for o in placed if o["piece"] in line]
-        current = {"base": base, "t0": base["t0"], "t1": base["t1"], "openings": [], "thickness": base["thickness"]}
+        current = {"base": base, "t0": base["t0"], "t1": base["t1"], "openings": [], "thickness": base["thickness"], "end_column": bool(base.get("column"))}
         for i in segs[1:]:
             p = pieces[i]
             gap0, gap1 = current["t1"], p["t0"]
             gap = gap1 - gap0
             if gap <= tol:
+                if p["t1"] >= current["t1"]:
+                    current["end_column"] = bool(p.get("column"))
                 current["t1"] = max(current["t1"], p["t1"])
                 continue
             covering = [o for o in line_openings if o["t0"] <= gap1 + tol and o["t1"] >= gap0 - tol]
             crossing = piece_footprint_hits(base, gap0, gap1, [pieces[k] for k in range(len(pieces)) if k not in line], cfg)
-            if covering or crossing or gap <= cfg["max_passage_width"] + tol:
+            # 两头都是柱子的空缺口（走廊两侧柱子之间、柱距之间）不是过道，就是没有墙
+            between_columns = current["end_column"] and bool(p.get("column"))
+            if covering or crossing or (gap <= cfg["max_passage_width"] + tol and not between_columns):
                 if not covering and not crossing:
                     current["openings"].append({"kind": "passage", "t0": gap0, "t1": gap1, "inferred": True})
                 current["t1"] = max(current["t1"], p["t1"])
+                current["end_column"] = bool(p.get("column"))
             else:
                 walls.append(current)
-                current = {"base": base, "t0": p["t0"], "t1": p["t1"], "openings": [], "thickness": base["thickness"]}
+                current = {"base": base, "t0": p["t0"], "t1": p["t1"], "openings": [], "thickness": base["thickness"], "end_column": bool(p.get("column"))}
         walls.append(current)
         line_walls = [w for w in walls if w["base"] is base]
         for o in line_openings:
@@ -479,14 +544,47 @@ def extend_wall_ends(walls, cfg):
 # ---------------------------------------------------------------------------
 
 
+OPENING_CODE_RE = re.compile(r"^(?P<prefix>[A-Z]{0,3}?(?P<kind>MC|M|C))[甲乙丙]?(?P<w>\d{2})(?P<h>\d{2})[a-z]?$", re.I)
+
+
+def parse_opening_code(text):
+    """门窗编号 → (类型, 宽, 高)：M1021 = 门 1000×2100，C1815 = 窗 1800×1500，FM甲1022 = 防火门。"""
+    m = OPENING_CODE_RE.match((text or "").strip())
+    if not m:
+        return None
+    kind = "door" if m.group("kind").upper() in ("M", "MC") else "window"
+    return {"code": text.strip(), "kind": kind, "width": int(m.group("w")) * 100, "height": int(m.group("h")) * 100}
+
+
 def parse_area_text(text):
     m = AREA_RE.search(text or "")
     return float(m.group(1)) if m else None
 
 
-def is_label(text):
+# 不是房间名的文字：门窗编号（M1021、C1815、FM甲1022、TLM…）、标高（±0.000 / %%P0.000 / -0.450）、
+# 楼梯“上/下”、指北针“北”、比例、图名、面积统计等
+NON_ROOM_RE = re.compile(
+    r"^(?:[A-Z]{0,3}(?:M|C|MC|LC|GC|YC|BYC|HC|DK|TC|ZC)[甲乙丙]?\d{3,5}[a-z]?|"
+    r"(?:%%[Pp]|±|[+-])?\d+(?:\.\d+)?m?|"
+    r"[上下北东南西]|UP|DN|"
+    r"\d+\s*[:：]\s*\d+|"
+    r"[A-Z]?\d{0,3}[A-Z]?)$",
+    re.I,
+)
+NON_ROOM_HINT_RE = re.compile(r"平面图|立面图|剖面图|详图|大样|面积|比例|说明|图例|标高|轴线|楼梯\d|^\d+-\d+$")
+NON_ROOM_LAYER_RE = re.compile(r"window|door|门窗|axis|轴|dim|标注|尺寸|elev|标高|title|图签|图框", re.I)
+HAS_WORD_RE = re.compile(r"[\u4e00-\u9fff]|[A-Za-z]{3,}")
+
+
+def is_label(text, layer=None):
     t = (text or "").strip()
-    return bool(t) and not NUMERIC_RE.match(t) and len(t) <= 20
+    if not t or len(t) > 20 or NUMERIC_RE.match(t):
+        return False
+    if layer and NON_ROOM_LAYER_RE.search(layer):
+        return False
+    if NON_ROOM_RE.match(t) or NON_ROOM_HINT_RE.search(t):
+        return False
+    return bool(HAS_WORD_RE.search(t))
 
 
 def rooms_from_polygons(polys, texts):
@@ -494,7 +592,7 @@ def rooms_from_polygons(polys, texts):
     for poly in polys:
         pts = poly["points"]
         inside = [t for t in texts if point_in_polygon(t["anchor"], pts)]
-        labels = sorted((t for t in inside if is_label(t["text"])), key=lambda t: -float(t.get("height") or 0))
+        labels = sorted((t for t in inside if is_label(t["text"], t.get("layer"))), key=lambda t: -float(t.get("height") or 0))
         area_texts = [parse_area_text(t["text"]) for t in inside]
         area_texts = [a for a in area_texts if a is not None]
         rooms.append(
@@ -508,40 +606,113 @@ def rooms_from_polygons(polys, texts):
     return rooms
 
 
+def edge_coverage(bounds, supports):
+    """推断矩形的四条边被实际墙体盖住的比例（0–1）。
+
+    从房间名推断的矩形只在四面都被墙围住时才可信；墙只盖住一半的（敞开的大厅、L 形走廊、
+    中间隔断没画）说明这个房间不是矩形，面积会偏。
+    """
+    total = covered = 0.0
+    for side, a, b in (("left", "down", "up"), ("right", "down", "up"), ("down", "left", "right"), ("up", "left", "right")):
+        lo, hi = bounds[a], bounds[b]
+        if hi <= lo:
+            continue
+        total += hi - lo
+        span = supports.get(side)
+        if span:
+            covered += max(0.0, min(hi, span[1]) - max(lo, span[0]))
+    return covered / total if total else 0.0
+
+
 def rooms_from_labels(texts, walls, cfg):
     """图上没有房间轮廓时：从房间名文字向四个方向找最近的墙内皮，得到一个矩形（仅适用于正交户型）。"""
     rooms = []
     axis = [w for w in walls if abs(w["base"]["d"][0]) > 0.999 or abs(w["base"]["d"][1]) > 0.999]
     for t in texts:
-        if not is_label(t["text"]):
+        if not is_label(t["text"], t.get("layer")):
             continue
         x, y = t["anchor"]
         bounds = {"left": None, "right": None, "down": None, "up": None}
+        supports = {}
         for w in axis:
             b = w["base"]
             half = w["thickness"] / 2
             p0, p1 = piece_point(b, w["t0"]), piece_point(b, w["t1"])
             if abs(b["d"][0]) > 0.999:  # 水平墙
                 wy = p0[1]
+                span = (min(p0[0], p1[0]), max(p0[0], p1[0]))
                 if min(p0[0], p1[0]) <= x <= max(p0[0], p1[0]):
                     if wy > y and (bounds["up"] is None or wy - half < bounds["up"]):
-                        bounds["up"] = wy - half
+                        bounds["up"], supports["up"] = wy - half, span
                     if wy < y and (bounds["down"] is None or wy + half > bounds["down"]):
-                        bounds["down"] = wy + half
+                        bounds["down"], supports["down"] = wy + half, span
             else:  # 竖直墙
                 wx = p0[0]
+                span = (min(p0[1], p1[1]), max(p0[1], p1[1]))
                 if min(p0[1], p1[1]) <= y <= max(p0[1], p1[1]):
                     if wx > x and (bounds["right"] is None or wx - half < bounds["right"]):
-                        bounds["right"] = wx - half
+                        bounds["right"], supports["right"] = wx - half, span
                     if wx < x and (bounds["left"] is None or wx + half > bounds["left"]):
-                        bounds["left"] = wx + half
+                        bounds["left"], supports["left"] = wx + half, span
         if None in bounds.values():
             continue
         poly = [(bounds["left"], bounds["down"]), (bounds["right"], bounds["down"]), (bounds["right"], bounds["up"]), (bounds["left"], bounds["up"])]
         near = [parse_area_text(o["text"]) for o in texts if point_in_polygon(o["anchor"], poly)]
         near = [a for a in near if a is not None]
-        rooms.append({"name": t["text"].strip(), "polygon": poly, "label_area_m2": near[0] if near else None, "source": "inferred-rect"})
+        key = tuple(round(v) for v in (bounds["left"], bounds["down"], bounds["right"], bounds["up"]))
+        same = next((r for r in rooms if r["_key"] == key), None)
+        if same:
+            # 同一个矩形里有多个名字（如“教室”+“储藏”）：合并名称，不重复计面积
+            if t["text"].strip() not in same["name"].split("/"):
+                same["name"] = f"{same['name']}/{t['text'].strip()}"
+            continue
+        rooms.append(
+            {
+                "name": t["text"].strip(),
+                "polygon": poly,
+                "label_area_m2": near[0] if near else None,
+                "source": "inferred-rect",
+                "support": edge_coverage(bounds, supports),
+                "_key": key,
+            }
+        )
+    for room in rooms:
+        room.pop("_key", None)
     return rooms
+
+
+CONFIDENCE_LABELS = {"high": "高", "medium": "中", "low": "低"}
+
+
+def room_confidence(room, area):
+    """房间面积的可信度。
+
+    高：轮廓是图上画出来的闭合多段线，或推断矩形四面都被墙围住，或算出的面积与图上标注差 2% 以内。
+    中：从房间名推断的矩形，墙体基本围合（70%–95%），或没有图上标注可以对照。
+    低：推断矩形没被墙围住（敞开的大厅、L 形走廊、隔断没画），或与图上标注差 10% 以上。
+    """
+    if room["source"] == "polyline":
+        base = "high"
+    else:
+        support = room.get("support")
+        if support is None:
+            base = "medium"
+        elif support >= 0.95:
+            base = "high"
+        elif support >= 0.7:
+            base = "medium"
+        else:
+            base = "low"
+    label = room.get("label_area_m2")
+    if label:
+        diff = abs(area - label) / label
+        if diff <= 0.02:
+            return "high"
+        if diff > 0.10:
+            return "low"
+        if base == "high":
+            base = "medium"
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -563,6 +734,11 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
     pieces = dedupe_pieces(pair_wall_lines(lines, cfg), cfg)
     if not pieces:
         raise ValueError("没有找到成对的平行墙线（墙厚范围 %s–%s）" % (cfg["min_wall_thickness"], cfg["max_wall_thickness"]))
+    columns = [bbox_of(rec["points"]) for rec in records_by_role.get("column", []) if rec.get("closed") and len(rec["points"]) >= 3]
+    # 同一根柱子常由外框、填充多条记录组成：按包围盒去重
+    columns = list({tuple(round(v) for v in b): b for b in columns}.values())
+    if columns:
+        pieces = dedupe_pieces(pieces + column_pieces(pieces, columns, cfg), cfg)
 
     pad = 10.0
     door_groups = group_records(records_by_role.get("door", []), pad)
@@ -589,9 +765,27 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
     def tr(p):
         return (p[0] - ox, p[1] - oy)
 
+    # 门窗编号文字：用来校核宽度、补上图上才有的门窗高度
+    code_texts = [dict(t, **parse_opening_code(t["text"])) for t in texts if parse_opening_code(t["text"])]
+
+    def match_code(kind, center, width):
+        best = None
+        for c in code_texts:
+            if c["kind"] != kind and not (kind == "door" and c["code"].upper().startswith("MC")):
+                continue
+            if abs(c["width"] - width) > max(80.0, width * CODE_WIDTH_TOL):
+                continue
+            dist = math.dist(c["anchor"], center)
+            if dist > max(2500.0, width):
+                continue
+            if best is None or dist < best[0]:
+                best = (dist, c)
+        return best[1] if best else None
+
     storey = cfg["storey_height"]
     out_walls, out_openings = [], []
     counters = {"door": 0, "window": 0, "passage": 0}
+    snapped, mismatched = 0, []
     for wi, w in enumerate(sorted(walls, key=lambda w: (-w["thickness"], w["t0"]))):
         wid = "W%d" % (wi + 1)
         start, end = tr(piece_point(w["base"], w["t0"])), tr(piece_point(w["base"], w["t1"]))
@@ -601,15 +795,35 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
             kind = o["kind"]
             counters[kind] += 1
             prefix = {"door": "D", "window": "C", "passage": "P"}[kind]
+            oid = "%s%d" % (prefix, counters[kind])
             off0 = max(0.0, o["t0"] - w["t0"])
             off1 = min(length, o["t1"] - w["t0"])
-            item = {"id": "%s%d" % (prefix, counters[kind]), "type": kind, "wall": wid, "offset": r(off0), "width": r(off1 - off0)}
+            width = off1 - off0
+            center = piece_point(w["base"], (max(o["t0"], w["t0"]) + min(o["t1"], w["t1"])) / 2)
+            code = match_code(kind, center, width) if kind in ("door", "window") else None
+            if code:
+                nominal = float(code["width"])
+                if abs(nominal - width) <= max(50.0, nominal * CODE_SNAP_TOL) and nominal <= length + 1:
+                    # 洞口中心不动，宽度改成编号的名义值
+                    off0 = min(max(0.0, off0 - (nominal - width) / 2), max(0.0, length - nominal))
+                    width = nominal
+                    snapped += 1
+                elif abs(nominal - width) > max(50.0, nominal * CODE_SNAP_TOL):
+                    mismatched.append((oid, width, code["code"], nominal))
+            item = {"id": oid, "type": kind, "wall": wid, "offset": r(off0), "width": r(width)}
             if kind == "window":
-                item.update({"sill": r(cfg["window_sill"]), "height": r(cfg["window_head"] - cfg["window_sill"])})
+                height = float(code["height"]) if code else cfg["window_head"] - cfg["window_sill"]
+                sill = cfg["window_sill"]
+                if sill + height > storey:
+                    sill = max(0.0, storey - height - 300)
+                item.update({"sill": r(sill), "height": r(height)})
             elif kind == "door":
-                item.update({"sill": 0, "height": r(cfg["door_height"]), "style": "swing" if o.get("has_arc") else "sliding"})
+                height = float(code["height"]) if code else cfg["door_height"]
+                item.update({"sill": 0, "height": r(min(height, storey)), "style": "swing" if o.get("has_arc") else "sliding"})
             else:
                 item.update({"sill": 0, "height": r(cfg["passage_height"]), "inferred": True})
+            if code:
+                item["code"] = code["code"]
             out_openings.append(item)
 
     # 房间
@@ -623,7 +837,14 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
     for ri, room in enumerate(rooms):
         poly = [tr(p) for p in room["polygon"]]
         area = polygon_area(poly) / 1e6
-        item = {"id": "R%d" % (ri + 1), "name": room["name"] or "房间%d" % (ri + 1), "polygon": [rp(p) for p in poly], "area_m2": round(area, 2), "source": room["source"]}
+        item = {
+            "id": "R%d" % (ri + 1),
+            "name": room["name"] or "房间%d" % (ri + 1),
+            "polygon": [rp(p) for p in poly],
+            "area_m2": round(area, 2),
+            "source": room["source"],
+            "confidence": room_confidence(room, area),
+        }
         if room["label_area_m2"] is not None:
             item["label_area_m2"] = room["label_area_m2"]
         if not room["name"]:
@@ -631,6 +852,11 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
         out_rooms.append(item)
 
     # 自检
+    low_rooms = [x for x in out_rooms if x["confidence"] == "low"]
+    if any(x["source"] == "inferred-rect" for x in out_rooms):
+        assumptions.append("房间面积置信度：高 = 闭合轮廓、四面被墙围住或与图上标注一致；中 = 从房间名推断的矩形且基本围合；低 = 推断矩形没被墙围住或与图上标注差 10% 以上。")
+    if low_rooms:
+        warnings.append("以下房间的面积置信度低，算量和报价前请人工核对轮廓：" + "、".join("%s %s㎡" % (x["name"], x["area_m2"]) for x in low_rooms))
     checks = []
     for room in out_rooms:
         if "label_area_m2" in room:
@@ -645,7 +871,18 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
     inferred = [o["id"] for o in out_openings if o.get("inferred")]
     if inferred:
         assumptions.append("以下洞口是墙线断开但没有门窗图元的缺口，按无门扇过道处理（高 %s）：%s" % (r(cfg["passage_height"]), "、".join(inferred)))
-    assumptions.append("层高 %s、门高 %s、窗台 %s、窗顶 %s 为默认值（图上没有这些信息），请按实际修改 plan.json。" % (r(storey), r(cfg["door_height"]), r(cfg["window_sill"]), r(cfg["window_head"])))
+    coded = sum(1 for o in out_openings if o.get("code"))
+    real = sum(1 for o in out_openings if o["type"] in ("door", "window"))
+    if coded:
+        assumptions.append("%d / %d 个门窗按图上的门窗编号取了高度（如 M1021 = 1000×2100）；其余用默认值。" % (coded, real))
+    if snapped:
+        assumptions.append(
+            "%d 个门窗的宽度按图上编号取了名义值（门窗块通常比洞口画小一圈，实测与编号相差 %d%% 以内时以编号为准）。"
+            % (snapped, int(CODE_SNAP_TOL * 100))
+        )
+    for oid, width, code, nominal in mismatched:
+        warnings.append("%s 的实测宽 %s 与编号 %s 的 %s 相差超过 %d%%，宽度按实测值算，请核对这个编号是不是标错了位置。" % (oid, r(width), code, r(nominal), int(CODE_SNAP_TOL * 100)))
+    assumptions.append("层高 %s、窗台 %s 为默认值，未匹配到编号的门高 %s、窗顶 %s 也是默认值（图上没有这些信息），请按实际修改 plan.json。" % (r(storey), r(cfg["window_sill"]), r(cfg["door_height"]), r(cfg["window_head"])))
 
     width = max(p[0] for p in all_pts) - ox
     depth = max(p[1] for p in all_pts) - oy
@@ -664,7 +901,9 @@ def build_plan(records_by_role, texts, *, source=None, options=None):
             "windows": counters["window"],
             "passages": counters["passage"],
             "rooms": len(out_rooms),
+            "columns": len(columns),
             "room_area_m2": round(sum(x["area_m2"] for x in out_rooms), 2),
+            "room_confidence": {key: sum(1 for x in out_rooms if x["confidence"] == key) for key in ("high", "medium", "low")},
         },
         "checks": checks,
         "assumptions": assumptions,

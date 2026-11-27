@@ -39,6 +39,8 @@ BASIS_LABELS = {
     "lump_sum": ("项", "项"),
 }
 
+CONFIDENCE_LABELS = {"high": "高", "medium": "中", "low": "低"}
+
 
 def compute(plan, ceiling_height=None):
     storey = float(plan.get("storey", {}).get("height", 2800))
@@ -69,6 +71,7 @@ def compute(plan, ceiling_height=None):
                 "name": room["name"],
                 "type": pg.ROOM_TYPE_LABELS[rtype],
                 "wet": wet,
+                "confidence": room.get("confidence", "medium"),
                 "floor_area": round(area, 2),
                 "perimeter": round(perim, 2),
                 "wall_area": round(wall_area, 2),
@@ -118,8 +121,18 @@ def compute(plan, ceiling_height=None):
     for o in windows:
         key = f"窗 {int(round(float(o['width'])))}×{int(round(float(o['height'])))}"
         window_sizes[key] = window_sizes.get(key, 0) + 1
+    assumptions = [
+        f"墙面与开孔按净高 {int(clear)} mm 计算" + ("（未指定吊顶后净高，取层高）" if not ceiling_height else ""),
+        "湿区按房间名识别：厨房、卫生间、阳台等",
+    ]
+    low = [r for r in rooms if r["confidence"] == "low"]
+    if low:
+        assumptions.append(
+            "以下房间的面积置信度低（轮廓没被墙完整围住，或与图上标注的面积差得多），这几行的工程量要人工核对："
+            + "、".join(f"{r['name']} {r['floor_area']}㎡" for r in low)
+        )
     return {
-        "assumptions": [f"墙面与开孔按净高 {int(clear)} mm 计算" + ("（未指定吊顶后净高，取层高）" if not ceiling_height else ""), "湿区按房间名识别：厨房、卫生间、阳台等"],
+        "assumptions": assumptions,
         "rooms": rooms,
         "quantities": q,
         "door_schedule": door_sizes,
@@ -196,9 +209,12 @@ def write_xlsx(path, plan_path, result, quote):
     ws.title = "房间明细"
     sheet(
         ws,
-        ["编号", "房间", "类型", "湿区", "地面㎡", "周长m", "墙面㎡(扣洞口)", "顶棚㎡", "踢脚线m", "防水㎡"],
-        [[r["id"], r["name"], r["type"], "是" if r["wet"] else "", r["floor_area"], r["perimeter"], r["wall_area"], r["ceiling_area"], r["skirting_length"], r["waterproof_area"]] for r in result["rooms"]],
-        [8, 12, 10, 6, 10, 10, 16, 10, 10, 10],
+        ["编号", "房间", "类型", "湿区", "地面㎡", "周长m", "墙面㎡(扣洞口)", "顶棚㎡", "踢脚线m", "防水㎡", "面积置信度"],
+        [
+            [r["id"], r["name"], r["type"], "是" if r["wet"] else "", r["floor_area"], r["perimeter"], r["wall_area"], r["ceiling_area"], r["skirting_length"], r["waterproof_area"], CONFIDENCE_LABELS.get(r["confidence"], "")]
+            for r in result["rooms"]
+        ],
+        [8, 12, 10, 6, 10, 10, 16, 10, 10, 10, 12],
     )
     n = len(result["rooms"]) + 1
     ws.append(["合计", "", "", "", f"=SUM(E2:E{n})", f"=SUM(F2:F{n})", f"=SUM(G2:G{n})", f"=SUM(H2:H{n})", f"=SUM(I2:I{n})", f"=SUM(J2:J{n})"])
