@@ -25,6 +25,7 @@ import type {
   PptProposal,
   PptWorkbenchSelection,
   RegulationConfig,
+  VisionConfig,
   RuntimeOutbound,
   SceneParam,
   TodoItem,
@@ -262,6 +263,8 @@ export interface ModelSettingsState {
   regulation: RegulationConfig
   inspiration: InspirationConfig
   webSearch?: WebSearchConfig
+  /** 独立视觉模型；未配置时审图退回主模型（仅当主模型支持视觉） */
+  vision?: VisionConfig
 }
 
 export interface SkillInfo {

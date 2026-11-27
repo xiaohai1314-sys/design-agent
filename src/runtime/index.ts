@@ -37,7 +37,7 @@ import { approvalDelta, splitMcpToolName, toolDelta, toolLabel } from './toolMet
 import { createDeliverTool } from './tools/deliver'
 import { createAskUserTool, formatAnswersForModel } from './tools/askUser'
 import { createWorkspaceTools } from './tools/workspaceTools'
-import { createImageTools, hasImageGenCapability } from './tools/imageTools'
+import { createImageTools, hasImageGenCapability, resolveVisionProfile } from './tools/imageTools'
 import { createLocalRegulationTool } from './tools/regulationTool'
 import { createSearchInspirationTool } from './tools/inspirationTool'
 import { createWebSearchTool } from './tools/webSearchTool'
@@ -618,7 +618,8 @@ function buildProjectContext(
   skillsRoot: string,
   profile: 'ai-scheme-v1' | 'default' | undefined,
   imageGenCapability?: { enabled: boolean; modelName: string },
-  presets?: ModelingPresetInfo[]
+  presets?: ModelingPresetInfo[],
+  visionReview?: boolean
 ): { projectMemoryFile: string; projectProfileFile: string; systemPrompt: string } {
   const skills = discoverSkills(skillsRoot)
   const resolvedPresets = presets ?? discoverModelingPresets(undefined, skillsRoot)
@@ -667,7 +668,8 @@ function buildProjectContext(
       projectMemory,
       projectCharter,
       projectProfile,
-      imageGenCapability
+      imageGenCapability,
+      visionReview
     })
   }
 }
@@ -909,6 +911,7 @@ async function executeTurn(
     thinking,
     modelProfile,
     imageGenConfig,
+    visionConfig,
     regulationFolder,
     inspirationFolder,
     clipModelDir,
@@ -1268,6 +1271,8 @@ async function executeTurn(
     }
 
     const imageCapable = hasImageGenCapability({ modelProfile, imageGenConfig })
+    // 审图用的是「能不能看图」，与上面的「能不能生图」无关
+    const visionProfile = resolveVisionProfile({ modelProfile, visionConfig })
     if (!isResumeTurn && !imageCapable && isDirectImageGenerationIntent(msg.text)) {
       const fastNotice = [
         `当前所选对话模型（\`${modelProfile.model}\`）本身不具备生图能力，且你尚未配置或开启独立的「效果图 / 图生图 API」，因此无法直接生成图片（已为你跳过耗时的图纸解析与预处理，避免浪费 Token）。`,
@@ -1295,7 +1300,8 @@ async function executeTurn(
       skillsRoot,
       profile,
       { enabled: imageCapable, modelName: modelProfile.model },
-      availablePresets
+      availablePresets,
+      Boolean(visionProfile)
     )
 
     const extraEnvPaths = detectExtraRuntimePaths()
@@ -1375,12 +1381,14 @@ async function executeTurn(
     })
 
     const projectProfileTool = createProjectProfileTool({ profilePath: projectProfileFile, rootDir })
-    const imageReviewTool = createImageReviewTool({
-      rootDir,
-      modelProfile,
-      profilePath: projectProfileFile,
-      signal: abortController.signal
-    })
+    const imageReviewTool = visionProfile
+      ? createImageReviewTool({
+          rootDir,
+          modelProfile: visionProfile,
+          profilePath: projectProfileFile,
+          signal: abortController.signal
+        })
+      : null
 
     const deliverTool = createDeliverTool({
       rootDir,
@@ -1516,7 +1524,7 @@ async function executeTurn(
       ...(pptWorkbenchTool ? [pptWorkbenchTool] : []),
       deliverTool,
       projectProfileTool,
-      ...(imageCapable ? [imageReviewTool] : []),
+      ...(imageReviewTool ? [imageReviewTool] : []),
       taskSubagentTool,
       ...asyncSub.tools
     ]

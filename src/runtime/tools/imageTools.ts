@@ -10,7 +10,8 @@ import type {
   ImageGenChannel,
   ImageGenConfig,
   ModelProviderProfile,
-  SceneParam
+  SceneParam,
+  VisionConfig
 } from '@shared/protocol'
 import { capturePreEditSnapshot, recordImageLineageSnapshot } from '@shared/fileSnapshots'
 import { resolveImageChannels, sortChannelsForRole } from '@shared/imageChannels'
@@ -35,6 +36,41 @@ export function isImageCapableModel(modelName?: string): boolean {
   const m = (modelName || '').trim()
   if (!m) return false
   return IMAGE_CAPABLE_MODEL_RE.test(m)
+}
+
+/** 能看图的模型。「能生图」和「能看图」是两件事，别用上面那个判断代替。 */
+const VISION_CAPABLE_MODEL_RE =
+  /(claude-|gpt-4o|gpt-4\.1|gpt-5|\bo3\b|\bo4\b|gemini|qwen[\w.-]*vl|glm-4(\.\d)?v|internvl|llava|pixtral|step-1v|yi-vision|doubao[\w.-]*vision|grok[\w.-]*vision|moonshot[\w.-]*vision|kimi[\w.-]*vision)/i
+
+export function isVisionCapableModel(modelName?: string): boolean {
+  const m = (modelName || '').trim()
+  if (!m) return false
+  return VISION_CAPABLE_MODEL_RE.test(m)
+}
+
+/**
+ * 审图该用哪个模型：配了独立视觉模型就用它；没配则只有主模型确实支持视觉时才退回主模型；
+ * 两者都不满足返回 null，调用方据此不注册 review_image，避免暴露一个注定失败的工具。
+ */
+export function resolveVisionProfile(params: {
+  modelProfile: ModelProviderProfile
+  visionConfig?: VisionConfig
+}): ModelProviderProfile | null {
+  const cfg = params.visionConfig
+  if (cfg?.enabled && cfg.apiKey.trim() && cfg.model.trim()) {
+    return {
+      id: 'vision',
+      label: '视觉模型',
+      protocol: cfg.protocol ?? 'openai',
+      baseUrl: cfg.baseUrl.trim(),
+      apiKey: cfg.apiKey,
+      model: cfg.model.trim(),
+      subagentModel: cfg.model.trim(),
+      supportsThinking: false,
+      maxOutputTokens: 4096
+    }
+  }
+  return isVisionCapableModel(params.modelProfile.model) ? params.modelProfile : null
 }
 
 export function hasImageGenCapability(params: {

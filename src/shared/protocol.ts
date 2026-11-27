@@ -202,6 +202,19 @@ export interface ImageGenConfig {
   channels?: ImageGenChannel[]
 }
 
+/**
+ * 独立视觉模型：审图、看参考图、读 CAD 出图时使用。
+ * 「能生图」和「能看图」是两回事——生图渠道多为 FLUX / Kolors 这类只出不看的模型，
+ * 主对话模型也常常是纯文本的（如 DeepSeek）。未配置时退回主模型，但只在主模型确实支持视觉时才启用。
+ */
+export interface VisionConfig {
+  enabled: boolean
+  protocol: ApiProtocol
+  baseUrl: string
+  apiKey: string
+  model: string
+}
+
 /** 生图渠道连通性测试级别：probe = 轻量探活（免费）；generate = 真实出图（消耗一次出图调用） */
 export type ImageChannelTestLevel = 'probe' | 'generate'
 
@@ -519,6 +532,7 @@ export type RuntimeInbound =
       permissionMode?: PermissionMode
       modelProfile: ModelProviderProfile
       imageGenConfig?: ImageGenConfig
+      visionConfig?: VisionConfig
       regulationFolder?: string
       inspirationFolder?: string
       clipModelDir?: string
@@ -537,6 +551,7 @@ export type RuntimeInbound =
       permissionMode?: PermissionMode
       modelProfile: ModelProviderProfile
       imageGenConfig?: ImageGenConfig
+      visionConfig?: VisionConfig
       regulationFolder?: string
       inspirationFolder?: string
       clipModelDir?: string

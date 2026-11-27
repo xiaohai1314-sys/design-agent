@@ -24,6 +24,7 @@ import {
 } from '../src/renderer/src/features/taskForm/compose'
 import { buildSystemMessage, offloadLargeToolOutput } from '../src/runtime/checkpoint'
 import { applyProfilePatch, emptyProfile, summarizeProfile } from '../src/runtime/projectProfile'
+import { isVisionCapableModel, resolveVisionProfile } from '../src/runtime/tools/imageTools'
 import {
   listFileSnapshots,
   recordImageLineageSnapshot,
@@ -437,6 +438,37 @@ async function verifyHardeningChecks(tempRoot: string): Promise<void> {
     !summarizeProfile(profile).includes('主卧 15.3㎡')
   ) {
     throw new Error(`project profile merge failed: ${JSON.stringify(profile)}`)
+  }
+
+  // 1b. 视觉能力判定：「能生图」与「能看图」不能混为一谈
+  const visionCases: Array<[string, boolean]> = [
+    ['deepseek-chat', false],
+    ['deepseek-reasoner', false],
+    ['qwen-plus', false],
+    ['gpt-4o', true],
+    ['claude-sonnet-5-5', true],
+    ['qwen-vl-max', true],
+    ['qwen2.5-vl-72b-instruct', true]
+  ]
+  for (const [name, want] of visionCases) {
+    if (isVisionCapableModel(name) !== want) {
+      throw new Error(`vision capability wrong for ${name}: got ${isVisionCapableModel(name)}, want ${want}`)
+    }
+  }
+  const textOnly = { id: 'x', label: 'x', protocol: 'openai' as const, baseUrl: '', apiKey: 'k', model: 'deepseek-chat' }
+  if (resolveVisionProfile({ modelProfile: textOnly }) !== null) {
+    throw new Error('纯文本模型不应解析出视觉 profile（否则会注册一个注定失败的 review_image）')
+  }
+  const withVision = resolveVisionProfile({
+    modelProfile: textOnly,
+    visionConfig: { enabled: true, protocol: 'openai', baseUrl: '', apiKey: 'vk', model: 'qwen-vl-max' }
+  })
+  if (withVision?.model !== 'qwen-vl-max') {
+    throw new Error(`独立视觉模型未生效：${JSON.stringify(withVision)}`)
+  }
+  const visionModel = { ...textOnly, model: 'gpt-4o' }
+  if (resolveVisionProfile({ modelProfile: visionModel })?.model !== 'gpt-4o') {
+    throw new Error('主模型支持视觉时应退回主模型')
   }
 
   // 1b. 技能目录作为只读根：read_file 能读到工作区外的 SKILL.md，write_file 仍然被拦截

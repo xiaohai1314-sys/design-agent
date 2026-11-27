@@ -11,7 +11,7 @@
 - **平面转模型**：`cad/scripts/plan_extract.py` 把任意 DWG / DXF 户型平面转成结构化的 `plan.json`（墙体、门窗洞口、房间与面积），`sketchup/scripts/plan_builder.rb` 按它生成户型白模，`cad/scripts/plan_verify.py` 把模型实测尺寸与 plan.json 逐项核对。
 - **规范初查与工程量**：`cad/scripts/plan_codecheck.py` 按 plan.json 检查房间面积、门洞、层高净高、窗台防护、采光（参考 GB 50096-2011，只作初查），输出问题清单和标注图；`cad/scripts/plan_quantity.py` 计算地面 / 墙面 / 顶棚 / 防水 / 踢脚线工程量和门窗表，套用单价表生成带公式的 Excel 报价单（示例单价表见 `resources/presets/price-table.sample.json`）。
 - **方案汇报包**：`report-pack` 技能把资料确认、平面数据、规范初查、工程量报价、情绪板、效果图、PPT 组装串成带检查点的七步流程；`report-pack/scripts/build_deck.py` 按清单生成汇报 PPT。
-- **效果图审查**：`review_image` 工具用视觉模型对照出图要求和项目档案检查效果图，不通过时给出改提示词的建议并重出。
+- **效果图审查**：`review_image` 工具用视觉模型对照出图要求和项目档案检查效果图，不通过时给出改提示词的建议并重出。视觉模型可在「设置 → 视觉模型（审图）」里单独配置——生图渠道只出不看，主对话模型也常是纯文本的（如 DeepSeek），两者都不能替代审图；没配独立视觉模型时，只有主模型本身支持看图（Claude / GPT-4o / Gemini / Qwen-VL 等）才会启用该工具。
 - **项目档案**：每个项目一份 `project.json`（面积、层高、房间、风格、主材、预算、硬约束、否决项、已确认决策），由 `project_profile` 工具维护，建模、出图、汇报都以它为准。
 - **确定性预设**：`resources/presets/`，如客厅 SketchUp 参数化工程包、CAD 户型种子图包。
 - **长任务机制**：断点续跑、审批挂起（可跨重启）、上下文自动压缩、超长输出转存、子智能体。

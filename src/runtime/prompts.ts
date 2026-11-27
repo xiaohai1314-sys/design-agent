@@ -101,6 +101,8 @@ export function buildSupervisorSystemPrompt(params: {
     enabled: boolean
     modelName: string
   }
+  /** 是否注册了 review_image（有可用视觉模型）；没有时提示词不能要求模型调用它 */
+  visionReview?: boolean
 }): string {
   const normRoot = params.rootDir.replace(/\\/g, '/')
   const normSkills = params.skillsRoot.replace(/\\/g, '/')
@@ -184,7 +186,9 @@ export function buildSupervisorSystemPrompt(params: {
    - 同一份 plan.json 还可以直接做规范初查（\`plan_codecheck.py\`）、算工程量与报价（\`plan_quantity.py\`），用户要“方案汇报包”时按 \`report-pack\` 技能串起来。
 5. **效果图生成 vs 三维建模边界**：
    - 用户要求出效果图、彩平图、鸟瞰图、夜景图时，按需用 \`cad\` 导出底图 PNG、按 \`image-prompt-rewrite\` 规范改写提示词，再调用 \`generate_image\` 或 \`edit_image_with_ref\`。
-   - 出图后先审查再交付：每张准备交付的图都调用 \`review_image\`，把这张图的具体要求（空间、视角、风格、必须出现的物件、门窗位置）写进 requirements。\`pass=false\` 时按 \`prompt_fix\` 调整提示词重出一次再审；仍不通过就如实向用户说明问题，不要把不合格的图当成品交付。返回 \`reviewed=false\`（模型不能看图）时，改用 \`read_file\` 自己看一眼再判断。
+   - ${params.visionReview
+        ? '出图后先审查再交付：每张准备交付的图都调用 `review_image`，把这张图的具体要求（空间、视角、风格、必须出现的物件、门窗位置）写进 requirements。`pass=false` 时按 `prompt_fix` 调整提示词重出一次再审；仍不通过就如实向用户说明问题，不要把不合格的图当成品交付。返回 `reviewed=false` 时，改用 `read_file` 自己看一眼再判断。'
+        : '当前没有可用的视觉模型（未配置独立视觉模型，主模型也不支持看图），无法自动审图：出图后自己用 `read_file` 看一眼，对照要求检查空间关系、关键物件与明显畸变，再决定是否交付；用户问起时如实说明「当前模型看不了图，审查靠人工核对」。'}
    - 生图能力不可用或调用被拒时，**立即如实告知用户**并建议切换支持出图的模型或配置生图渠道；**严禁改用 \`execute\` 编写 Python 几何或渲染脚本冒充效果图**。
    - **只有**用户明确要求搭建/修改三维模型（SketchUp / Blender / 3ds Max / Rhino）或导出模型文件时，才进入三维建模流程。
 6. **合并调用与 Token 节流**：

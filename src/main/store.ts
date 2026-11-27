@@ -26,6 +26,7 @@ import type {
   RuntimeOutbound,
   SceneParam,
   TodoItem,
+  VisionConfig,
   WebSearchConfig,
   WriteTodosToolData
 } from '@shared/protocol'
@@ -233,6 +234,13 @@ export class LocalAppStore {
       provider: 'duckduckgo',
       apiKey: ''
     }
+    const defaultVision: VisionConfig = {
+      enabled: false,
+      protocol: 'openai',
+      baseUrl: '',
+      apiKey: '',
+      model: ''
+    }
     // 启动时不再预置未填写 Key 的默认模型模板，仅保留通过环境变量显式配置的内置渠道
     const builtinTemplateIds = new Set([
       'deepseek-default',
@@ -293,6 +301,7 @@ export class LocalAppStore {
       regulation: defaultRegulation,
       inspiration: defaultInspiration,
       webSearch: defaultWebSearch,
+      vision: defaultVision,
       profiles: envProfiles
     }
     const savedRaw = readJsonSafe<ModelSettingsState | null>(this.modelSettingsPath(), null)

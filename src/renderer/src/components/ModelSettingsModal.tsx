@@ -4,6 +4,7 @@ import { ImageGenTab } from './settings/ImageGenTab'
 import { CcSwitchImportDialog } from './settings/CcSwitchImportDialog'
 import { RegulationTab } from './settings/RegulationTab'
 import { WebSearchTab } from './settings/WebSearchTab'
+import { VisionTab } from './settings/VisionTab'
 import { DesktopTab } from './settings/DesktopTab'
 import type { ImageProbeState, ProbeResultState } from './settings/types'
 import {
@@ -63,7 +64,7 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
 }) => {
   const recognizedCandidates = useWorkspaceStore((s) => s.ccSwitchCandidates)
   const refreshRecognizedCandidates = useWorkspaceStore((s) => s.refreshCcSwitchCandidates)
-  const [tab, setTab] = useState<'llm' | 'image' | 'regulation' | 'web' | 'desktop'>('llm')
+  const [tab, setTab] = useState<'llm' | 'image' | 'vision' | 'regulation' | 'web' | 'desktop'>('llm')
   const [draft, setDraft] = useState<ModelSettingsState | null>(null)
   const [genDraft, setGenDraft] = useState<AppGeneralSettings>({
     closeToTray: false,
@@ -637,6 +638,17 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => setTab('vision')}
+              className={clsx(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors',
+                tab === 'vision' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'
+              )}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>视觉模型（审图）</span>
+            </button>
+            <button
+              type="button"
               onClick={() => setTab('regulation')}
               className={clsx(
                 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors',
@@ -727,6 +739,8 @@ export const ModelSettingsModal: React.FC<ModelSettingsModalProps> = ({
             onDownloadClipModel={() => void handleDownloadClipModel()}
             onRebuildIndex={() => void handleRebuildInspirationIndex()}
           />
+        ) : tab === 'vision' ? (
+          <VisionTab draft={draft} setDraft={setDraft} />
         ) : tab === 'web' ? (
           <WebSearchTab draft={draft} setDraft={setDraft} />
         ) : (
