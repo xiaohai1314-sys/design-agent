@@ -182,6 +182,36 @@ npm run dist:win
 
 `electron-builder.yml` 会把 `resources/skills`、`presets`、`regulations`、`mcp`、`runtime` 作为 extraResources 打进安装包。安装包只供自己的机器使用；如果打算给别人，请先阅读 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)：部分内置技能与依赖的许可证限制再分发。
 
+## 发版与自动更新
+
+安装包由 GitHub Actions 构建并发布到本仓库的 Release，客户端从 Release 上的 `latest.yml` 检查新版本。
+
+### 发一次版
+
+```bash
+# 1. 改 package.json 的 version（必须与 tag 一致，CI 会校验）
+npm version 1.0.1 --no-git-tag-version
+git commit -am "chore: 1.0.1"
+git tag v1.0.1
+git push origin main --tags
+```
+
+打 tag 后 `.github/workflows/release.yml` 会自动：拉运行资源 → 编译原生组件 → 构建 → 打包 → 上传安装包、`latest.yml` 和 `.blockmap` 到 Release。整个过程约 30–60 分钟，产物约 540 MB。
+
+CI 需要两个配置：
+
+- **Secret `RESOURCES_TOKEN`**：只读的 Fine-grained token，授权 `design-agent-resources` 仓库的 Contents（Read-only），供 `fetch:resources` 拉取那 900 MB 运行资源。仓库自带的 `GITHUB_TOKEN` 跨不到另一个仓库。
+- **`g++`**：`reg-indexer.exe` 的 C++ 部分要编译，workflow 用 MSYS2 的 mingw64 提供。
+
+### 自动更新行为
+
+- 启动 15 秒后自动检查一次，失败不弹错（用户没主动要）
+- 发现新版本时顶部出现提示条，**用户点「下载」才开始**，不会后台偷拉几百 MB
+- 下载完成后提示「立即重启」，点一下退出并安装；不点则下次退出时自动安装
+- 设置 → 桌面与通知里可以手动「检查更新」，并显示当前版本
+
+首次安装必须手动下载安装包；从第二个版本起才会走自动更新。安装包未做代码签名，首次安装时 Windows SmartScreen 会拦一下，选「更多信息 → 仍要运行」即可；自动更新本身不依赖签名。
+
 ## 许可证
 
 本项目为个人自用，未声明许可证。第三方组件的许可情况见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。

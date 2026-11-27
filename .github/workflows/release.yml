@@ -1,0 +1,115 @@
+name: Release
+
+# 打 tag 触发：package.json 的 version 必须与 tag 一致，产物直接发到 Release，
+# 客户端靠同一次上传的 latest.yml 做自动更新。
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: NuGet 缓存
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('tools/RegIndexerCs/RegIndexerCs.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # Electron 本体和 electron-builder 的 NSIS / winCodeSign 工具包，每次构建都要重新下载
+      - name: Electron 工具链缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: electron-${{ runner.os }}-
+
+      # reg-indexer.exe 的 C++ 部分需要 g++；MSYS2 的 mingw64 自带，下面加进 PATH
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc
+
+      - name: 把 g++ 加进 PATH
+        shell: bash
+        run: echo "${{ steps.msys2.outputs.msys2-location }}/mingw64/bin" >> $GITHUB_PATH
+
+      - name: 校验 tag 与 package.json 版本一致
+        shell: bash
+        run: |
+          v=$(node -p "require('./package.json').version")
+          echo "package.json=$v  tag=$GITHUB_REF_NAME"
+          if [ "v$v" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME 与 package.json 的 $v 不一致，先改版本再打 tag"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      - name: 读取资源包哈希
+        id: bundle
+        shell: bash
+        run: echo "sha=$(node -p "require('./resources-bundle.json').sha256")" >> $GITHUB_OUTPUT
+
+      # 资源包 322 MB，按哈希做 key：换了包就换 key，不会命中旧包
+      - name: 运行资源包缓存
+        uses: actions/cache@v4
+        with:
+          path: dist-resources
+          key: resources-${{ steps.bundle.outputs.sha }}
+
+      # 运行资源不在 Git 里（~900 MB），从私有仓库的 Release 拉，带逐文件校验
+      - name: 拉取运行资源
+        env:
+          GH_TOKEN: ${{ secrets.RESOURCES_TOKEN }}
+          RESOURCES_KEEP_BUNDLE: '1'
+        run: npm run fetch:resources
+
+      - name: 检查资源完整性
+        run: npm run check:resources
+
+      - name: 编译原生组件
+        run: npm run build:runtime
+
+      - name: 构建应用
+        run: npm run build
+
+      - name: 打包并发布到 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --config electron-builder.yml --publish always
+
+      - name: 保留产物（构建失败时排查用）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-debug
+          path: |
+            dist/*.yml
+            dist/*.log
+          if-no-files-found: ignore

@@ -172,7 +172,12 @@ if (res.status !== 0) {
   console.error(`tar 解压失败（退出码 ${res.status}）。资源包留在 ${tmpFile}，处理好后重跑不会再下载。`)
   process.exit(res.status ?? 1)
 }
-rmSync(tmpFile, { force: true })
+// CI 里设 RESOURCES_KEEP_BUNDLE=1 把包留着：下次跑能直接命中缓存，不用重下几百 MB
+if (process.env.RESOURCES_KEEP_BUNDLE) {
+  console.log(`保留资源包：${tmpFile}`)
+} else {
+  rmSync(tmpFile, { force: true })
+}
 
 // 清单在包里，解压后才拿得到；它记录每个文件的 sha256
 const manifestFile = join(staging, MANIFEST_PATH)
