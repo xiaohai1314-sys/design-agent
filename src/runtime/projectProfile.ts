@@ -178,6 +178,7 @@ export function importPlanIntoProfile(
 ): { profile: ProjectProfile; summary: string } {
   const plan = JSON.parse(readFileSync(planPath, 'utf8')) as {
     schema?: string
+    building_type?: string
     storey?: { height?: number }
     rooms?: Array<{ id: string; name: string; area_m2: number }>
     summary?: { room_area_m2?: number }
@@ -203,7 +204,9 @@ export function importPlanIntoProfile(
     rooms,
     plan_file: planPath,
     total_area_m2: plan.summary?.room_area_m2 ?? base.total_area_m2,
-    storey_height_mm: plan.storey?.height ?? base.storey_height_mm
+    storey_height_mm: plan.storey?.height ?? base.storey_height_mm,
+    // 平面里带了建筑类型（plan_extract --building-type）就记下来；档案里已有的不覆盖，以用户设定为准
+    building_type: base.building_type ?? plan.building_type
   }
   const summary = `已从 plan.json 同步 ${plan.rooms?.length ?? 0} 个房间，套内合计 ${profile.total_area_m2 ?? '?'} ㎡，层高 ${profile.storey_height_mm ?? '?'} mm`
   return { profile, summary }

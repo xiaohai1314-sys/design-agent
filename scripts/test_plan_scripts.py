@@ -561,6 +561,13 @@ def test_room_regions():
     check("L 形轮廓是 6 个顶点", len(poly), 6)
     check("L 形包围盒会比实际大（对照）", round((max(p[0] for p in poly) - min(p[0] for p in poly)) * (max(p[1] for p in poly) - min(p[1] for p in poly)) / 1e6, 2), 33.64)
 
+    # 内墙在 1525（不是格子大小的整数倍）：轮廓要贴到墙面 1425，不能停在栅格边 1450
+    offset = [hwall(0, 0, 4000), hwall(3000, 0, 4000), vwall(0, 0, 3000), vwall(4000, 0, 3000), hwall(1525, 0, 4000)]
+    rooms5 = plan_core.rooms_from_labels([{"text": "卧室", "anchor": (2000, 700), "height": 300, "layer": "ROOM"}], offset, plan_core.DEFAULTS)
+    snapped = rooms5[0]["polygon"]
+    check("轮廓贴到墙面：上边正好在 1425", max(p[1] for p in snapped), 1425, tol=0.5)
+    check("贴墙后的面积 3800×1325", round(plan_core.polygon_area(snapped) / 1e6, 3), 5.035, tol=0.01)
+
 
 def test_codecheck_low_coverage():
     section("规范初查：房间只占外包面积一半以下时不判定")

@@ -821,3 +821,22 @@
 - SketchUp 本机没有，`plan_builder.rb` 的改动没实际执行过；核对逻辑用合成数据验证过。
 
 新增测试 test_verify_closed_loop / test_building_levels / test_verify_building / test_columns_and_stairs（28 项，总计 173 项）。
+
+## 建筑类型项目级、轮廓贴墙、plan 工具（2026-11-27）
+
+上一轮复查提的三条都做了。
+
+| 问题 | 处理 |
+|---|---|
+| 建筑类型逐层按房间名猜，三层有会议室就被判成「办公」，同一栋楼各层结论不一致 | 改成项目级设置：`plan_extract --building-type` 写进 plan.json，`plan_building` 写进每一层；初查按「`--building-type` → plan.json 里记的 → 按房间名猜」的顺序取，报告里注明来源。`project_profile` 的 import_plan 也会把平面里的类型记进项目档案（档案里已有的不覆盖） |
+| 房间轮廓沿 50mm 栅格走，离墙面最多差 25mm，SketchUp 里地面和墙内表面差一条缝 | 描完轮廓后把每条边贴到最近的墙面（横边找水平墙、竖边找竖直墙，只在容差 1.5 格内且与墙有实质重叠时贴）。教学楼复测：九个房间面积回到与矩形法完全一致（152.54 / 28.5 / 27.35 / 36.98 / 94.76 / 75.5 / 76.65），说明之前的偏差纯粹来自栅格 |
+| 提取 / 初查 / 算量只能靠 execute 拼命令行 | 新增 `src/runtime/tools/planTools.ts`：`plan_extract` / `plan_building` / `plan_check` / `plan_quantity` 四个工具，参数类型化、路径限定在工作区内、直接返回解析后的 JSON 摘要（超过 24KB 只回路径）。子智能体的 cad-analyzer 角色也能用 |
+
+实测（用 tsx 直接调工具，不经 Electron）：
+- `plan_extract` 教学楼 frame-1 → 21 墙 / 20 门 / 22 窗 / 44 柱 / 10 房间 866.42㎡；
+- `plan_check` 读 plan.json 里的 education → 正确拒绝，退出码 2，报告写明来源是「plan.json 里记的」；
+- `plan_quantity` 出 JSON → 地面 866.42㎡、墙面 1159.95㎡、踢脚线 429.77m；
+- `plan_building --auto` → 5 层，标高 0/2800/5600/8400/11200。
+
+已知边界不变：各层按外包框左下角对齐；层高是统一值；楼梯只有洞口；SketchUp 仍未实机验证。
+新增测试：轮廓贴墙（内墙在 1525 时贴到 1425）。test:plan 175 项全过。

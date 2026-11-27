@@ -95,6 +95,7 @@ def main():
     parser.add_argument("--level", action="append", default=[], help="层号=图幅，可重复：--level 1=frame-5 --level 2=frame-9")
     parser.add_argument("--auto", action="store_true", help="按图名里的层数自动挑各层平面")
     parser.add_argument("--storey", type=float, help="层高（mm），默认取平面里的 storey.height")
+    parser.add_argument("--building-type", help="建筑类型，写进 building.json 和每一层，规范初查按它选规则库")
     parser.add_argument("--wall-layer", help="墙体图层，透传给 plan_extract")
     parser.add_argument("--room-layer", help="房间轮廓图层，透传给 plan_extract")
     parser.add_argument("--out", help="输出路径，默认 <当前目录>/.design-agent/plans/<图名>.building.json")
@@ -137,6 +138,8 @@ def main():
         storey = args.storey or plans[0][3].get("storey", {}).get("height") or 2800.0
         floors = []
         for level, name, frame, plan in plans:
+            if args.building_type:
+                plan["building_type"] = args.building_type
             floors.append(
                 {
                     "level": level,
@@ -152,6 +155,7 @@ def main():
             "schema": SCHEMA,
             "units": "mm",
             "source": {"file": str(source.resolve()), "levels": [{"level": floor["level"], "frame": floor["frame"]} for floor in floors]},
+            **({"building_type": args.building_type} if args.building_type else {}),
             "storey": {"height": storey},
             "bounds": {"width": width, "depth": depth},
             "floors": floors,

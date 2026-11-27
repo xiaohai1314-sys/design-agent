@@ -95,6 +95,10 @@ def main():
     parser.add_argument("--window-layer", help="窗图层")
     parser.add_argument("--room-layer", help="房间轮廓图层（闭合多段线）")
     parser.add_argument("--column-layer", help="柱图层（闭合轮廓）；不填按名称自动识别（COLUMN / 柱）")
+    parser.add_argument(
+        "--building-type",
+        help="建筑类型（residential / education / office / medical / commercial / industrial / unknown），写进 plan.json，规范初查按它选规则库，不再逐层按房间名猜",
+    )
     parser.add_argument("--text-layer", help="只用这些图层上的文字识别房间名 / 面积；默认用全部文字")
     parser.add_argument("--height", type=float, help="层高（mm），默认 2800")
     parser.add_argument("--door-height", type=float, help="门高（mm），默认 2100")
@@ -215,6 +219,8 @@ def main():
         except ValueError as error:
             raise CadError(str(error)) from error
         plan["warnings"] = list(warnings) + notes + plan["warnings"]
+        if args.building_type:
+            plan["building_type"] = args.building_type
         problems = plan_core.validate_plan(plan)
         if problems:
             plan["warnings"] += ["校验：" + p for p in problems]

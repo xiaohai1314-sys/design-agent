@@ -768,6 +768,7 @@ class RoomRegions:
         self.grid = [0] * (self.cols * self.rows)  # 0 未访问，-1 墙，>0 区域编号
         self.areas, self.touches, self.cells = {}, {}, {}
         self._outlines = {}
+        self.walls = walls
         self._block(walls)
         self._label()
         self.ok = True
@@ -854,12 +855,60 @@ class RoomRegions:
             return None
         if label not in self._outlines:
             self._outlines[label] = {
-                "polygon": self._trace(self.cells[label]),
+                "polygon": self._snap(self._trace(self.cells[label])),
                 "area": self.areas[label],
                 "enclosed": not self.touches[label],
                 "key": label,
             }
         return self._outlines[label]
+
+    def _face(self, value, horizontal, lo, hi, centroid, tolerance):
+        """这条边最近的那面墙内皮：横向边找水平墙，纵向边找竖直墙。"""
+        best = None
+        for wall in self.walls:
+            base = wall["base"]
+            if horizontal and abs(base["d"][0]) < 0.999:
+                continue
+            if not horizontal and abs(base["d"][1]) < 0.999:
+                continue
+            p0, p1 = piece_point(base, wall["t0"]), piece_point(base, wall["t1"])
+            if horizontal:
+                w_lo, w_hi, position = min(p0[0], p1[0]), max(p0[0], p1[0]), p0[1]
+            else:
+                w_lo, w_hi, position = min(p0[1], p1[1]), max(p0[1], p1[1]), p0[0]
+            # 边和墙要真的叠在一起，不能把远处同一条线上的墙拉过来
+            if min(hi, w_hi) - max(lo, w_lo) < self.cell:
+                continue
+            half = wall["thickness"] / 2
+            face = position + half if centroid > position else position - half
+            gap = abs(value - face)
+            if gap <= tolerance and (best is None or gap < best[0]):
+                best = (gap, face)
+        return best[1] if best else None
+
+    def _snap(self, points):
+        """把轮廓的每条边贴到最近的墙面上。
+
+        轮廓沿栅格边描出来，最多差一格（默认 50mm）；不贴的话 SketchUp 里地面和墙内表面
+        会差一条缝，面积也偏 0.3% 左右。
+        """
+        if len(points) < 3 or not self.walls:
+            return points
+        cx = sum(p[0] for p in points) / len(points)
+        cy = sum(p[1] for p in points) / len(points)
+        tolerance = self.cell * 1.5
+        out = [list(p) for p in points]
+        for index, a in enumerate(out):
+            b = out[(index + 1) % len(out)]
+            if abs(a[1] - b[1]) <= 1e-6:
+                face = self._face(a[1], True, min(a[0], b[0]), max(a[0], b[0]), cy, tolerance)
+                if face is not None:
+                    a[1] = b[1] = face
+            elif abs(a[0] - b[0]) <= 1e-6:
+                face = self._face(a[0], False, min(a[1], b[1]), max(a[1], b[1]), cx, tolerance)
+                if face is not None:
+                    a[0] = b[0] = face
+        return [tuple(p) for p in out]
 
     def _trace(self, members):
         cols, rows, grid = self.cols, self.rows, self.grid

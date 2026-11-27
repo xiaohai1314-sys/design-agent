@@ -140,7 +140,7 @@ def check(plan, rules, ceiling_height=None):
     return findings
 
 
-def render_markdown(plan_path, plan, rules, findings, image_name, building_type=None):
+def render_markdown(plan_path, plan, rules, findings, image_name, building_type=None, type_source="按房间名识别"):
     fails = [f for f in findings if f["status"] == "fail"]
     warns = [f for f in findings if f["status"] == "warn"]
     passes = [f for f in findings if f["status"] == "pass"]
@@ -151,7 +151,7 @@ def render_markdown(plan_path, plan, rules, findings, image_name, building_type=
         "",
     ]
     if building_type:
-        lines += [f"> 建筑类型：{pg.building_type_label(building_type)}（按房间名识别，识别错了用 --building-type 指定）。", ""]
+        lines += [f"> 建筑类型：{pg.building_type_label(building_type)}（{type_source}，错了用 --building-type 指定）。", ""]
     lines += [
         f"共 {len(findings)} 项：❌ 不满足 {len(fails)}，⚠️ 需注意 {len(warns)}，✅ 满足 {len(passes)}。",
         "",
@@ -176,10 +176,10 @@ def render_markdown(plan_path, plan, rules, findings, image_name, building_type=
     return "\n".join(lines) + "\n"
 
 
-def render_uncovered(plan_path, plan, rules, building_type, covered_types):
+def render_uncovered(plan_path, plan, rules, building_type, covered_types, type_source="按房间名识别"):
     covered = "、".join(pg.building_type_label(k) for k in covered_types) if covered_types else "未声明"
     example = covered_types[0] if covered_types else "residential"
-    intro = "没能从房间名判断出这份图的建筑类型" if building_type == "unknown" else f"这份图判断为「{pg.building_type_label(building_type)}」"
+    intro = "没能判断出这份图的建筑类型" if building_type == "unknown" else f"这份图是「{pg.building_type_label(building_type)}」（{type_source}）"
     lines = [
         f"# 规范初查：{Path(plan_path).name}",
         "",
@@ -282,21 +282,28 @@ def main():
     stem = plan_path.name.replace(".plan.json", "").replace(".json", "")
     md_path = Path(args.out) if args.out else plan_path.with_name(f"{stem}.codecheck.md")
 
-    building_type = pg.infer_building_type(plan) if args.building_type == "auto" else args.building_type
+    # 建筑类型是项目级设置：优先用命令指定的，其次用 plan.json 里记的（项目档案定的），最后才按房间名猜。
+    # 按房间名逐层猜会出现「三层有会议室就判成办公」这种事，同一栋楼各层结论不一致。
+    if args.building_type != "auto":
+        building_type, type_source = args.building_type, "--building-type 指定"
+    elif plan.get("building_type"):
+        building_type, type_source = str(plan["building_type"]), "plan.json 里记的"
+    else:
+        building_type, type_source = pg.infer_building_type(plan), "按房间名识别"
     covered_types = rules.get("building_types")
     if covered_types is not None and building_type not in covered_types:
         covered = "、".join(pg.building_type_label(k) for k in covered_types) or "未声明"
         md_path.parent.mkdir(parents=True, exist_ok=True)
-        md_path.write_text(render_uncovered(plan_path, plan, rules, building_type, covered_types), encoding="utf-8")
+        md_path.write_text(render_uncovered(plan_path, plan, rules, building_type, covered_types, type_source), encoding="utf-8")
         md_path.with_suffix(".json").write_text(
-            json.dumps({"rules": rules.get("name"), "building_type": building_type, "covered": False, "findings": []}, ensure_ascii=False, indent=1),
+            json.dumps({"rules": rules.get("name"), "building_type": building_type, "building_type_source": type_source, "covered": False, "findings": []}, ensure_ascii=False, indent=1),
             encoding="utf-8",
         )
         print(f"# 规范初查：{plan_path.name}")
         print(f"- 已写入 {md_path.resolve()}")
-        kind = "没能从房间名判断出建筑类型" if building_type == "unknown" else f"这份图判断为「{pg.building_type_label(building_type)}」"
+        kind = "没能判断出建筑类型" if building_type == "unknown" else f"这份图是「{pg.building_type_label(building_type)}」（{type_source}）"
         print(f"- {kind}，规则库「{rules.get('name', '')}」只适用于{covered}，没有做判定。")
-        print("- 判断错了就用 --building-type 指定；要查这类建筑请准备对应的规则库（报告里写了怎么加）。")
+        print("- 判断错了就用 --building-type 指定，或在项目档案 project.json 里把 building_type 定下来后重新提取。")
         sys.exit(2)
 
     coverage = pg.room_coverage(plan)
@@ -327,7 +334,7 @@ def main():
         except Exception as error:  # 缺少 matplotlib 或字体时不影响清单
             print(f"- 警告：标注图生成失败：{error}")
     md_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.write_text(render_markdown(plan_path, plan, rules, findings, image_name, building_type), encoding="utf-8")
+    md_path.write_text(render_markdown(plan_path, plan, rules, findings, image_name, building_type, type_source), encoding="utf-8")
     md_path.with_suffix(".json").write_text(
         json.dumps({"rules": rules.get("name"), "building_type": building_type, "covered": True, "findings": findings}, ensure_ascii=False, indent=1),
         encoding="utf-8",
@@ -337,7 +344,7 @@ def main():
     warns = [f for f in findings if f["status"] == "warn"]
     print(f"# 规范初查：{plan_path.name}")
     print(f"- 已写入 {md_path.resolve()}" + (f"，标注图 {image_path.resolve()}" if image_name else ""))
-    print(f"- 建筑类型：{pg.building_type_label(building_type)}（按房间名识别，识别错了用 --building-type 指定）")
+    print(f"- 建筑类型：{pg.building_type_label(building_type)}（{type_source}，错了用 --building-type 指定）")
     print(f"- 共 {len(findings)} 项：不满足 {len(fails)}，需注意 {len(warns)}，满足 {len(findings) - len(fails) - len(warns)}")
     for f in fails + warns:
         print(f"- {'❌' if f['status'] == 'fail' else '⚠️'} {f['item']}｜{f['location']}｜{f['detail']}｜{f['clause']}")

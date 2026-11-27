@@ -39,6 +39,7 @@ import { createAskUserTool, formatAnswersForModel } from './tools/askUser'
 import { createWorkspaceTools } from './tools/workspaceTools'
 import { createImageTools, hasImageGenCapability, profileSeesImages, resolveVisionProfile, subagentModelProfile } from './tools/imageTools'
 import { createLocalRegulationTool } from './tools/regulationTool'
+import { createPlanTools } from './tools/planTools'
 import { createSearchInspirationTool } from './tools/inspirationTool'
 import { createWebSearchTool } from './tools/webSearchTool'
 import { createPptWorkbenchTool } from './tools/pptWorkbenchTool'
@@ -1407,6 +1408,12 @@ async function executeTurn(
     })
 
     const projectProfileTool = createProjectProfileTool({ profilePath: projectProfileFile, rootDir })
+    const planTools = createPlanTools({
+      rootDir,
+      pythonExe,
+      skillsRoot,
+      signal: abortController.signal
+    })
     const imageReviewTool = visionProfile
       ? createImageReviewTool({
           rootDir,
@@ -1453,6 +1460,7 @@ async function executeTurn(
     // 子智能体能力对齐原版 SubagentMcpScope + SubagentSkills：透传 MCP 工具、规范检索与联网检索
     const subagentAllTools: DynamicStructuredTool[] = [
       ...subWorkspaceTools,
+      ...planTools,
       regulationTool,
       inspirationTool,
       ...(webSearchTool ? [webSearchTool] : []),
@@ -1560,6 +1568,7 @@ async function executeTurn(
       ...(pptWorkbenchTool ? [pptWorkbenchTool] : []),
       deliverTool,
       projectProfileTool,
+      ...planTools,
       ...(imageReviewTool ? [imageReviewTool] : []),
       taskSubagentTool,
       ...asyncSub.tools
