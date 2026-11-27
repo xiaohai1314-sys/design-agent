@@ -24,6 +24,8 @@ tools/*/obj/
 Thumbs.db
 .design-agent-reg-index.db*
 dist-resources/
+# 资源包逐文件清单，由 pack:resources 生成，随包分发而非入库
+resources/.resources-manifest.json
 
 # 本地凭据，切勿提交
 gh-token.txt

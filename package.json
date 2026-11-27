@@ -12,6 +12,8 @@
     "test:runtime": "tsx --tsconfig tsconfig.node.json scripts/verify-runtime.ts",
     "test:plan": "node scripts/run-plan-tests.mjs",
     "check:resources": "node scripts/check-resources.mjs",
+    "verify:resources": "node scripts/check-resources.mjs --verify",
+    "test:resources": "node scripts/test-resources.mjs",
     "pack:resources": "node scripts/pack-resources.mjs",
     "fetch:resources": "node scripts/fetch-resources.mjs",
     "build:runtime": "node scripts/build-runtime.mjs",

@@ -68,7 +68,9 @@ API Key 保存在用户数据目录的 `model-settings.json` 中，系统支持�
 | `npm run typecheck` | 主进程与界面两套 TypeScript 类型检查 |
 | `npm run test:runtime` | 端到端测试（需先 `npm run build`，测试会启动 `out/main/runtime.js`） |
 | `npm run test:plan` | 平面脚本基准测试（算量、规范初查、图纸提取的具体数值） |
+| `npm run test:resources` | 资源包清单与写入回滚的测试 |
 | `npm run check:resources` | 检查 `resources/` 下的内置运行资源 |
+| `npm run verify:resources` | 按清单逐文件核对运行资源的 sha256 |
 | `npm run pack:resources` | 把内置运行资源打成 `dist-resources/*.tar.gz` |
 | `npm run fetch:resources` | 从 `resources-bundle.json` 配置的地址下载并解压运行资源 |
 | `npm run build:runtime` | 从源码编译 `reg-indexer.exe` 与 `design_native.dll`（需要 .NET SDK 10 与 g++） |
@@ -107,7 +109,19 @@ npm run pack:resources
 # 3. 在新机器 clone 之后（私有仓库需先在仓库根目录放好 gh-token.txt，见下文）
 npm run fetch:resources
 npm run check:resources   # 应显示 11 项全部就绪
+npm run verify:resources  # 再逐文件核对 sha256
 ```
+
+`pack:resources` 除了压缩包还会生成 `resources/.resources-manifest.json`，记录每个文件的路径、大小和 sha256，并一起打进包里。`fetch:resources` 的流程因此是：
+
+1. 校验整包 sha256（`resources-bundle.json` 里的值）
+2. 解压到 `dist-resources/.staging-*`，**不直接写 `resources/`**
+3. 按包内清单逐个文件核对，缺文件或哈希不符就中止，现有 `resources/` 一个字节都不动
+4. 全部通过后才写入，被覆盖的文件先挪到 `.backup-*`，中途出错整体回滚
+
+下载本身支持断点续传：连接中断会自动重试（最多 5 次），从已收到的字节继续；60 秒收不到数据判定卡死并重连。半截包留在 `dist-resources/.fetch-<地址哈希>.tar.gz`，重跑时直接接着下，不会从头再来；换资源包地址后旧的半截包会被清掉。
+
+所以下载中断、解压中断、包传了一半、文件被替换这几种情况都能拦住。装好之后 `verify:resources` 可以用同一个清单做日常自检。清单文件不进 Git（见 `.gitignore`）。
 
 `resources-bundle.json` 默认指向私有仓库 `xiaohai1314-sys/design-agent-resources` 的 Release 资产。私有仓库不能直接用 `releases/download/` 直链（带令牌也会 404），脚本走的是 API 资产端点 `https://api.github.com/repos/{owner}/{repo}/releases/assets/{id}`，需要令牌：在 <https://github.com/settings/personal-access-tokens/new> 新建 Fine-grained token，只授权 `design-agent-resources` 一个仓库、Repository permissions → Contents 选 **Read-only**，然后把令牌写进仓库根目录的 `gh-token.txt`（只有一行，已被 `.gitignore` 忽略），或用 `GH_TOKEN` 环境变量。重新上传资源包后资产 ID 会变，需要同步更新 `resources-bundle.json` 里的 `url`。
 

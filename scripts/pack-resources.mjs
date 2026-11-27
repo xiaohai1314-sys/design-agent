@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // 把 .gitignore 排除的运行资源打成可分发压缩包，供 fetch:resources 在新机器上还原。
 // 用法：npm run pack:resources
-import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { MANIFEST_PATH, buildManifest, formatBytes, hashFile } from './lib/resources.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -46,7 +46,17 @@ if (present.length === 0) {
 }
 
 console.log(`打包 ${present.length} 个目录（约 ${(bytes / 1024 / 1024).toFixed(0)} MB）…`)
-const res = spawnSync('tar', ['-czf', outRel, ...present], { cwd: root, stdio: 'inherit' })
+
+// 先写清单再打包：清单本身也要进包，解包时才能逐文件核对
+console.log('生成逐文件清单 …')
+const manifest = await buildManifest(root, present, {
+  generatedAt: new Date().toISOString(),
+  version
+})
+writeFileSync(join(root, MANIFEST_PATH), JSON.stringify(manifest, null, 1), 'utf8')
+console.log(`清单：${manifest.fileCount} 个文件，${formatBytes(manifest.bytes)}`)
+
+const res = spawnSync('tar', ['-czf', outRel, ...present, MANIFEST_PATH], { cwd: root, stdio: 'inherit' })
 if (res.error) {
   console.error('调用 tar 失败：', res.error.message)
   process.exit(1)
@@ -58,6 +68,7 @@ const sha256 = await hashFile(outFile)
 console.log(`\n已生成：${outFile}`)
 console.log(`大小：${(size / 1024 / 1024).toFixed(1)} MB`)
 console.log(`sha256：${sha256}`)
+console.log(`清单：${MANIFEST_PATH}（已打进包里，解包时逐文件核对）`)
 console.log('\n下一步：上传到 GitHub Release，再把地址和 sha256 填进 resources-bundle.json')
 
 function dirSize(dir) {
@@ -84,14 +95,4 @@ function dirSize(dir) {
     }
   }
   return total
-}
-
-function hashFile(file) {
-  return new Promise((resolve, reject) => {
-    const h = createHash('sha256')
-    const s = createReadStream(file)
-    s.on('data', (c) => h.update(c))
-    s.on('error', reject)
-    s.on('end', () => resolve(h.digest('hex')))
-  })
 }
